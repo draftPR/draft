@@ -12,9 +12,10 @@ execute_config:
   timeout: 600
 
   # Preferred executor CLI to use
-  # Options: "cursor" (Cursor CLI) or "claude" (Claude Code CLI)
+  # Options: "claude" (Claude Code CLI - recommended) or "cursor" (Cursor CLI - opens editor)
+  # Claude CLI supports headless operation, Cursor CLI opens the editor for manual completion
   # If the preferred executor is not available, the other will be tried as fallback
-  preferred_executor: "cursor"
+  preferred_executor: "claude"
 
 # =============================================================================
 # VERIFICATION CONFIGURATION
