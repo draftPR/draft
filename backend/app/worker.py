@@ -453,9 +453,10 @@ def execute_ticket_task(self, job_id: str) -> dict:
         write_log(log_path, "Job canceled, stopping execution.")
         raise Ignore()
 
-    # Load configuration
-    config_service = ConfigService(worktree_path.parent.parent if worktree_path else None)
-    execute_config = config_service.get_execute_config()
+    # Load configuration from the worktree (where smartkanban.yaml should be)
+    # Disable cache to ensure we get the latest config
+    config_service = ConfigService(worktree_path)
+    execute_config = config_service.load_config(use_cache=False).execute_config
     write_log(log_path, f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}")
 
     # Detect available executor CLI
@@ -495,8 +496,18 @@ def execute_ticket_task(self, job_id: str) -> dict:
     # Run the executor CLI
     write_log(log_path, f"Invoking executor CLI: {executor_info.executor_type.value}...")
     executor_evidence_id = str(uuid.uuid4())
-    executor_command = executor_info.get_apply_command(prompt_file)
-    write_log(log_path, f"Command: {' '.join(executor_command)}")
+
+    # Check if executor supports headless operation
+    if not executor_info.supports_headless():
+        write_log(log_path, f"WARNING: {executor_info.executor_type.value} CLI does not support headless operation.")
+        write_log(log_path, "Opening the editor. Please complete the changes manually.")
+
+    executor_command = executor_info.get_apply_command(prompt_file, worktree_path)
+    # Log command without the full prompt content (for Claude it's embedded in the args)
+    if executor_info.executor_type.value == "claude":
+        write_log(log_path, f"Command: {executor_command[0]} --print --dangerously-skip-permissions <prompt>")
+    else:
+        write_log(log_path, f"Command: {' '.join(executor_command)}")
 
     executor_exit_code, executor_stdout_path, executor_stderr_path = run_executor_cli(
         command=executor_command,
@@ -654,9 +665,10 @@ def verify_ticket_task(self, job_id: str) -> dict:
         write_log(log_path, "Job canceled, stopping execution.")
         raise Ignore()
 
-    # Load configuration
-    config_service = ConfigService(worktree_path.parent.parent if worktree_path else None)
-    config = config_service.load_config()
+    # Load configuration from the worktree (where smartkanban.yaml should be)
+    # Disable cache to ensure we get the latest config
+    config_service = ConfigService(worktree_path)
+    config = config_service.load_config(use_cache=False)
     verify_commands = config.verify_commands
     auto_transition = config.auto_transition_on_success
 

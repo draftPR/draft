@@ -1,4 +1,4 @@
-"""Service for executing code changes using CLI tools (Cursor CLI or Claude Code CLI)."""
+"""Service for executing code changes using CLI tools (Claude Code CLI or Cursor CLI)."""
 
 import shutil
 from dataclasses import dataclass
@@ -12,8 +12,8 @@ from app.exceptions import ExecutorNotFoundError
 class ExecutorType(str, Enum):
     """Supported executor CLI types."""
 
-    CURSOR = "cursor"
     CLAUDE = "claude"
+    CURSOR = "cursor"
 
 
 @dataclass
@@ -24,33 +24,50 @@ class ExecutorInfo:
     command: str
     path: str
 
-    def get_apply_command(self, prompt_file: Path) -> list[str]:
+    def get_apply_command(self, prompt_file: Path, worktree_path: Path) -> list[str]:
         """
         Get the command to run for applying changes.
 
         Args:
             prompt_file: Path to the prompt bundle file.
+            worktree_path: Path to the worktree directory.
 
         Returns:
             List of command arguments.
         """
-        if self.executor_type == ExecutorType.CURSOR:
-            # Cursor CLI uses: cursor --apply <prompt_file>
-            return [self.command, "--apply", str(prompt_file)]
-        elif self.executor_type == ExecutorType.CLAUDE:
-            # Claude Code CLI uses: claude <prompt_file>
-            return [self.command, str(prompt_file)]
+        if self.executor_type == ExecutorType.CLAUDE:
+            # Claude Code CLI with non-interactive mode:
+            # - --print: Non-interactive mode that prints response and exits
+            # - --dangerously-skip-permissions: Skip permission prompts (safe in isolated worktree)
+            # - Read the prompt from the file
+            prompt_content = prompt_file.read_text()
+            return [
+                self.command,
+                "--print",
+                "--dangerously-skip-permissions",
+                prompt_content,
+            ]
+        elif self.executor_type == ExecutorType.CURSOR:
+            # Cursor CLI doesn't support headless code generation
+            # Opening the editor with the worktree and a marker file
+            # Note: This is a fallback - Cursor requires interactive use
+            return [self.command, str(worktree_path)]
         else:
             raise ValueError(f"Unknown executor type: {self.executor_type}")
+
+    def supports_headless(self) -> bool:
+        """Check if this executor supports headless (non-interactive) operation."""
+        return self.executor_type == ExecutorType.CLAUDE
 
 
 class ExecutorService:
     """Service for detecting and using code executor CLIs."""
 
     # CLI names to check in order of preference
+    # Claude is preferred because it supports headless operation
     CLI_PREFERENCES = [
-        (ExecutorType.CURSOR, "cursor"),
         (ExecutorType.CLAUDE, "claude"),
+        (ExecutorType.CURSOR, "cursor"),
     ]
 
     @classmethod
@@ -93,8 +110,8 @@ class ExecutorService:
         raise ExecutorNotFoundError(
             "No supported code executor CLI found. "
             "Please install one of the following:\n"
-            "  - Cursor CLI: https://docs.cursor.com/cli\n"
-            "  - Claude Code CLI: https://docs.anthropic.com/claude-code-cli"
+            "  - Claude Code CLI (recommended): https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview\n"
+            "  - Cursor CLI (fallback, opens editor): https://docs.cursor.com/cli"
         )
 
     @classmethod

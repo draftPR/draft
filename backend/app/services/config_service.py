@@ -13,14 +13,14 @@ class ExecuteConfig:
     """Configuration for execute jobs."""
 
     timeout: int = 600  # seconds (default 10 minutes)
-    preferred_executor: str = "cursor"  # "cursor" or "claude"
+    preferred_executor: str = "claude"  # "claude" (headless) or "cursor" (opens editor)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ExecuteConfig":
         """Create a config instance from a dictionary."""
         return cls(
             timeout=data.get("timeout", 600),
-            preferred_executor=data.get("preferred_executor", "cursor"),
+            preferred_executor=data.get("preferred_executor", "claude"),
         )
 
 
