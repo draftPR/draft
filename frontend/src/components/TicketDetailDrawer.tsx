@@ -128,7 +128,13 @@ export function TicketDetailDrawer({
               <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase">
                 State
               </h3>
-              <p className="text-[13px] text-foreground">{STATE_DISPLAY_NAMES[ticket.state]}</p>
+              <p className="text-[13px] text-foreground">
+                {STATE_DISPLAY_NAMES[ticket.state]}
+                {/* Clarify that Verified doesn't mean merged */}
+                {ticket.state === "done" && (
+                  <span className="text-muted-foreground text-[11px] ml-1">(unmerged)</span>
+                )}
+              </p>
             </div>
             <div className="space-y-3">
               <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase">

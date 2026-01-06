@@ -1,5 +1,6 @@
 """Service layer for Job operations."""
 
+import os
 from pathlib import Path
 
 from sqlalchemy import select
@@ -14,6 +15,53 @@ from app.services.workspace_service import WorkspaceService
 
 # Base directory for fallback logs (relative to backend directory)
 FALLBACK_LOGS_DIR = Path(__file__).parent.parent.parent / "logs"
+
+# Maximum log file size to read (2MB)
+MAX_LOG_BYTES = 2_000_000
+
+
+def _safe_read_file(base_path: Path, allowed_root: Path, relpath: str) -> str | None:
+    """Safely read a file, enforcing it is under allowed_root.
+
+    Args:
+        base_path: Base path to prepend to relpath
+        allowed_root: Root directory that file must be under
+        relpath: Relative path to the file
+
+    Returns:
+        File content if safe and exists, None otherwise
+    """
+    rel = Path(relpath)
+
+    # Reject absolute paths
+    if rel.is_absolute():
+        return None
+
+    # Resolve paths to canonical form
+    allowed_canonical = allowed_root.resolve(strict=False)
+    target = (base_path / rel).resolve(strict=False)
+
+    # Enforce target is under allowed_root
+    try:
+        common = os.path.commonpath([str(target), str(allowed_canonical)])
+    except ValueError:
+        return None
+
+    if common != str(allowed_canonical):
+        return None
+
+    if not target.is_file():
+        return None
+
+    try:
+        size = target.stat().st_size
+        if size > MAX_LOG_BYTES:
+            with target.open("rb") as f:
+                data = f.read(MAX_LOG_BYTES)
+            return data.decode("utf-8", errors="replace") + "\n\n[truncated]"
+        return target.read_text(encoding="utf-8", errors="replace")
+    except (OSError, IOError):
+        return None
 
 
 class JobService:
@@ -162,6 +210,12 @@ class JobService:
         """
         Read the log content for a job.
 
+        Security:
+            - Only reads files under <repo_root>/.smartkanban/ or backend/logs/
+            - Rejects absolute paths
+            - Validates canonical path is under allowed directory
+            - Caps file size to prevent memory exhaustion
+
         Args:
             log_path: The relative path to the log file
 
@@ -171,22 +225,14 @@ class JobService:
         if not log_path:
             return None
 
-        # Try repo root first (for worktree logs)
+        # Try repo root first (for worktree logs under .smartkanban/)
         repo_path = WorkspaceService.get_repo_path()
-        full_path = repo_path / log_path
+        smartkanban_root = repo_path / ".smartkanban"
+        content = _safe_read_file(repo_path, smartkanban_root, log_path)
+        if content is not None:
+            return content
 
-        if full_path.exists():
-            try:
-                return full_path.read_text()
-            except OSError:
-                pass
-
-        # Fall back to backend directory (for legacy logs)
-        backend_path = Path(__file__).parent.parent.parent / log_path
-        if backend_path.exists():
-            try:
-                return backend_path.read_text()
-            except OSError:
-                pass
-
-        return None
+        # Fall back to backend/logs/ directory (for legacy fallback logs)
+        backend_root = Path(__file__).parent.parent.parent
+        content = _safe_read_file(backend_root, FALLBACK_LOGS_DIR, log_path)
+        return content

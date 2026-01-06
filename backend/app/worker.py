@@ -390,6 +390,7 @@ def run_executor_cli(
     cwd: Path,
     evidence_dir: Path,
     evidence_id: str,
+    repo_root: Path,
     timeout: int = 600,
 ) -> tuple[int, str, str]:
     """
@@ -400,10 +401,11 @@ def run_executor_cli(
         cwd: Working directory for the command
         evidence_dir: Directory to store stdout/stderr files
         evidence_id: UUID for naming evidence files
+        repo_root: Path to repo root (for computing relative paths)
         timeout: Command timeout in seconds
 
     Returns:
-        Tuple of (exit_code, stdout_path, stderr_path)
+        Tuple of (exit_code, stdout_relpath, stderr_relpath) - paths are relative to repo_root
     """
     stdout_path = evidence_dir / f"{evidence_id}.stdout"
     stderr_path = evidence_dir / f"{evidence_id}.stderr"
@@ -421,29 +423,39 @@ def run_executor_cli(
         stdout_path.write_text(result.stdout or "")
         stderr_path.write_text(result.stderr or "")
 
-        return result.returncode, str(stdout_path), str(stderr_path)
+        # Return relative paths for secure DB storage
+        stdout_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
+        return result.returncode, stdout_rel, stderr_rel
 
     except subprocess.TimeoutExpired as e:
         # Write partial output if available
         stdout_path.write_text(e.stdout.decode() if e.stdout else f"Command timed out after {timeout} seconds")
         stderr_path.write_text(e.stderr.decode() if e.stderr else "")
-        return -1, str(stdout_path), str(stderr_path)
+        stdout_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
+        return -1, stdout_rel, stderr_rel
 
     except FileNotFoundError as e:
         stdout_path.write_text("")
         stderr_path.write_text(f"Executor CLI not found: {str(e)}")
-        return -1, str(stdout_path), str(stderr_path)
+        stdout_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
+        return -1, stdout_rel, stderr_rel
 
     except Exception as e:
         stdout_path.write_text("")
         stderr_path.write_text(f"Error running executor CLI: {str(e)}")
-        return -1, str(stdout_path), str(stderr_path)
+        stdout_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
+        return -1, stdout_rel, stderr_rel
 
 
 def capture_git_diff(
     cwd: Path,
     evidence_dir: Path,
     evidence_id: str,
+    repo_root: Path,
 ) -> tuple[int, str, str, str, bool]:
     """
     Capture git diff output for changes made in the worktree.
@@ -452,10 +464,12 @@ def capture_git_diff(
         cwd: Working directory (worktree path)
         evidence_dir: Directory to store diff files
         evidence_id: UUID for naming evidence files
+        repo_root: Path to repo root (for computing relative paths)
 
     Returns:
-        Tuple of (exit_code, diff_stat_path, diff_patch_path, diff_stat_text, has_changes)
+        Tuple of (exit_code, diff_stat_relpath, diff_patch_relpath, diff_stat_text, has_changes)
         has_changes is True if there are uncommitted changes in the worktree.
+        Paths are relative to repo_root.
     """
     diff_stat_path = evidence_dir / f"{evidence_id}.diff_stat"
     diff_patch_path = evidence_dir / f"{evidence_id}.diff_patch"
@@ -498,19 +512,26 @@ def capture_git_diff(
             combined_stderr += f"git diff stderr:\n{patch_result.stderr}\n"
         stderr_path.write_text(combined_stderr)
 
-        return 0, str(diff_stat_path), str(diff_patch_path), diff_stat or "(no changes)", has_changes
+        # Return relative paths for secure DB storage
+        diff_stat_rel = str(diff_stat_path.relative_to(repo_root))
+        diff_patch_rel = str(diff_patch_path.relative_to(repo_root))
+        return 0, diff_stat_rel, diff_patch_rel, diff_stat or "(no changes)", has_changes
 
     except subprocess.TimeoutExpired:
         diff_stat_path.write_text("Git diff timed out")
         diff_patch_path.write_text("")
         stderr_path.write_text("Git diff command timed out after 60 seconds")
-        return -1, str(diff_stat_path), str(diff_patch_path), "(timeout)", False
+        diff_stat_rel = str(diff_stat_path.relative_to(repo_root))
+        diff_patch_rel = str(diff_patch_path.relative_to(repo_root))
+        return -1, diff_stat_rel, diff_patch_rel, "(timeout)", False
 
     except Exception as e:
         diff_stat_path.write_text("")
         diff_patch_path.write_text("")
         stderr_path.write_text(f"Error running git diff: {str(e)}")
-        return -1, str(diff_stat_path), str(diff_patch_path), "(error)", False
+        diff_stat_rel = str(diff_stat_path.relative_to(repo_root))
+        diff_patch_rel = str(diff_patch_path.relative_to(repo_root))
+        return -1, diff_stat_rel, diff_patch_rel, "(error)", False
 
 
 @celery_app.task(bind=True, name="execute_ticket")
@@ -754,6 +775,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
         cwd=worktree_path,
         evidence_dir=evidence_dir,
         evidence_id=executor_evidence_id,
+        repo_root=main_repo_path,
         timeout=execute_config.timeout,
     )
 
@@ -773,12 +795,14 @@ def execute_ticket_task(self, job_id: str) -> dict:
     }
     executor_meta_path = evidence_dir / f"{executor_meta_id}.meta.json"
     executor_meta_path.write_text(json.dumps(executor_meta, indent=2))
+    # Store relative path for secure DB storage
+    executor_meta_relpath = str(executor_meta_path.relative_to(main_repo_path))
     create_evidence_record(
         ticket_id=ticket_id,
         job_id=job_id,
         command="executor_metadata",
         exit_code=executor_exit_code,
-        stdout_path=str(executor_meta_path),
+        stdout_path=executor_meta_relpath,
         stderr_path="",
         evidence_id=executor_meta_id,
         kind=EvidenceKind.EXECUTOR_META,
@@ -820,6 +844,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
         cwd=worktree_path,
         evidence_dir=evidence_dir,
         evidence_id=diff_stat_evidence_id,  # Used for both files with different extensions
+        repo_root=main_repo_path,
     )
 
     # Create typed evidence records for git diff
