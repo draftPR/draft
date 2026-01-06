@@ -201,6 +201,48 @@ async def verify_ticket(
     )
 
 
+@router.post(
+    "/{ticket_id}/resume",
+    response_model=JobCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Resume an interactive ticket after human completion",
+)
+async def resume_ticket(
+    ticket_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> JobCreateResponse:
+    """
+    Resume an interactive ticket after human completion.
+
+    Use this endpoint when:
+    1. A ticket was transitioned to 'needs_human' by an interactive executor (Cursor)
+    2. The human has made their changes in the worktree
+    3. The human wants to continue the workflow
+
+    This endpoint:
+    1. Creates a 'resume' job that captures the git diff as evidence
+    2. Transitions the ticket to 'verifying' state
+    3. Queues a verification job
+
+    The resume job will fail if the ticket is not in 'needs_human' state.
+    """
+    service = JobService(db)
+    job = await service.create_job(ticket_id, JobKind.RESUME)
+
+    return JobCreateResponse(
+        id=job.id,
+        ticket_id=job.ticket_id,
+        kind=job.kind_enum,
+        status=job.status_enum,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        exit_code=job.exit_code,
+        log_path=job.log_path,
+        celery_task_id=job.celery_task_id,
+    )
+
+
 @router.get(
     "/{ticket_id}/jobs",
     response_model=JobListResponse,

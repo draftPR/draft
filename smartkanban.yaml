@@ -2,6 +2,14 @@
 # This file configures execution and verification pipelines for Smart Kanban.
 
 # =============================================================================
+# PROJECT CONFIGURATION
+# =============================================================================
+
+project:
+  # Path to the repository root (relative to this config file or absolute)
+  repo_root: "."
+
+# =============================================================================
 # EXECUTION CONFIGURATION
 # =============================================================================
 # Settings for the execute job that implements ticket changes using AI code tools.
@@ -15,24 +23,24 @@
 #   - Headless success with NO diff → blocked (reason: no changes)
 #   - Headless failure → blocked
 #   - Interactive (Cursor) → needs_human immediately
+#   - YOLO refused (empty allowlist) → needs_human with explanation
 
 execute_config:
   # Timeout for executor CLI in seconds (default: 600 = 10 minutes)
-  # Increase for complex tickets that may require more time
   timeout: 600
 
-  # Preferred executor CLI to use
+  # Preferred executor CLI
   # Options:
   #   - "claude": Claude Code CLI (recommended for automation, headless)
   #   - "cursor": Cursor CLI (interactive, opens editor for human)
-  # If preferred is not available, will try the other as fallback
   preferred_executor: "claude"
 
   # ---------------------------------------------------------------------------
   # YOLO MODE - DANGEROUS: Skip permission prompts
   # ---------------------------------------------------------------------------
-  # When enabled, Claude CLI runs with --dangerously-skip-permissions.
-  # This allows the AI to run any command without asking for approval.
+  # When enabled AND allowlist is non-empty, Claude CLI runs with
+  # --dangerously-skip-permissions. This allows the AI to run any command
+  # without asking for approval.
   #
   # ⚠️  SECURITY WARNING ⚠️
   # Only enable this if you understand the risks:
@@ -40,38 +48,49 @@ execute_config:
   #   - Prompt injection attacks could execute malicious code
   #   - Network access, file deletion, etc. are all unrestricted
   #
-  # Safeguards (enforced by worker):
-  #   - Only runs inside isolated worktrees (not main repo)
-  #   - Optional allowlist restricts which repos can use YOLO mode
+  # Safety Policy (enforced by worker):
+  #   - If yolo_mode=true BUT yolo_allowlist is empty → REFUSES to run YOLO
+  #   - Transitions to needs_human with explanation
+  #   - You MUST explicitly list trusted paths in yolo_allowlist
+  #   - Only runs inside isolated worktrees (path validation enforced)
+  #   - Never runs on main/master/develop branches
   #
   # Default: false (permissioned mode - safer)
   yolo_mode: false
 
-  # Optional allowlist for YOLO mode
-  # If yolo_mode is true, this restricts which repos can use it.
-  # Empty list = allow any repo (not recommended)
-  # Example: ["/path/to/trusted/repo1", "/path/to/trusted/repo2"]
-  # yolo_allowlist: []
+  # REQUIRED when yolo_mode=true: list of trusted repo paths
+  # If yolo_mode is true but this is empty, execution REFUSES for safety.
+  # This prevents "I turned on YOLO and forgot" accidents.
+  # Example: ["/Users/me/trusted-repo", "/home/ci/project"]
+  yolo_allowlist: []
 
 # =============================================================================
 # VERIFICATION CONFIGURATION
 # =============================================================================
 # Settings for the verify job that validates ticket implementations.
+#
+# State Transitions:
+#   - All commands pass → on_success state ("done" or "needs_human")
+#   - Any command fails → on_failure state ("blocked")
 
-# Commands to run during ticket verification
-# Each command is executed in the ticket's isolated worktree directory.
-# Commands run sequentially; verification stops on first failure.
-verify_commands:
-  - "echo 'Verification placeholder - configure your actual tests here'"
-  # Examples:
-  # - "pytest tests/"
-  # - "npm run test"
-  # - "make test"
-  # - "cargo test"
-  # - "go test ./..."
+verify_config:
+  # Commands to run during ticket verification
+  # Each command is executed in the ticket's isolated worktree directory.
+  # Commands run sequentially; verification stops on first failure.
+  commands:
+    - "echo 'Verification placeholder - configure your actual tests here'"
+    # Real examples:
+    # - "cd backend && ruff check ."
+    # - "cd backend && python -m pytest -q"
+    # - "npm run lint"
+    # - "npm run test"
+    # - "make test"
 
-# Auto-transition behavior when all verification commands succeed
-# - true: Automatically transition ticket to 'done' state
-# - false: Transition ticket to 'needs_human' state for manual review
-auto_transition_on_success: false
+  # Target state when all verification commands succeed
+  # Options:
+  #   - "needs_human": Require human review before marking done (MVP default)
+  #   - "done": Automatically mark as done (use carefully)
+  on_success: "needs_human"
 
+  # Target state when verification fails (currently only "blocked" supported)
+  on_failure: "blocked"

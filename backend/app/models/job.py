@@ -20,6 +20,7 @@ class JobKind(str, Enum):
 
     EXECUTE = "execute"
     VERIFY = "verify"
+    RESUME = "resume"  # Resume after interactive (human) completion
 
 
 class JobStatus(str, Enum):

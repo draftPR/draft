@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 class EvidenceKind(str, Enum):
     """Enum representing the kind of evidence.
 
+    Metadata evidence (JSON in stdout_path):
+    - EXECUTOR_META: JSON with exit_code, duration, executor_type, mode, command
+    - VERIFY_META: JSON with exit_code, commands_run, duration, results per command
+
     Evidence types for execution:
     - EXECUTOR_STDOUT: stdout from executor CLI (Claude/Cursor)
     - EXECUTOR_STDERR: stderr from executor CLI
@@ -32,6 +36,10 @@ class EvidenceKind(str, Enum):
     - COMMAND_LOG: generic command output
     - TEST_REPORT: test framework report
     """
+
+    # Metadata evidence (JSON)
+    EXECUTOR_META = "executor_meta"  # JSON: exit_code, duration_ms, executor_type, mode, command
+    VERIFY_META = "verify_meta"  # JSON: exit_code, commands, duration_ms, results
 
     # Executor evidence
     EXECUTOR_STDOUT = "executor_stdout"

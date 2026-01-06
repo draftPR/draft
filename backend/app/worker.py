@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,9 +22,10 @@ from app.models.evidence import Evidence, EvidenceKind
 from app.models.job import Job, JobStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
-from app.services.config_service import ConfigService
+from app.services.config_service import ConfigService, YoloStatus
 from app.services.executor_service import ExecutorService, ExecutorMode, PromptBundleBuilder
 from app.services.workspace_service import WorkspaceService
+from app.services.worktree_validator import WorktreeValidator
 from app.state_machine import ActorType, EventType, TicketState
 
 # Fallback logs directory (used when worktree is not available)
@@ -467,7 +469,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
         )
         return {"job_id": job_id, "status": "failed", "error": workspace_error}
 
-        write_log(log_path, f"Workspace ready at: {worktree_path}")
+    write_log(log_path, f"Workspace ready at: {worktree_path}")
 
     # Mark as running
     if not update_job_started(job_id, log_path_relative):
@@ -482,12 +484,75 @@ def execute_ticket_task(self, job_id: str) -> dict:
     # Load configuration from the worktree (where smartkanban.yaml should be)
     # Disable cache to ensure we get the latest config
     config_service = ConfigService(worktree_path)
-    execute_config = config_service.load_config(use_cache=False).execute_config
+    config = config_service.load_config(use_cache=False)
+    execute_config = config.execute_config
 
-    # Determine if YOLO mode is allowed for this repo
-    yolo_allowed = execute_config.is_yolo_allowed(str(worktree_path.resolve()))
+    # Get main repo path for validation
+    main_repo_path = config.project.get_absolute_repo_root(worktree_path)
+
+    # =========================================================================
+    # WORKTREE SAFETY VALIDATION (enforced, not assumed)
+    # =========================================================================
+    write_log(log_path, "Validating worktree safety...")
+    worktree_validator = WorktreeValidator(main_repo_path)
+    validation_result = worktree_validator.validate(worktree_path)
+
+    if not validation_result.valid:
+        write_log(log_path, f"SAFETY CHECK FAILED: {validation_result.error}")
+        write_log(log_path, f"Reason: {validation_result.message}")
+        write_log(log_path, "Refusing to execute in unsafe location.")
+        update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
+        transition_ticket_sync(
+            ticket_id,
+            TicketState.BLOCKED,
+            reason=f"Safety check failed: {validation_result.message}",
+            payload={
+                "validation_error": validation_result.error,
+                "worktree_path": str(worktree_path),
+                "main_repo_path": str(main_repo_path),
+            },
+            actor_id="execute_worker",
+        )
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "error": f"Safety check failed: {validation_result.message}",
+            "validation_error": validation_result.error,
+        }
+
+    write_log(log_path, f"Worktree validated: branch={validation_result.branch}")
+
+    # =========================================================================
+    # YOLO MODE CHECK (refuse if enabled but allowlist empty)
+    # =========================================================================
+    yolo_status = execute_config.check_yolo_status(str(worktree_path.resolve()))
     write_log(log_path, f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}")
-    write_log(log_path, f"YOLO mode: {'ENABLED' if yolo_allowed else 'disabled (permissioned mode)'}")
+
+    if yolo_status == YoloStatus.REFUSED:
+        refusal_reason = execute_config.get_yolo_refusal_reason()
+        write_log(log_path, f"YOLO MODE REFUSED: {refusal_reason}")
+        write_log(log_path, "Transitioning to needs_human for manual approval.")
+        update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
+        transition_ticket_sync(
+            ticket_id,
+            TicketState.NEEDS_HUMAN,
+            reason=f"YOLO mode refused: {refusal_reason}",
+            payload={
+                "yolo_refused": True,
+                "refusal_reason": refusal_reason,
+                "worktree": str(worktree_path),
+            },
+            actor_id="execute_worker",
+        )
+        return {
+            "job_id": job_id,
+            "status": "yolo_refused",
+            "worktree": str(worktree_path),
+            "reason": refusal_reason,
+        }
+
+    yolo_enabled = yolo_status == YoloStatus.ALLOWED
+    write_log(log_path, f"YOLO mode: {yolo_status.value}")
 
     # Detect available executor CLI
     try:
@@ -571,15 +636,18 @@ def execute_ticket_task(self, job_id: str) -> dict:
     executor_command = executor_info.get_apply_command(
         prompt_file,
         worktree_path,
-        yolo_mode=yolo_allowed,
+        yolo_mode=yolo_enabled,
     )
 
     # Log command (without full prompt content)
-    if yolo_allowed:
+    if yolo_enabled:
         write_log(log_path, f"Command: {executor_command[0]} --print --dangerously-skip-permissions <prompt>")
     else:
         write_log(log_path, f"Command: {executor_command[0]} --print <prompt>")
         write_log(log_path, "NOTE: Running in permissioned mode. Some operations may require approval.")
+
+    # Track execution timing for metadata
+    executor_start_time = time.time()
 
     executor_exit_code, executor_stdout_path, executor_stderr_path = run_executor_cli(
         command=executor_command,
@@ -589,19 +657,48 @@ def execute_ticket_task(self, job_id: str) -> dict:
         timeout=execute_config.timeout,
     )
 
+    # Calculate execution duration
+    executor_duration_ms = int((time.time() - executor_start_time) * 1000)
+
+    # Create EXECUTOR_META evidence with structured metadata
+    executor_meta_id = str(uuid.uuid4())
+    executor_meta = {
+        "exit_code": executor_exit_code,
+        "duration_ms": executor_duration_ms,
+        "executor_type": executor_info.executor_type.value,
+        "mode": executor_info.mode.value,
+        "command": f"{executor_command[0]} --print {'--dangerously-skip-permissions ' if yolo_enabled else ''}<prompt>",
+        "yolo_enabled": yolo_enabled,
+        "timeout_configured": execute_config.timeout,
+    }
+    executor_meta_path = evidence_dir / f"{executor_meta_id}.meta.json"
+    executor_meta_path.write_text(json.dumps(executor_meta, indent=2))
+    create_evidence_record(
+        ticket_id=ticket_id,
+        job_id=job_id,
+        command="executor_metadata",
+        exit_code=executor_exit_code,
+        stdout_path=str(executor_meta_path),
+        stderr_path="",
+        evidence_id=executor_meta_id,
+        kind=EvidenceKind.EXECUTOR_META,
+    )
+    evidence_records.append(executor_meta_id)
+
     # Create evidence record for executor output (typed)
     create_evidence_record(
         ticket_id=ticket_id,
         job_id=job_id,
-        command=f"{executor_command[0]} --print {'--dangerously-skip-permissions ' if yolo_allowed else ''}<prompt>",
+        command=f"{executor_command[0]} --print {'--dangerously-skip-permissions ' if yolo_enabled else ''}<prompt>",
         exit_code=executor_exit_code,
         stdout_path=executor_stdout_path,
         stderr_path=executor_stderr_path,
         evidence_id=executor_evidence_id,
-        kind=EvidenceKind.EXECUTOR_STDOUT,  # Primary output
+        kind=EvidenceKind.EXECUTOR_STDOUT,
     )
     evidence_records.append(executor_evidence_id)
 
+    write_log(log_path, f"Executor completed in {executor_duration_ms}ms")
     if executor_exit_code == 0:
         write_log(log_path, "Executor CLI completed successfully (exit code: 0)")
     else:
@@ -675,7 +772,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
                 "exit_code": executor_exit_code,
                 "evidence_ids": evidence_records,
                 "diff_summary": diff_stat,
-                "yolo_mode": yolo_allowed,
+                "yolo_mode": yolo_enabled,
             },
             actor_id="execute_worker",
         )
@@ -703,7 +800,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
                 "evidence_ids": evidence_records,
                 "diff_summary": diff_stat,
                 "no_changes": True,
-                "yolo_mode": yolo_allowed,
+                "yolo_mode": yolo_enabled,
             },
             actor_id="execute_worker",
         )
@@ -729,7 +826,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
             "evidence_ids": evidence_records,
             "diff_summary": diff_stat,
             "has_changes": True,
-            "yolo_mode": yolo_allowed,
+            "yolo_mode": yolo_enabled,
         },
         actor_id="execute_worker",
     )
@@ -794,16 +891,17 @@ def verify_ticket_task(self, job_id: str) -> dict:
     # Disable cache to ensure we get the latest config
     config_service = ConfigService(worktree_path)
     config = config_service.load_config(use_cache=False)
-    verify_commands = config.verify_commands
-    auto_transition = config.auto_transition_on_success
+    verify_config = config.verify_config
+    verify_commands = verify_config.commands
+    on_success_state = verify_config.on_success  # "needs_human" or "done"
 
     write_log(log_path, f"Loaded {len(verify_commands)} verification command(s)")
-    write_log(log_path, f"Auto-transition on success: {auto_transition}")
+    write_log(log_path, f"On success: transition to '{on_success_state}'")
 
     if not verify_commands:
         write_log(log_path, "No verification commands configured, skipping verification.")
         # No commands = success, transition based on policy
-        if auto_transition:
+        if on_success_state == "done":
             write_log(log_path, "Transitioning ticket to 'done'")
             transition_ticket_sync(ticket_id, TicketState.DONE, reason="Verification passed (no commands configured)")
         else:
@@ -815,9 +913,11 @@ def verify_ticket_task(self, job_id: str) -> dict:
     # Get evidence directory
     evidence_dir = get_evidence_dir(worktree_path, job_id)
 
-    # Run verification commands
+    # Run verification commands with timing
+    verify_start_time = time.time()
     all_succeeded = True
     failed_commands: list[dict] = []
+    command_results: list[dict] = []
     evidence_records: list[str] = []
 
     for i, command in enumerate(verify_commands):
@@ -830,6 +930,7 @@ def verify_ticket_task(self, job_id: str) -> dict:
 
         # Generate evidence ID
         evidence_id = str(uuid.uuid4())
+        cmd_start_time = time.time()
 
         # Run the command
         exit_code, stdout_path, stderr_path = run_verification_command(
@@ -839,6 +940,16 @@ def verify_ticket_task(self, job_id: str) -> dict:
             evidence_id=evidence_id,
             timeout=300,
         )
+
+        cmd_duration_ms = int((time.time() - cmd_start_time) * 1000)
+
+        # Track command result for metadata
+        command_results.append({
+            "command": command,
+            "exit_code": exit_code,
+            "duration_ms": cmd_duration_ms,
+            "evidence_id": evidence_id,
+        })
 
         # Create evidence record (typed as verification output)
         create_evidence_record(
@@ -854,9 +965,9 @@ def verify_ticket_task(self, job_id: str) -> dict:
         evidence_records.append(evidence_id)
 
         if exit_code == 0:
-            write_log(log_path, f"Command succeeded (exit code: 0)")
+            write_log(log_path, f"Command succeeded (exit code: 0, {cmd_duration_ms}ms)")
         else:
-            write_log(log_path, f"Command FAILED (exit code: {exit_code})")
+            write_log(log_path, f"Command FAILED (exit code: {exit_code}, {cmd_duration_ms}ms)")
             all_succeeded = False
             failed_commands.append({
                 "command": command,
@@ -867,16 +978,45 @@ def verify_ticket_task(self, job_id: str) -> dict:
             write_log(log_path, "Stopping verification due to failure.")
             break
 
+    # Calculate total verification duration
+    verify_duration_ms = int((time.time() - verify_start_time) * 1000)
+
+    # Create VERIFY_META evidence with structured metadata
+    verify_meta_id = str(uuid.uuid4())
+    verify_meta = {
+        "total_duration_ms": verify_duration_ms,
+        "commands_configured": verify_commands,
+        "commands_run": len(command_results),
+        "all_succeeded": all_succeeded,
+        "results": command_results,
+        "on_success_configured": on_success_state,
+    }
+    verify_meta_path = evidence_dir / f"{verify_meta_id}.meta.json"
+    verify_meta_path.write_text(json.dumps(verify_meta, indent=2))
+    create_evidence_record(
+        ticket_id=ticket_id,
+        job_id=job_id,
+        command="verify_metadata",
+        exit_code=0 if all_succeeded else 1,
+        stdout_path=str(verify_meta_path),
+        stderr_path="",
+        evidence_id=verify_meta_id,
+        kind=EvidenceKind.VERIFY_META,
+    )
+    evidence_records.append(verify_meta_id)
+
+    write_log(log_path, f"Total verification time: {verify_duration_ms}ms")
+
     # Transition ticket based on outcome
     if all_succeeded:
         write_log(log_path, "All verification commands passed!")
-        if auto_transition:
+        if on_success_state == "done":
             write_log(log_path, "Transitioning ticket to 'done'")
             transition_ticket_sync(
                 ticket_id,
                 TicketState.DONE,
                 reason=f"Verification passed: {len(verify_commands)} command(s) succeeded",
-                payload={"evidence_ids": evidence_records},
+                payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms},
             )
         else:
             write_log(log_path, "Transitioning ticket to 'needs_human' for review")
@@ -884,7 +1024,7 @@ def verify_ticket_task(self, job_id: str) -> dict:
                 ticket_id,
                 TicketState.NEEDS_HUMAN,
                 reason=f"Verification passed: {len(verify_commands)} command(s) succeeded, awaiting human review",
-                payload={"evidence_ids": evidence_records},
+                payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms},
             )
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
         return {
@@ -920,3 +1060,152 @@ def verify_ticket_task(self, job_id: str) -> dict:
             "evidence_ids": evidence_records,
             "failed_commands": failed_commands,
         }
+
+
+@celery_app.task(bind=True, name="resume_ticket")
+def resume_ticket_task(self, job_id: str) -> dict:
+    """
+    Resume a ticket after human completion (interactive executor flow).
+
+    This task is used when a ticket was transitioned to 'needs_human' by an
+    interactive executor (like Cursor). The human has made their changes, and
+    now wants to continue the workflow.
+
+    This task:
+    1. Validates the ticket is in 'needs_human' state
+    2. Captures the git diff as evidence
+    3. Checks if there are any changes
+    4. Transitions to 'verifying' if changes exist, or 'blocked' if no changes
+    """
+    # Get job and ticket info
+    result = get_job_with_ticket(job_id)
+    if not result:
+        return {"job_id": job_id, "status": "failed", "error": "Job or ticket not found"}
+
+    job, ticket = result
+    goal_id = ticket.goal_id
+    ticket_id = ticket.id
+
+    # Ensure workspace exists
+    worktree_path, workspace_error = ensure_workspace_for_ticket(ticket_id, goal_id)
+
+    # Get log path (use worktree if available, fallback otherwise)
+    log_path, log_path_relative = get_log_path_for_job(job_id, worktree_path)
+
+    write_log(log_path, "Starting resume task...")
+
+    # Workspace is required
+    if workspace_error or not worktree_path:
+        write_log(log_path, f"ERROR: Could not find workspace: {workspace_error or 'Unknown error'}")
+        update_job_started(job_id, log_path_relative)
+        update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
+        return {"job_id": job_id, "status": "failed", "error": workspace_error}
+
+    write_log(log_path, f"Workspace found at: {worktree_path}")
+
+    # Mark as running
+    if not update_job_started(job_id, log_path_relative):
+        write_log(log_path, "Job was canceled or not found, aborting.")
+        raise Ignore()
+
+    # Validate ticket is in needs_human state
+    if ticket.state != TicketState.NEEDS_HUMAN.value:
+        write_log(log_path, f"ERROR: Ticket is in '{ticket.state}' state, expected 'needs_human'")
+        write_log(log_path, "Resume can only be called on tickets in 'needs_human' state.")
+        update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "error": f"Ticket must be in 'needs_human' state to resume, got '{ticket.state}'",
+        }
+
+    # Get evidence directory
+    evidence_dir = worktree_path / ".smartkanban" / "jobs" / job_id / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_records: list[str] = []
+
+    # Capture git diff
+    write_log(log_path, "Capturing git diff...")
+    diff_stat_evidence_id = str(uuid.uuid4())
+    diff_patch_evidence_id = str(uuid.uuid4())
+
+    diff_exit_code, diff_stat_path, diff_patch_path, diff_stat, has_changes = capture_git_diff(
+        cwd=worktree_path,
+        evidence_dir=evidence_dir,
+        evidence_id=diff_stat_evidence_id,
+    )
+
+    # Create typed evidence records for git diff
+    create_evidence_record(
+        ticket_id=ticket_id,
+        job_id=job_id,
+        command="git diff --stat",
+        exit_code=diff_exit_code,
+        stdout_path=diff_stat_path,
+        stderr_path="",
+        evidence_id=diff_stat_evidence_id,
+        kind=EvidenceKind.GIT_DIFF_STAT,
+    )
+    evidence_records.append(diff_stat_evidence_id)
+
+    create_evidence_record(
+        ticket_id=ticket_id,
+        job_id=job_id,
+        command="git diff",
+        exit_code=diff_exit_code,
+        stdout_path=diff_patch_path,
+        stderr_path="",
+        evidence_id=diff_patch_evidence_id,
+        kind=EvidenceKind.GIT_DIFF_PATCH,
+    )
+    evidence_records.append(diff_patch_evidence_id)
+
+    write_log(log_path, f"Git diff summary:\n{diff_stat}")
+    write_log(log_path, f"Has changes: {has_changes}")
+
+    # Determine outcome
+    if not has_changes:
+        write_log(log_path, "No changes detected in worktree.")
+        write_log(log_path, "Transitioning to 'blocked' (reason: no changes)")
+        transition_ticket_sync(
+            ticket_id,
+            TicketState.BLOCKED,
+            reason="Resume completed but no code changes were found in worktree",
+            payload={
+                "evidence_ids": evidence_records,
+                "diff_summary": diff_stat,
+                "no_changes": True,
+            },
+            actor_id="resume_worker",
+        )
+        update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
+        return {
+            "job_id": job_id,
+            "status": "no_changes",
+            "worktree": str(worktree_path),
+            "evidence_ids": evidence_records,
+        }
+
+    # Changes exist - transition to verifying
+    write_log(log_path, "Changes detected! Transitioning to 'verifying'")
+    transition_ticket_sync(
+        ticket_id,
+        TicketState.VERIFYING,
+        reason="Human completed changes, ready for verification",
+        payload={
+            "evidence_ids": evidence_records,
+            "diff_summary": diff_stat,
+            "resumed_from_interactive": True,
+        },
+        actor_id="resume_worker",
+    )
+    update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
+
+    write_log(log_path, "Resume completed successfully!")
+    return {
+        "job_id": job_id,
+        "status": "succeeded",
+        "worktree": str(worktree_path),
+        "evidence_ids": evidence_records,
+        "diff_summary": diff_stat,
+    }
