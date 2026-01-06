@@ -97,7 +97,7 @@ export function TicketDetailDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[500px] sm:w-[700px] overflow-y-auto bg-background">
+      <SheetContent className="w-[25%] min-w-[500px] overflow-y-auto bg-background pl-8">
         <SheetHeader className="pb-8 border-b border-border/40">
           <SheetTitle className="text-[15px] leading-relaxed pr-8 font-semibold text-foreground">
             {ticket.title}

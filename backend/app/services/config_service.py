@@ -69,17 +69,23 @@ class ExecuteConfig:
             yolo_allowlist=data.get("yolo_allowlist") or [],
         )
 
-    def check_yolo_status(self, worktree_path: str) -> YoloStatus:
+    def check_yolo_status(self, worktree_path: str, repo_root: str | None = None) -> YoloStatus:
         """Check YOLO mode status for a given worktree.
 
         Safety Policy:
         - If yolo_mode is False → DISABLED (use permissioned mode)
         - If yolo_mode is True but allowlist is empty → REFUSED (refuse to run)
-        - If yolo_mode is True and worktree in allowlist → ALLOWED
-        - If yolo_mode is True but worktree not in allowlist → REFUSED
+        - If yolo_mode is True and repo_root in allowlist → ALLOWED
+        - If yolo_mode is True but repo_root not in allowlist → REFUSED
+
+        Path Matching:
+        - All paths are resolved to absolute canonical paths (symlinks resolved)
+        - Allowlist entries can be the repo root OR a parent directory
+        - Worktree must be a descendant of an allowlisted path
 
         Args:
-            worktree_path: Absolute path to the worktree
+            worktree_path: Path to the worktree
+            repo_root: Path to the main repo root (if different from worktree parent)
 
         Returns:
             YoloStatus indicating whether YOLO mode should be used
@@ -92,16 +98,55 @@ class ExecuteConfig:
         if not self.yolo_allowlist:
             return YoloStatus.REFUSED
 
-        # Normalize paths for comparison
-        worktree_resolved = str(Path(worktree_path).resolve())
+        # Resolve to canonical absolute paths (follows symlinks)
+        # Use realpath for symlink resolution, then resolve for normalization
+        worktree_canonical = os.path.realpath(worktree_path)
+
+        # If repo_root is provided, use it; otherwise derive from worktree path
+        # (worktrees are typically under {repo_root}/.smartkanban/worktrees/)
+        if repo_root:
+            check_path = os.path.realpath(repo_root)
+        else:
+            check_path = worktree_canonical
+
+        # Check if the path (or repo root) is under any allowlisted path
         for allowed_path in self.yolo_allowlist:
-            allowed_resolved = str(Path(allowed_path).resolve())
-            if worktree_resolved == allowed_resolved or worktree_resolved.startswith(
-                allowed_resolved + os.sep
-            ):
+            allowed_canonical = os.path.realpath(allowed_path)
+
+            # Exact match
+            if check_path == allowed_canonical:
                 return YoloStatus.ALLOWED
 
+            # Check if check_path is a descendant of allowed_canonical
+            # Use os.path.commonpath to safely determine ancestry
+            try:
+                common = os.path.commonpath([check_path, allowed_canonical])
+                if common == allowed_canonical:
+                    return YoloStatus.ALLOWED
+            except ValueError:
+                # Different drives on Windows, no common path
+                continue
+
         return YoloStatus.REFUSED
+
+    def get_yolo_refusal_reason(self, repo_root: str | None = None) -> str:
+        """Get a human-readable reason for YOLO refusal.
+
+        Args:
+            repo_root: The repo root path to include in the message
+        """
+        if not self.yolo_allowlist:
+            return (
+                "YOLO mode enabled but yolo_allowlist is empty. "
+                "For safety, you must explicitly list trusted repo paths in yolo_allowlist. "
+                "Refusing to run with --dangerously-skip-permissions."
+            )
+        msg = "YOLO mode enabled but this repo is not in yolo_allowlist. "
+        if repo_root:
+            msg += f"Repo root: {os.path.realpath(repo_root)}. "
+        msg += f"Allowlist: {[os.path.realpath(p) for p in self.yolo_allowlist]}. "
+        msg += "Add this path to yolo_allowlist if you trust it."
+        return msg
 
     def get_yolo_refusal_reason(self) -> str:
         """Get a human-readable reason for YOLO refusal."""

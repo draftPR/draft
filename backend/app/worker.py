@@ -256,6 +256,7 @@ def transition_ticket_sync(
     reason: str | None = None,
     payload: dict | None = None,
     actor_id: str = "worker",
+    auto_verify: bool = True,
 ) -> None:
     """
     Transition a ticket to a new state synchronously.
@@ -266,6 +267,7 @@ def transition_ticket_sync(
         reason: Optional reason for the transition
         payload: Optional payload for the event
         actor_id: The ID of the actor performing the transition
+        auto_verify: If True, auto-enqueue verify job when entering verifying state
     """
     with get_sync_db() as db:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
@@ -288,6 +290,40 @@ def transition_ticket_sync(
         )
         db.add(event)
         db.commit()
+
+    # Auto-trigger verification when entering verifying state
+    if auto_verify and to_state == TicketState.VERIFYING:
+        _enqueue_verify_job_sync(ticket_id)
+
+
+def _enqueue_verify_job_sync(ticket_id: str) -> str | None:
+    """
+    Synchronously enqueue a verify job for a ticket.
+
+    Returns:
+        The job ID if successful, None otherwise.
+    """
+    from app.models.job import Job, JobKind, JobStatus
+
+    with get_sync_db() as db:
+        # Create the job record
+        job = Job(
+            ticket_id=ticket_id,
+            kind=JobKind.VERIFY.value,
+            status=JobStatus.QUEUED.value,
+        )
+        db.add(job)
+        db.flush()
+        job_id = job.id
+
+        # Enqueue the Celery task
+        task = verify_ticket_task.delay(job_id)
+
+        # Store the Celery task ID
+        job.celery_task_id = task.id
+        db.commit()
+
+        return job_id
 
 
 def run_executor_cli(
@@ -525,11 +561,14 @@ def execute_ticket_task(self, job_id: str) -> dict:
     # =========================================================================
     # YOLO MODE CHECK (refuse if enabled but allowlist empty)
     # =========================================================================
-    yolo_status = execute_config.check_yolo_status(str(worktree_path.resolve()))
+    yolo_status = execute_config.check_yolo_status(
+        str(worktree_path.resolve()),
+        repo_root=str(main_repo_path),
+    )
     write_log(log_path, f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}")
 
     if yolo_status == YoloStatus.REFUSED:
-        refusal_reason = execute_config.get_yolo_refusal_reason()
+        refusal_reason = execute_config.get_yolo_refusal_reason(repo_root=str(main_repo_path))
         write_log(log_path, f"YOLO MODE REFUSED: {refusal_reason}")
         write_log(log_path, "Transitioning to needs_human for manual approval.")
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)

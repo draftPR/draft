@@ -112,6 +112,7 @@ class TicketService:
         actor_type: ActorType,
         actor_id: str | None = None,
         reason: str | None = None,
+        auto_verify: bool = True,
     ) -> Ticket:
         """
         Transition a ticket to a new state.
@@ -123,6 +124,7 @@ class TicketService:
             actor_type: The type of actor performing the transition
             actor_id: Optional ID of the actor
             reason: Optional reason for the transition
+            auto_verify: If True, auto-enqueue verify job when entering verifying state
 
         Returns:
             The updated Ticket instance
@@ -161,7 +163,51 @@ class TicketService:
         if is_terminal_state(to_state):
             await self._cleanup_workspace_async(ticket_id)
 
+        # Auto-trigger verification when entering verifying state
+        if auto_verify and to_state == TicketState.VERIFYING:
+            await self._enqueue_verify_job_async(ticket_id)
+
         return ticket
+
+    async def _enqueue_verify_job_async(self, ticket_id: str) -> str | None:
+        """
+        Asynchronously enqueue a verify job for a ticket.
+
+        Args:
+            ticket_id: The UUID of the ticket
+
+        Returns:
+            The job ID if successful, None otherwise.
+        """
+        from app.models.job import Job, JobKind, JobStatus
+
+        try:
+            # Import here to avoid circular dependency
+            from app.worker import verify_ticket_task
+
+            # Create the job record
+            job = Job(
+                ticket_id=ticket_id,
+                kind=JobKind.VERIFY.value,
+                status=JobStatus.QUEUED.value,
+            )
+            self.db.add(job)
+            await self.db.flush()
+            await self.db.refresh(job)
+
+            # Enqueue the Celery task
+            task = verify_ticket_task.delay(job.id)
+
+            # Store the Celery task ID
+            job.celery_task_id = task.id
+            await self.db.flush()
+
+            logger.info(f"Auto-enqueued verify job {job.id} for ticket {ticket_id}")
+            return job.id
+
+        except Exception as e:
+            logger.error(f"Failed to auto-enqueue verify job for ticket {ticket_id}: {e}")
+            return None
 
     async def _cleanup_workspace_async(self, ticket_id: str) -> None:
         """
