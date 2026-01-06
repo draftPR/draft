@@ -155,14 +155,15 @@ export const COLUMN_ORDER: TicketState[] = [
 ];
 
 // State display names
+// Note: "Done" means "verified in worktree" - NOT merged to main branch
 export const STATE_DISPLAY_NAMES: Record<TicketState, string> = {
   [TicketState.PROPOSED]: "Proposed",
   [TicketState.PLANNED]: "Planned",
   [TicketState.EXECUTING]: "Executing",
   [TicketState.VERIFYING]: "Verifying",
-  [TicketState.NEEDS_HUMAN]: "Needs Human",
+  [TicketState.NEEDS_HUMAN]: "Needs Review",
   [TicketState.BLOCKED]: "Blocked",
-  [TicketState.DONE]: "Done",
+  [TicketState.DONE]: "Verified",  // Not merged - just verified in worktree
   [TicketState.ABANDONED]: "Abandoned",
 };
 

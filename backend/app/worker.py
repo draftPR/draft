@@ -147,12 +147,40 @@ def check_canceled(job_id: str) -> bool:
         return job is not None and job.status == JobStatus.CANCELED.value
 
 
-def get_evidence_dir(worktree_path: Path | None, job_id: str) -> Path:
-    """Get the directory for storing evidence files."""
+def get_evidence_dir(worktree_path: Path | None, job_id: str, repo_root: Path | None = None) -> Path:
+    """Get the directory for storing evidence files.
+
+    Args:
+        worktree_path: Path to the worktree (if available)
+        job_id: UUID of the job
+        repo_root: Path to the main repo root (for validation)
+
+    Returns:
+        Path to evidence directory
+
+    Raises:
+        ValueError: If evidence_dir would be outside repo_root/.smartkanban
+    """
     if worktree_path:
         evidence_dir = worktree_path / ".smartkanban" / "evidence" / job_id
     else:
         evidence_dir = FALLBACK_LOGS_DIR / "evidence" / job_id
+
+    # Hardening: Validate evidence_dir is under repo_root/.smartkanban (if repo_root provided)
+    if repo_root and worktree_path:
+        import os
+
+        allowed_root = (repo_root / ".smartkanban").resolve(strict=False)
+        evidence_canonical = evidence_dir.resolve(strict=False)
+        try:
+            common = os.path.commonpath([str(evidence_canonical), str(allowed_root)])
+            if common != str(allowed_root):
+                raise ValueError(f"Evidence dir {evidence_dir} is not under {allowed_root}")
+        except ValueError as e:
+            if "different drives" in str(e).lower() or "Paths don't have" in str(e):
+                raise ValueError(f"Evidence dir {evidence_dir} is not under {allowed_root}") from e
+            raise
+
     evidence_dir.mkdir(parents=True, exist_ok=True)
     return evidence_dir
 
@@ -162,6 +190,7 @@ def run_verification_command(
     cwd: Path | None,
     evidence_dir: Path,
     evidence_id: str,
+    repo_root: Path,
     timeout: int = 300,
 ) -> tuple[int, str, str]:
     """
@@ -172,10 +201,11 @@ def run_verification_command(
         cwd: Working directory for the command
         evidence_dir: Directory to store stdout/stderr files
         evidence_id: UUID for naming evidence files
+        repo_root: Path to repo root (for computing relative paths)
         timeout: Command timeout in seconds
 
     Returns:
-        Tuple of (exit_code, stdout_path, stderr_path)
+        Tuple of (exit_code, stdout_relpath, stderr_relpath) - paths are relative to repo_root
     """
     stdout_path = evidence_dir / f"{evidence_id}.stdout"
     stderr_path = evidence_dir / f"{evidence_id}.stderr"
@@ -194,18 +224,28 @@ def run_verification_command(
         stdout_path.write_text(result.stdout or "")
         stderr_path.write_text(result.stderr or "")
 
-        return result.returncode, str(stdout_path), str(stderr_path)
+        # Return relative paths for DB storage (security: no absolute paths in DB)
+        stdout_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
+
+        return result.returncode, stdout_rel, stderr_rel
 
     except subprocess.TimeoutExpired as e:
         # Write partial output if available
         stdout_path.write_text(e.stdout.decode() if e.stdout else "Command timed out")
         stderr_path.write_text(e.stderr.decode() if e.stderr else "")
-        return -1, str(stdout_path), str(stderr_path)
+
+        stdout_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
+        return -1, stdout_rel, stderr_rel
 
     except Exception as e:
         stdout_path.write_text("")
         stderr_path.write_text(f"Error running command: {str(e)}")
-        return -1, str(stdout_path), str(stderr_path)
+
+        stdout_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
+        return -1, stdout_rel, stderr_rel
 
 
 def create_evidence_record(
@@ -955,6 +995,9 @@ def verify_ticket_task(self, job_id: str) -> dict:
     verify_commands = verify_config.commands
     on_success_state = verify_config.on_success  # "needs_human" or "done"
 
+    # Get repo root for relative path computation
+    repo_root = config_service.get_repo_root()
+
     write_log(log_path, f"Loaded {len(verify_commands)} verification command(s)")
     write_log(log_path, f"On success: transition to '{on_success_state}'")
 
@@ -970,8 +1013,8 @@ def verify_ticket_task(self, job_id: str) -> dict:
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
         return {"job_id": job_id, "status": "succeeded", "worktree": str(worktree_path) if worktree_path else None}
 
-    # Get evidence directory
-    evidence_dir = get_evidence_dir(worktree_path, job_id)
+    # Get evidence directory (with validation against repo_root)
+    evidence_dir = get_evidence_dir(worktree_path, job_id, repo_root=repo_root)
 
     # Run verification commands with timing
     verify_start_time = time.time()
@@ -992,12 +1035,13 @@ def verify_ticket_task(self, job_id: str) -> dict:
         evidence_id = str(uuid.uuid4())
         cmd_start_time = time.time()
 
-        # Run the command
+        # Run the command (returns relative paths for secure DB storage)
         exit_code, stdout_path, stderr_path = run_verification_command(
             command=command,
             cwd=worktree_path,
             evidence_dir=evidence_dir,
             evidence_id=evidence_id,
+            repo_root=repo_root,
             timeout=300,
         )
 
@@ -1053,12 +1097,14 @@ def verify_ticket_task(self, job_id: str) -> dict:
     }
     verify_meta_path = evidence_dir / f"{verify_meta_id}.meta.json"
     verify_meta_path.write_text(json.dumps(verify_meta, indent=2))
+    # Store relative path for secure DB storage
+    verify_meta_relpath = str(verify_meta_path.relative_to(repo_root))
     create_evidence_record(
         ticket_id=ticket_id,
         job_id=job_id,
         command="verify_metadata",
         exit_code=0 if all_succeeded else 1,
-        stdout_path=str(verify_meta_path),
+        stdout_path=verify_meta_relpath,
         stderr_path="",
         evidence_id=verify_meta_id,
         kind=EvidenceKind.VERIFY_META,

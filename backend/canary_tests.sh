@@ -418,6 +418,104 @@ canary_4() {
 }
 
 # =============================================================================
+# CANARY 5: Verification Failure (Syntax Error)
+# =============================================================================
+# Expected flow:
+#   executing → verifying → blocked (verification failed)
+#
+# This test proves the verification pipeline can actually fail.
+# Creates a ticket that requests introducing a syntax error.
+# =============================================================================
+canary_5() {
+    log_step "CANARY 5: Verification Failure (Syntax Error)"
+    
+    log_info "This test verifies that broken code is correctly blocked."
+    log_info "It requests a change that would break Python syntax."
+    log_info ""
+    
+    log_info "Creating goal..."
+    local goal_id=$(create_goal "Canary Test Goal 5 - Break Things")
+    log_info "Goal ID: $goal_id"
+    
+    log_info "Creating ticket that requests syntax error..."
+    local ticket_id=$(create_ticket "$goal_id" \
+        "Introduce syntax error in worker.py" \
+        "Add 'def broken_function(' (missing closing paren and body) to backend/app/worker.py. This should fail verification.")
+    log_info "Ticket ID: $ticket_id"
+    
+    log_info "Transitioning to executing state..."
+    curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
+        -H "Content-Type: application/json" \
+        -d '{"to_state": "executing", "actor_type": "human", "reason": "Starting canary test - expecting failure"}'
+    
+    log_info "Running execute job..."
+    local execute_response=$(run_execute "$ticket_id")
+    log_info "Execute job: $(echo "$execute_response" | jq -c '{id, status}')"
+    
+    # Wait for verifying (if executor makes changes) or blocked (if no changes)
+    wait_for_state "$ticket_id" "verifying" "blocked" "needs_human"
+    
+    local state_after_execute=$(get_ticket_state "$ticket_id")
+    log_info "State after execute: $state_after_execute"
+    
+    if [ "$state_after_execute" = "verifying" ]; then
+        log_info "Executor made changes, now in verifying..."
+        log_info "Waiting for verification to complete (should fail)..."
+        
+        # Wait for blocked (verification should fail)
+        wait_for_state "$ticket_id" "blocked" "needs_human" "done"
+        
+        local final_state=$(get_ticket_state "$ticket_id")
+        log_info "Final state: $final_state"
+        
+        if [ "$final_state" = "blocked" ]; then
+            # Get events to check reason
+            local events=$(curl -s "$API_BASE/tickets/$ticket_id/events")
+            local last_reason=$(echo "$events" | jq -r '.events[-1].reason')
+            log_info "Block reason: $last_reason"
+            
+            # Check evidence for verify_meta
+            local evidence=$(get_evidence "$ticket_id")
+            local verify_meta=$(echo "$evidence" | jq -r '.evidence[] | select(.kind == "verify_meta")')
+            
+            if [ -n "$verify_meta" ]; then
+                log_info "Found verify_meta evidence"
+                local verify_exit=$(echo "$verify_meta" | jq -r '.exit_code')
+                log_info "Verify exit code: $verify_exit"
+                
+                if [ "$verify_exit" != "0" ]; then
+                    log_info "✅ CANARY 5 PASSED: Verification failed and blocked ticket"
+                    log_info "Evidence shows failing verify command with exit code $verify_exit"
+                else
+                    log_warn "⚠️  CANARY 5 UNEXPECTED: Blocked but verify_meta shows exit code 0"
+                fi
+            else
+                log_info "✅ CANARY 5 PASSED: Ticket blocked (verify_meta may not be captured yet)"
+            fi
+        elif [ "$final_state" = "needs_human" ] || [ "$final_state" = "done" ]; then
+            log_error "❌ CANARY 5 FAILED: Verification passed when it should have failed"
+            log_error "This means either:"
+            log_error "  1. Executor didn't actually introduce a syntax error"
+            log_error "  2. Verification commands aren't checking syntax (update smartkanban.yaml)"
+            return 1
+        fi
+    elif [ "$state_after_execute" = "blocked" ]; then
+        # Could be blocked due to no changes
+        local events=$(curl -s "$API_BASE/tickets/$ticket_id/events")
+        local last_reason=$(echo "$events" | jq -r '.events[-1].reason')
+        
+        if echo "$last_reason" | grep -qi "no.*change"; then
+            log_warn "⚠️  CANARY 5 SKIPPED: Executor produced no changes (can't test verification failure)"
+            log_info "This is expected if the executor refused to break things"
+        else
+            log_info "✅ CANARY 5 PASSED: Blocked during execution"
+        fi
+    else
+        log_warn "⚠️  CANARY 5 UNEXPECTED: State is $state_after_execute"
+    fi
+}
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -444,6 +542,7 @@ main() {
         2) canary_2 ;;
         3) canary_3 ;;
         4) canary_4 ;;
+        5) canary_5 ;;
         all)
             canary_1
             echo ""
@@ -452,10 +551,12 @@ main() {
             canary_3
             echo ""
             canary_4
+            echo ""
+            canary_5
             ;;
         *)
             log_error "Unknown test: $test_num"
-            echo "Usage: $0 [1|2|3|4|all]"
+            echo "Usage: $0 [1|2|3|4|5|all]"
             exit 1
             ;;
     esac
