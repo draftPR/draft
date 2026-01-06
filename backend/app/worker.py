@@ -22,7 +22,7 @@ from app.models.job import Job, JobStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.services.config_service import ConfigService
-from app.services.executor_service import ExecutorService, PromptBundleBuilder
+from app.services.executor_service import ExecutorService, ExecutorMode, PromptBundleBuilder
 from app.services.workspace_service import WorkspaceService
 from app.state_machine import ActorType, EventType, TicketState
 
@@ -214,14 +214,29 @@ def create_evidence_record(
     stdout_path: str,
     stderr_path: str,
     evidence_id: str,
+    kind: EvidenceKind = EvidenceKind.COMMAND_LOG,
 ) -> Evidence:
-    """Create an Evidence record in the database."""
+    """Create an Evidence record in the database.
+
+    Args:
+        ticket_id: UUID of the ticket
+        job_id: UUID of the job
+        command: Command that was executed
+        exit_code: Exit code from the command
+        stdout_path: Path to stdout file
+        stderr_path: Path to stderr file
+        evidence_id: UUID for this evidence record
+        kind: Type of evidence (executor_stdout, git_diff_stat, etc.)
+
+    Returns:
+        The created Evidence record
+    """
     with get_sync_db() as db:
         evidence = Evidence(
             id=evidence_id,
             ticket_id=ticket_id,
             job_id=job_id,
-            kind=EvidenceKind.COMMAND_LOG.value,
+            kind=kind.value,
             command=command,
             exit_code=exit_code,
             stdout_path=stdout_path,
@@ -332,7 +347,7 @@ def capture_git_diff(
     cwd: Path,
     evidence_dir: Path,
     evidence_id: str,
-) -> tuple[int, str, str, str]:
+) -> tuple[int, str, str, str, bool]:
     """
     Capture git diff output for changes made in the worktree.
 
@@ -342,13 +357,15 @@ def capture_git_diff(
         evidence_id: UUID for naming evidence files
 
     Returns:
-        Tuple of (exit_code, stdout_path, stderr_path, diff_stat)
+        Tuple of (exit_code, diff_stat_path, diff_patch_path, diff_stat_text, has_changes)
+        has_changes is True if there are uncommitted changes in the worktree.
     """
     diff_stat_path = evidence_dir / f"{evidence_id}.diff_stat"
     diff_patch_path = evidence_dir / f"{evidence_id}.diff_patch"
     stderr_path = evidence_dir / f"{evidence_id}.stderr"
 
     diff_stat = ""
+    has_changes = False
 
     try:
         # First get the diff stat for summary
@@ -359,8 +376,8 @@ def capture_git_diff(
             text=True,
             timeout=60,
         )
-        diff_stat = stat_result.stdout or "(no changes)"
-        diff_stat_path.write_text(diff_stat)
+        diff_stat = stat_result.stdout.strip() if stat_result.stdout else ""
+        diff_stat_path.write_text(diff_stat or "(no changes)")
 
         # Then get the full patch
         patch_result = subprocess.run(
@@ -370,7 +387,11 @@ def capture_git_diff(
             text=True,
             timeout=60,
         )
-        diff_patch_path.write_text(patch_result.stdout or "(no changes)")
+        diff_patch = patch_result.stdout.strip() if patch_result.stdout else ""
+        diff_patch_path.write_text(diff_patch or "(no changes)")
+
+        # Determine if there are actual changes
+        has_changes = bool(diff_patch)
 
         # Combine stderr from both commands
         combined_stderr = ""
@@ -380,35 +401,40 @@ def capture_git_diff(
             combined_stderr += f"git diff stderr:\n{patch_result.stderr}\n"
         stderr_path.write_text(combined_stderr)
 
-        # Return the patch path as stdout for evidence storage
-        return 0, str(diff_patch_path), str(stderr_path), diff_stat
+        return 0, str(diff_stat_path), str(diff_patch_path), diff_stat or "(no changes)", has_changes
 
     except subprocess.TimeoutExpired:
         diff_stat_path.write_text("Git diff timed out")
         diff_patch_path.write_text("")
         stderr_path.write_text("Git diff command timed out after 60 seconds")
-        return -1, str(diff_patch_path), str(stderr_path), "(timeout)"
+        return -1, str(diff_stat_path), str(diff_patch_path), "(timeout)", False
 
     except Exception as e:
         diff_stat_path.write_text("")
         diff_patch_path.write_text("")
         stderr_path.write_text(f"Error running git diff: {str(e)}")
-        return -1, str(diff_patch_path), str(stderr_path), "(error)"
+        return -1, str(diff_stat_path), str(diff_patch_path), "(error)", False
 
 
 @celery_app.task(bind=True, name="execute_ticket")
 def execute_ticket_task(self, job_id: str) -> dict:
     """
-    Execute task for a ticket using Cursor CLI or Claude Code CLI.
+    Execute task for a ticket using Claude Code CLI (headless) or Cursor CLI (interactive).
 
-    This task:
-    1. Ensures a worktree exists for the ticket
-    2. Detects available executor CLI (Cursor or Claude fallback)
-    3. Builds a prompt bundle with ticket details
-    4. Invokes the executor CLI in the worktree directory
-    5. Captures execution logs and git diff
-    6. Creates Evidence records for logs and diff
-    7. Transitions ticket to 'verifying' on success or 'blocked' on failure
+    Execution Modes:
+        - Claude CLI (headless): Runs automatically, transitions based on result.
+        - Cursor CLI (interactive): Prepares workspace + prompt, then hands off to user.
+
+    State Transitions:
+        - Headless success with diff → verifying
+        - Headless success with NO diff → blocked (reason: no changes produced)
+        - Headless failure → blocked
+        - Interactive (Cursor) → needs_human immediately
+
+    YOLO Mode:
+        If yolo_mode is enabled in config AND the repo is in the allowlist,
+        Claude CLI runs with --dangerously-skip-permissions. Otherwise it runs
+        in permissioned mode (may require user approval for certain operations).
     """
     # Get job and ticket info
     result = get_job_with_ticket(job_id)
@@ -441,7 +467,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
         )
         return {"job_id": job_id, "status": "failed", "error": workspace_error}
 
-    write_log(log_path, f"Workspace ready at: {worktree_path}")
+        write_log(log_path, f"Workspace ready at: {worktree_path}")
 
     # Mark as running
     if not update_job_started(job_id, log_path_relative):
@@ -457,15 +483,19 @@ def execute_ticket_task(self, job_id: str) -> dict:
     # Disable cache to ensure we get the latest config
     config_service = ConfigService(worktree_path)
     execute_config = config_service.load_config(use_cache=False).execute_config
+
+    # Determine if YOLO mode is allowed for this repo
+    yolo_allowed = execute_config.is_yolo_allowed(str(worktree_path.resolve()))
     write_log(log_path, f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}")
+    write_log(log_path, f"YOLO mode: {'ENABLED' if yolo_allowed else 'disabled (permissioned mode)'}")
 
     # Detect available executor CLI
     try:
         executor_info = ExecutorService.detect_executor(preferred=execute_config.preferred_executor)
-        write_log(log_path, f"Found executor: {executor_info.executor_type.value} at {executor_info.path}")
+        write_log(log_path, f"Found executor: {executor_info.executor_type.value} ({executor_info.mode.value}) at {executor_info.path}")
     except ExecutorNotFoundError as e:
         write_log(log_path, f"ERROR: {e.message}")
-        write_log(log_path, "No code executor CLI found. Please install Cursor CLI or Claude Code CLI.")
+        write_log(log_path, "No code executor CLI found. Please install Claude Code CLI or Cursor CLI.")
         update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
         transition_ticket_sync(
             ticket_id,
@@ -493,21 +523,63 @@ def execute_ticket_task(self, job_id: str) -> dict:
         write_log(log_path, "Job canceled, stopping execution.")
         raise Ignore()
 
-    # Run the executor CLI
-    write_log(log_path, f"Invoking executor CLI: {executor_info.executor_type.value}...")
+    # =========================================================================
+    # INTERACTIVE EXECUTOR (Cursor) - Hand off to user immediately
+    # =========================================================================
+    if executor_info.is_interactive():
+        write_log(log_path, f"Executor {executor_info.executor_type.value} is INTERACTIVE.")
+        write_log(log_path, "Workspace and prompt bundle are ready.")
+        write_log(log_path, "Transitioning to 'needs_human' for manual completion.")
+        write_log(log_path, "")
+        write_log(log_path, "=== INSTRUCTIONS FOR HUMAN ===")
+        write_log(log_path, f"1. Open the worktree in your editor: {worktree_path}")
+        write_log(log_path, f"2. Read the prompt: {prompt_file}")
+        write_log(log_path, "3. Implement the requested changes")
+        write_log(log_path, "4. Commit your changes")
+        write_log(log_path, "5. Mark the ticket as ready for verification")
+        write_log(log_path, "==============================")
+
+        update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
+        transition_ticket_sync(
+            ticket_id,
+            TicketState.NEEDS_HUMAN,
+            reason=f"Interactive executor ({executor_info.executor_type.value}): workspace ready, awaiting human completion",
+            payload={
+                "executor": executor_info.executor_type.value,
+                "mode": executor_info.mode.value,
+                "worktree": str(worktree_path),
+                "prompt_file": str(prompt_file),
+            },
+            actor_id="execute_worker",
+        )
+        return {
+            "job_id": job_id,
+            "status": "needs_human",
+            "worktree": str(worktree_path),
+            "executor": executor_info.executor_type.value,
+            "mode": executor_info.mode.value,
+            "prompt_file": str(prompt_file),
+        }
+
+    # =========================================================================
+    # HEADLESS EXECUTOR (Claude) - Run automatically
+    # =========================================================================
+    write_log(log_path, f"Running headless executor: {executor_info.executor_type.value}...")
     executor_evidence_id = str(uuid.uuid4())
 
-    # Check if executor supports headless operation
-    if not executor_info.supports_headless():
-        write_log(log_path, f"WARNING: {executor_info.executor_type.value} CLI does not support headless operation.")
-        write_log(log_path, "Opening the editor. Please complete the changes manually.")
+    # Get the command with YOLO mode if allowed
+    executor_command = executor_info.get_apply_command(
+        prompt_file,
+        worktree_path,
+        yolo_mode=yolo_allowed,
+    )
 
-    executor_command = executor_info.get_apply_command(prompt_file, worktree_path)
-    # Log command without the full prompt content (for Claude it's embedded in the args)
-    if executor_info.executor_type.value == "claude":
+    # Log command (without full prompt content)
+    if yolo_allowed:
         write_log(log_path, f"Command: {executor_command[0]} --print --dangerously-skip-permissions <prompt>")
     else:
-        write_log(log_path, f"Command: {' '.join(executor_command)}")
+        write_log(log_path, f"Command: {executor_command[0]} --print <prompt>")
+        write_log(log_path, "NOTE: Running in permissioned mode. Some operations may require approval.")
 
     executor_exit_code, executor_stdout_path, executor_stderr_path = run_executor_cli(
         command=executor_command,
@@ -517,15 +589,16 @@ def execute_ticket_task(self, job_id: str) -> dict:
         timeout=execute_config.timeout,
     )
 
-    # Create evidence record for executor output
+    # Create evidence record for executor output (typed)
     create_evidence_record(
         ticket_id=ticket_id,
         job_id=job_id,
-        command=" ".join(executor_command),
+        command=f"{executor_command[0]} --print {'--dangerously-skip-permissions ' if yolo_allowed else ''}<prompt>",
         exit_code=executor_exit_code,
         stdout_path=executor_stdout_path,
         stderr_path=executor_stderr_path,
         evidence_id=executor_evidence_id,
+        kind=EvidenceKind.EXECUTOR_STDOUT,  # Primary output
     )
     evidence_records.append(executor_evidence_id)
 
@@ -543,57 +616,54 @@ def execute_ticket_task(self, job_id: str) -> dict:
 
     # Capture git diff regardless of exit code (to see what changes were made)
     write_log(log_path, "Capturing git diff...")
-    diff_evidence_id = str(uuid.uuid4())
-    diff_exit_code, diff_stdout_path, diff_stderr_path, diff_stat = capture_git_diff(
+    diff_stat_evidence_id = str(uuid.uuid4())
+    diff_patch_evidence_id = str(uuid.uuid4())
+
+    diff_exit_code, diff_stat_path, diff_patch_path, diff_stat, has_changes = capture_git_diff(
         cwd=worktree_path,
         evidence_dir=evidence_dir,
-        evidence_id=diff_evidence_id,
+        evidence_id=diff_stat_evidence_id,  # Used for both files with different extensions
     )
 
-    # Create evidence record for git diff
+    # Create typed evidence records for git diff
+    create_evidence_record(
+        ticket_id=ticket_id,
+        job_id=job_id,
+        command="git diff --stat",
+        exit_code=diff_exit_code,
+        stdout_path=diff_stat_path,
+        stderr_path="",  # stderr captured in patch record
+        evidence_id=diff_stat_evidence_id,
+        kind=EvidenceKind.GIT_DIFF_STAT,
+    )
+    evidence_records.append(diff_stat_evidence_id)
+
     create_evidence_record(
         ticket_id=ticket_id,
         job_id=job_id,
         command="git diff",
         exit_code=diff_exit_code,
-        stdout_path=diff_stdout_path,
-        stderr_path=diff_stderr_path,
-        evidence_id=diff_evidence_id,
+        stdout_path=diff_patch_path,
+        stderr_path="",
+        evidence_id=diff_patch_evidence_id,
+        kind=EvidenceKind.GIT_DIFF_PATCH,
     )
-    evidence_records.append(diff_evidence_id)
+    evidence_records.append(diff_patch_evidence_id)
 
     write_log(log_path, f"Git diff summary:\n{diff_stat}")
+    write_log(log_path, f"Has changes: {has_changes}")
 
     # Check for cancellation before state transition
     if check_canceled(job_id):
         write_log(log_path, "Job canceled, stopping execution.")
         raise Ignore()
 
-    # Determine outcome and transition ticket
-    if executor_exit_code == 0:
-        write_log(log_path, "Execution completed successfully!")
-        write_log(log_path, "Transitioning ticket to 'verifying'")
-        transition_ticket_sync(
-            ticket_id,
-            TicketState.VERIFYING,
-            reason=f"Execution completed by {executor_info.executor_type.value} CLI",
-            payload={
-                "executor": executor_info.executor_type.value,
-                "evidence_ids": evidence_records,
-                "diff_summary": diff_stat,
-            },
-            actor_id="execute_worker",
-        )
-        update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
-        return {
-            "job_id": job_id,
-            "status": "succeeded",
-            "worktree": str(worktree_path),
-            "executor": executor_info.executor_type.value,
-            "evidence_ids": evidence_records,
-            "diff_summary": diff_stat,
-        }
-    else:
+    # =========================================================================
+    # STATE TRANSITIONS
+    # =========================================================================
+
+    # Case 1: Executor failed
+    if executor_exit_code != 0:
         write_log(log_path, f"Execution FAILED with exit code {executor_exit_code}")
         write_log(log_path, "Transitioning ticket to 'blocked'")
         transition_ticket_sync(
@@ -605,6 +675,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
                 "exit_code": executor_exit_code,
                 "evidence_ids": evidence_records,
                 "diff_summary": diff_stat,
+                "yolo_mode": yolo_allowed,
             },
             actor_id="execute_worker",
         )
@@ -618,6 +689,60 @@ def execute_ticket_task(self, job_id: str) -> dict:
             "evidence_ids": evidence_records,
             "diff_summary": diff_stat,
         }
+
+    # Case 2: Executor succeeded but NO CHANGES produced
+    if not has_changes:
+        write_log(log_path, "Execution completed but NO CHANGES were produced.")
+        write_log(log_path, "Transitioning ticket to 'blocked' (reason: no diff)")
+        transition_ticket_sync(
+            ticket_id,
+            TicketState.BLOCKED,
+            reason="Execution completed but no code changes were produced",
+            payload={
+                "executor": executor_info.executor_type.value,
+                "evidence_ids": evidence_records,
+                "diff_summary": diff_stat,
+                "no_changes": True,
+                "yolo_mode": yolo_allowed,
+            },
+            actor_id="execute_worker",
+        )
+        update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
+        return {
+            "job_id": job_id,
+            "status": "no_changes",
+            "worktree": str(worktree_path),
+            "executor": executor_info.executor_type.value,
+            "evidence_ids": evidence_records,
+            "diff_summary": diff_stat,
+        }
+
+    # Case 3: Executor succeeded with changes → verifying
+    write_log(log_path, "Execution completed successfully with changes!")
+    write_log(log_path, "Transitioning ticket to 'verifying'")
+    transition_ticket_sync(
+        ticket_id,
+        TicketState.VERIFYING,
+        reason=f"Execution completed by {executor_info.executor_type.value} CLI with changes",
+        payload={
+            "executor": executor_info.executor_type.value,
+            "evidence_ids": evidence_records,
+            "diff_summary": diff_stat,
+            "has_changes": True,
+            "yolo_mode": yolo_allowed,
+        },
+        actor_id="execute_worker",
+    )
+    update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
+    return {
+        "job_id": job_id,
+        "status": "succeeded",
+        "worktree": str(worktree_path),
+        "executor": executor_info.executor_type.value,
+        "evidence_ids": evidence_records,
+        "diff_summary": diff_stat,
+        "has_changes": True,
+    }
 
 
 @celery_app.task(bind=True, name="verify_ticket")
@@ -715,7 +840,7 @@ def verify_ticket_task(self, job_id: str) -> dict:
             timeout=300,
         )
 
-        # Create evidence record
+        # Create evidence record (typed as verification output)
         create_evidence_record(
             ticket_id=ticket_id,
             job_id=job_id,
@@ -724,6 +849,7 @@ def verify_ticket_task(self, job_id: str) -> dict:
             stdout_path=stdout_path,
             stderr_path=stderr_path,
             evidence_id=evidence_id,
+            kind=EvidenceKind.VERIFY_STDOUT,
         )
         evidence_records.append(evidence_id)
 

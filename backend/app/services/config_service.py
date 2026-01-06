@@ -10,10 +10,22 @@ import yaml
 
 @dataclass
 class ExecuteConfig:
-    """Configuration for execute jobs."""
+    """Configuration for execute jobs.
+
+    YOLO Mode:
+        When yolo_mode is enabled, the executor CLI runs with --dangerously-skip-permissions.
+        This is ONLY safe when:
+        - Execution is isolated in a worktree (enforced by the worker)
+        - The repo is in a trusted allowlist (checked if allowlist is non-empty)
+        - No secrets are exposed to the executor
+
+        Default is False (permissioned mode) for safety.
+    """
 
     timeout: int = 600  # seconds (default 10 minutes)
-    preferred_executor: str = "claude"  # "claude" (headless) or "cursor" (opens editor)
+    preferred_executor: str = "claude"  # "claude" (headless) or "cursor" (interactive)
+    yolo_mode: bool = False  # DANGEROUS: skip permissions prompts (opt-in only)
+    yolo_allowlist: list[str] | None = None  # repos where YOLO is allowed (empty = any)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ExecuteConfig":
@@ -21,7 +33,32 @@ class ExecuteConfig:
         return cls(
             timeout=data.get("timeout", 600),
             preferred_executor=data.get("preferred_executor", "claude"),
+            yolo_mode=data.get("yolo_mode", False),
+            yolo_allowlist=data.get("yolo_allowlist"),
         )
+
+    def is_yolo_allowed(self, repo_path: str) -> bool:
+        """Check if YOLO mode is allowed for this repo.
+
+        YOLO mode is allowed if:
+        1. yolo_mode is enabled in config
+        2. Either yolo_allowlist is empty/None (allow any) OR repo_path is in the list
+
+        Args:
+            repo_path: Absolute path to the repository
+
+        Returns:
+            True if YOLO mode should be used
+        """
+        if not self.yolo_mode:
+            return False
+
+        # If allowlist is empty or not set, allow any repo
+        if not self.yolo_allowlist:
+            return True
+
+        # Check if repo is in allowlist
+        return repo_path in self.yolo_allowlist
 
 
 @dataclass

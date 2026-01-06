@@ -12,8 +12,15 @@ from app.exceptions import ExecutorNotFoundError
 class ExecutorType(str, Enum):
     """Supported executor CLI types."""
 
-    CLAUDE = "claude"
-    CURSOR = "cursor"
+    CLAUDE = "claude"  # Headless executor - can run automatically
+    CURSOR = "cursor"  # Interactive executor - requires human completion
+
+
+class ExecutorMode(str, Enum):
+    """Execution mode for the executor."""
+
+    HEADLESS = "headless"  # Fully automated, no human intervention
+    INTERACTIVE = "interactive"  # Requires human to complete the work
 
 
 @dataclass
@@ -24,13 +31,39 @@ class ExecutorInfo:
     command: str
     path: str
 
-    def get_apply_command(self, prompt_file: Path, worktree_path: Path) -> list[str]:
+    @property
+    def mode(self) -> ExecutorMode:
+        """Get the execution mode for this executor.
+
+        Claude CLI supports headless operation.
+        Cursor CLI is interactive - it opens the editor for human completion.
+        """
+        if self.executor_type == ExecutorType.CLAUDE:
+            return ExecutorMode.HEADLESS
+        return ExecutorMode.INTERACTIVE
+
+    def is_headless(self) -> bool:
+        """Check if this executor supports headless (non-interactive) operation."""
+        return self.mode == ExecutorMode.HEADLESS
+
+    def is_interactive(self) -> bool:
+        """Check if this executor requires human interaction."""
+        return self.mode == ExecutorMode.INTERACTIVE
+
+    def get_apply_command(
+        self,
+        prompt_file: Path,
+        worktree_path: Path,
+        yolo_mode: bool = False,
+    ) -> list[str]:
         """
         Get the command to run for applying changes.
 
         Args:
             prompt_file: Path to the prompt bundle file.
             worktree_path: Path to the worktree directory.
+            yolo_mode: If True, use --dangerously-skip-permissions (DANGEROUS).
+                      Only use when execution is isolated and you accept the risk.
 
         Returns:
             List of command arguments.
@@ -38,30 +71,34 @@ class ExecutorInfo:
         if self.executor_type == ExecutorType.CLAUDE:
             # Claude Code CLI with non-interactive mode:
             # - --print: Non-interactive mode that prints response and exits
-            # - --dangerously-skip-permissions: Skip permission prompts (safe in isolated worktree)
-            # - Read the prompt from the file
+            # - --dangerously-skip-permissions: ONLY if yolo_mode is enabled
             prompt_content = prompt_file.read_text()
-            return [
-                self.command,
-                "--print",
-                "--dangerously-skip-permissions",
-                prompt_content,
-            ]
+            cmd = [self.command, "--print"]
+            if yolo_mode:
+                cmd.append("--dangerously-skip-permissions")
+            cmd.append(prompt_content)
+            return cmd
         elif self.executor_type == ExecutorType.CURSOR:
-            # Cursor CLI doesn't support headless code generation
-            # Opening the editor with the worktree and a marker file
-            # Note: This is a fallback - Cursor requires interactive use
+            # Cursor CLI is INTERACTIVE ONLY
+            # It opens the editor with the worktree. User must complete changes manually.
+            # The worker will immediately transition to needs_human.
             return [self.command, str(worktree_path)]
         else:
             raise ValueError(f"Unknown executor type: {self.executor_type}")
 
-    def supports_headless(self) -> bool:
-        """Check if this executor supports headless (non-interactive) operation."""
-        return self.executor_type == ExecutorType.CLAUDE
-
 
 class ExecutorService:
-    """Service for detecting and using code executor CLIs."""
+    """Service for detecting and using code executor CLIs.
+
+    Executor Types:
+        - Claude CLI (headless): Can run fully automated. Preferred for CI/automation.
+        - Cursor CLI (interactive): Opens editor for human completion. Use as handoff.
+
+    Design Decisions:
+        - Claude CLI is preferred for headless operation
+        - Cursor CLI is a fallback that prepares workspace + prompt, then hands off to user
+        - If only Cursor is available, caller should transition to needs_human
+    """
 
     # CLI names to check in order of preference
     # Claude is preferred because it supports headless operation
@@ -81,6 +118,8 @@ class ExecutorService:
 
         Returns:
             ExecutorInfo with details about the detected CLI.
+            IMPORTANT: Check executor_info.is_interactive() - if True, you should
+            transition to needs_human instead of expecting automated completion.
 
         Raises:
             ExecutorNotFoundError: If no supported CLI is found.
@@ -110,9 +149,32 @@ class ExecutorService:
         raise ExecutorNotFoundError(
             "No supported code executor CLI found. "
             "Please install one of the following:\n"
-            "  - Claude Code CLI (recommended): https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview\n"
-            "  - Cursor CLI (fallback, opens editor): https://docs.cursor.com/cli"
+            "  - Claude Code CLI (recommended for automation): "
+            "https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview\n"
+            "  - Cursor CLI (interactive, opens editor): https://docs.cursor.com/cli"
         )
+
+    @classmethod
+    def detect_headless_executor(cls, preferred: str | None = None) -> ExecutorInfo | None:
+        """
+        Detect a headless executor CLI only.
+
+        Unlike detect_executor(), this returns None if only interactive
+        executors are available (instead of returning them).
+
+        Args:
+            preferred: Preferred executor type.
+
+        Returns:
+            ExecutorInfo if a headless executor is found, None otherwise.
+        """
+        try:
+            executor = cls.detect_executor(preferred=preferred)
+            if executor.is_headless():
+                return executor
+            return None
+        except ExecutorNotFoundError:
+            return None
 
     @classmethod
     def is_available(cls) -> bool:
@@ -127,6 +189,16 @@ class ExecutorService:
             return True
         except ExecutorNotFoundError:
             return False
+
+    @classmethod
+    def is_headless_available(cls) -> bool:
+        """
+        Check if a headless executor CLI is available.
+
+        Returns:
+            True if at least one headless executor is available.
+        """
+        return cls.detect_headless_executor() is not None
 
 
 class PromptBundleBuilder:

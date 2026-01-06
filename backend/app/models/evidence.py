@@ -16,8 +16,36 @@ if TYPE_CHECKING:
 
 
 class EvidenceKind(str, Enum):
-    """Enum representing the kind of evidence."""
+    """Enum representing the kind of evidence.
 
+    Evidence types for execution:
+    - EXECUTOR_STDOUT: stdout from executor CLI (Claude/Cursor)
+    - EXECUTOR_STDERR: stderr from executor CLI
+    - GIT_DIFF_STAT: output of `git diff --stat`
+    - GIT_DIFF_PATCH: full git diff patch
+
+    Evidence types for verification:
+    - VERIFY_STDOUT: stdout from verification command
+    - VERIFY_STDERR: stderr from verification command
+
+    Legacy types (kept for backwards compatibility):
+    - COMMAND_LOG: generic command output
+    - TEST_REPORT: test framework report
+    """
+
+    # Executor evidence
+    EXECUTOR_STDOUT = "executor_stdout"
+    EXECUTOR_STDERR = "executor_stderr"
+
+    # Git diff evidence
+    GIT_DIFF_STAT = "git_diff_stat"
+    GIT_DIFF_PATCH = "git_diff_patch"
+
+    # Verification evidence
+    VERIFY_STDOUT = "verify_stdout"
+    VERIFY_STDERR = "verify_stderr"
+
+    # Legacy types (backwards compatibility)
     COMMAND_LOG = "command_log"
     TEST_REPORT = "test_report"
 
