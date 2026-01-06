@@ -1,0 +1,40 @@
+# Smart Kanban Configuration
+# This file configures execution and verification pipelines for Smart Kanban.
+
+# =============================================================================
+# EXECUTION CONFIGURATION
+# =============================================================================
+# Settings for the execute job that implements ticket changes using AI code tools.
+
+execute_config:
+  # Timeout for executor CLI in seconds (default: 600 = 10 minutes)
+  # Increase for complex tickets that may require more time
+  timeout: 600
+
+  # Preferred executor CLI to use
+  # Options: "cursor" (Cursor CLI) or "claude" (Claude Code CLI)
+  # If the preferred executor is not available, the other will be tried as fallback
+  preferred_executor: "cursor"
+
+# =============================================================================
+# VERIFICATION CONFIGURATION
+# =============================================================================
+# Settings for the verify job that validates ticket implementations.
+
+# Commands to run during ticket verification
+# Each command is executed in the ticket's isolated worktree directory.
+# Commands run sequentially; verification stops on first failure.
+verify_commands:
+  - "echo 'Verification placeholder - configure your actual tests here'"
+  # Examples:
+  # - "pytest tests/"
+  # - "npm run test"
+  # - "make test"
+  # - "cargo test"
+  # - "go test ./..."
+
+# Auto-transition behavior when all verification commands succeed
+# - true: Automatically transition ticket to 'done' state
+# - false: Transition ticket to 'needs_human' state for manual review
+auto_transition_on_success: false
+

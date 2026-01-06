@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+  
+  --color-background: hsl(0 0% 98%);
+  --color-foreground: hsl(0 0% 10%);
+  
+  --color-card: hsl(0 0% 100%);
+  --color-card-foreground: hsl(0 0% 10%);
+  
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(0 0% 10%);
+  
+  --color-primary: hsl(0 0% 10%);
+  --color-primary-foreground: hsl(0 0% 98%);
+  
+  --color-secondary: hsl(0 0% 96%);
+  --color-secondary-foreground: hsl(0 0% 10%);
+  
+  --color-muted: hsl(0 0% 96%);
+  --color-muted-foreground: hsl(0 0% 45%);
+  
+  --color-accent: hsl(0 0% 96%);
+  --color-accent-foreground: hsl(0 0% 10%);
+  
+  --color-destructive: hsl(0 84.2% 60.2%);
+  --color-destructive-foreground: hsl(0 0% 98%);
+  
+  --color-border: hsl(0 0% 90%);
+  --color-input: hsl(0 0% 90%);
+  --color-ring: hsl(0 0% 10%);
+  
+  --radius-lg: 0.25rem;
+  --radius-md: 0.25rem;
+  --radius-sm: 0.25rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-weight: 400;
+    font-size: 13px;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+}
