@@ -78,13 +78,13 @@ verify_config:
   # Each command is executed in the ticket's isolated worktree directory.
   # Commands run sequentially; verification stops on first failure.
   commands:
-    - "echo 'Verification placeholder - configure your actual tests here'"
-    # Real examples:
-    # - "cd backend && ruff check ."
+    # Compile check: catches syntax errors
+    - "python -m compileall -q backend/app"
+    # Lint check: catches style and some logical errors
+    - "cd backend && ruff check app --select=E,F --ignore=F401"
+    # Add more as your project grows:
     # - "cd backend && python -m pytest -q"
-    # - "npm run lint"
-    # - "npm run test"
-    # - "make test"
+    # - "cd frontend && npm run lint"
 
   # Target state when all verification commands succeed
   # Options:

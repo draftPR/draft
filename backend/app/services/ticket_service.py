@@ -171,19 +171,37 @@ class TicketService:
 
     async def _enqueue_verify_job_async(self, ticket_id: str) -> str | None:
         """
-        Asynchronously enqueue a verify job for a ticket.
+        Asynchronously enqueue a verify job for a ticket (idempotent).
+
+        Idempotency: Only creates a new verify job if there is no active
+        (queued or running) verify job for this ticket. This prevents
+        duplicate verify jobs from race conditions or retries.
 
         Args:
             ticket_id: The UUID of the ticket
 
         Returns:
-            The job ID if successful, None otherwise.
+            The job ID if created, None if skipped (already active).
         """
         from app.models.job import Job, JobKind, JobStatus
 
         try:
             # Import here to avoid circular dependency
             from app.worker import verify_ticket_task
+
+            # IDEMPOTENCY CHECK: Is there already an active verify job?
+            active_verify_result = await self.db.execute(
+                select(Job).where(
+                    Job.ticket_id == ticket_id,
+                    Job.kind == JobKind.VERIFY.value,
+                    Job.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
+                )
+            )
+            active_verify = active_verify_result.scalar_one_or_none()
+
+            if active_verify:
+                logger.info(f"Skipping verify enqueue for ticket {ticket_id} - already has active job {active_verify.id}")
+                return None
 
             # Create the job record
             job = Job(

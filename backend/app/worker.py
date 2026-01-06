@@ -298,14 +298,33 @@ def transition_ticket_sync(
 
 def _enqueue_verify_job_sync(ticket_id: str) -> str | None:
     """
-    Synchronously enqueue a verify job for a ticket.
+    Synchronously enqueue a verify job for a ticket (idempotent).
+
+    Idempotency: Only creates a new verify job if there is no active
+    (queued or running) verify job for this ticket. This prevents
+    duplicate verify jobs from race conditions or retries.
 
     Returns:
-        The job ID if successful, None otherwise.
+        The job ID if created, None if skipped (already active).
     """
     from app.models.job import Job, JobKind, JobStatus
 
     with get_sync_db() as db:
+        # IDEMPOTENCY CHECK: Is there already an active verify job?
+        active_verify = (
+            db.query(Job)
+            .filter(
+                Job.ticket_id == ticket_id,
+                Job.kind == JobKind.VERIFY.value,
+                Job.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
+            )
+            .first()
+        )
+
+        if active_verify:
+            # Already has an active verify job - skip to avoid duplicates
+            return None
+
         # Create the job record
         job = Job(
             ticket_id=ticket_id,
@@ -524,7 +543,9 @@ def execute_ticket_task(self, job_id: str) -> dict:
     execute_config = config.execute_config
 
     # Get main repo path for validation
-    main_repo_path = config.project.get_absolute_repo_root(worktree_path)
+    # Use WorkspaceService.get_repo_path() which knows the actual main repo root
+    # (not derived from worktree, which would be wrong for allowlist checking)
+    main_repo_path = WorkspaceService.get_repo_path()
 
     # =========================================================================
     # WORKTREE SAFETY VALIDATION (enforced, not assumed)
