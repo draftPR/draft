@@ -81,3 +81,4 @@ class TicketEvent(Base):
 
     def __repr__(self) -> str:
         return f"<TicketEvent(id={self.id}, type={self.event_type}, ticket_id={self.ticket_id})>"
+

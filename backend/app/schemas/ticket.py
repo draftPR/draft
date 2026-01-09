@@ -107,3 +107,48 @@ class BoardResponse(BaseModel):
 
     columns: list[TicketsByState]
     total_tickets: int
+
+
+class BulkAcceptRequest(BaseModel):
+    """Schema for bulk accepting proposed tickets."""
+
+    ticket_ids: list[str] = Field(..., min_length=1, description="List of ticket IDs to accept")
+    goal_id: str | None = Field(
+        None,
+        description="If provided, validates all tickets belong to this goal",
+    )
+    actor_type: ActorType = Field(default=ActorType.HUMAN, description="Actor performing the accept")
+    actor_id: str | None = Field(None, description="ID of the actor")
+    reason: str | None = Field(
+        default="Accepted from AI-generated proposal",
+        description="Reason for acceptance",
+    )
+    queue_first: bool = Field(
+        default=False,
+        description="If true, queue the first accepted ticket for execution",
+    )
+
+
+class BulkAcceptResult(BaseModel):
+    """Result for a single ticket in bulk accept."""
+
+    ticket_id: str
+    success: bool
+    error: str | None = None
+
+
+class BulkAcceptResponse(BaseModel):
+    """Response for bulk accept operation."""
+
+    accepted_ids: list[str] = Field(default_factory=list)
+    rejected: list[BulkAcceptResult] = Field(default_factory=list)
+    accepted_count: int
+    failed_count: int
+    queued_job_id: str | None = Field(
+        None,
+        description="Job ID if queue_first was true and first ticket was queued",
+    )
+    queued_ticket_id: str | None = Field(
+        None,
+        description="Ticket ID that was queued (first in request order)",
+    )

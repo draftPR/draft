@@ -11,6 +11,7 @@ from app.celery_app import celery_app
 from app.exceptions import ResourceNotFoundError
 from app.models.job import Job, JobKind, JobStatus
 from app.models.ticket import Ticket
+from app.schemas.job import QueuedJobResponse, QueueStatusResponse
 from app.services.workspace_service import WorkspaceService
 
 # Base directory for fallback logs (relative to backend directory)
@@ -84,15 +85,16 @@ class JobService:
         Raises:
             ResourceNotFoundError: If the ticket is not found
         """
-        # Verify the ticket exists
+        # Verify the ticket exists and get its board_id
         result = await self.db.execute(select(Ticket).where(Ticket.id == ticket_id))
         ticket = result.scalar_one_or_none()
         if ticket is None:
             raise ResourceNotFoundError("Ticket", ticket_id)
 
-        # Create the job record
+        # Create the job record with board_id from ticket for permission scoping
         job = Job(
             ticket_id=ticket_id,
+            board_id=ticket.board_id,  # Inherit board_id from ticket
             kind=kind.value,
             status=JobStatus.QUEUED.value,
         )
@@ -236,3 +238,64 @@ class JobService:
         backend_root = Path(__file__).parent.parent.parent
         content = _safe_read_file(backend_root, FALLBACK_LOGS_DIR, log_path)
         return content
+
+    async def get_queue_status(self) -> QueueStatusResponse:
+        """
+        Get the current queue status showing running and queued jobs.
+
+        Returns:
+            QueueStatusResponse with running and queued jobs including ticket info
+        """
+        # Get running jobs (ordered by started_at)
+        running_result = await self.db.execute(
+            select(Job)
+            .where(Job.status == JobStatus.RUNNING.value)
+            .options(selectinload(Job.ticket))
+            .order_by(Job.started_at.asc())
+        )
+        running_jobs = list(running_result.scalars().all())
+
+        # Get queued jobs (ordered by created_at - FIFO)
+        queued_result = await self.db.execute(
+            select(Job)
+            .where(Job.status == JobStatus.QUEUED.value)
+            .options(selectinload(Job.ticket))
+            .order_by(Job.created_at.asc())
+        )
+        queued_jobs = list(queued_result.scalars().all())
+
+        # Build response
+        running_responses = [
+            QueuedJobResponse(
+                id=job.id,
+                ticket_id=job.ticket_id,
+                ticket_title=job.ticket.title if job.ticket else "Unknown",
+                kind=JobKind(job.kind),
+                status=JobStatus(job.status),
+                created_at=job.created_at,
+                started_at=job.started_at,
+                queue_position=None,  # Running jobs have no queue position
+            )
+            for job in running_jobs
+        ]
+
+        queued_responses = [
+            QueuedJobResponse(
+                id=job.id,
+                ticket_id=job.ticket_id,
+                ticket_title=job.ticket.title if job.ticket else "Unknown",
+                kind=JobKind(job.kind),
+                status=JobStatus(job.status),
+                created_at=job.created_at,
+                started_at=job.started_at,
+                queue_position=idx + 1,  # 1-based position
+            )
+            for idx, job in enumerate(queued_jobs)
+        ]
+
+        return QueueStatusResponse(
+            running=running_responses,
+            queued=queued_responses,
+            total_running=len(running_responses),
+            total_queued=len(queued_responses),
+        )

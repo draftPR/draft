@@ -1,0 +1,92 @@
+#!/bin/bash
+# Script to generate 4 tickets for ~/Documents/code/tests/ project
+# Usage: ./generate_test_tickets.sh [output_file]
+# Default output: test_project_tickets.json
+
+set -e
+
+OUTPUT_FILE="${1:-test_project_tickets.json}"
+PROJECT_PATH="$HOME/Documents/code/tests"
+
+echo "Generating tickets for project: $PROJECT_PATH"
+echo "Output file: $OUTPUT_FILE"
+
+# Generate the JSON file with 4 tickets
+cat > "$OUTPUT_FILE" << 'EOF'
+{
+  "tickets": [
+    {
+      "title": "Set up project structure and dependencies",
+      "description": "Initialize the test project with proper directory structure and dependency management.\n\nTasks:\n1. Create main project directory structure (src/, tests/, docs/)\n2. Initialize git repository if not already initialized\n3. Create requirements.txt or package.json depending on project type\n4. Set up .gitignore with common patterns\n5. Create a basic README.md with project overview\n6. Add a LICENSE file (MIT recommended)\n\nAcceptance criteria:\n- Project has organized directory structure\n- Dependency management file exists (requirements.txt or package.json)\n- Git repository is initialized with proper .gitignore\n- README.md contains project description and setup instructions\n- LICENSE file is present",
+      "priority_bucket": "P0",
+      "priority_rationale": "Foundation setup - must be completed before any other development work can begin",
+      "verification": [
+        "test -d ~/Documents/code/tests/src || test -d ~/Documents/code/tests/lib",
+        "test -d ~/Documents/code/tests/tests",
+        "test -f ~/Documents/code/tests/README.md",
+        "test -d ~/Documents/code/tests/.git",
+        "test -f ~/Documents/code/tests/.gitignore"
+      ],
+      "notes": "Choose appropriate structure based on language: Python (src/), Node.js (lib/ or src/), etc. Include virtual environment setup instructions in README if using Python."
+    },
+    {
+      "title": "Implement core utility functions",
+      "description": "Create a module with essential utility functions for data processing.\n\nFunctions to implement:\n1. validate_input(data) - Validate input data structure and types\n2. parse_config(filepath) - Parse configuration from JSON/YAML file\n3. format_output(data, format_type) - Format data for different output types (json, csv, text)\n4. log_message(level, message) - Centralized logging with levels (debug, info, warning, error)\n5. retry_operation(func, max_attempts, delay) - Retry decorator for failing operations\n\nRequirements:\n- All functions must have type hints\n- Comprehensive docstrings with examples\n- Error handling with custom exceptions\n- Unit tests for each function\n\nAcceptance criteria:\n- Utility module exists with all 5 functions\n- Functions have type hints and docstrings\n- Error cases are handled gracefully\n- 100% test coverage for utility module",
+      "priority_bucket": "P1",
+      "priority_rationale": "Core functionality - required for other modules to function properly",
+      "verification": [
+        "test -f ~/Documents/code/tests/src/utils.py || test -f ~/Documents/code/tests/lib/utils.js",
+        "grep -q 'validate_input\\|validateInput' ~/Documents/code/tests/src/utils.py ~/Documents/code/tests/lib/utils.js 2>/dev/null || true",
+        "test -f ~/Documents/code/tests/tests/test_utils.py || test -f ~/Documents/code/tests/tests/utils.test.js"
+      ],
+      "notes": "Consider using existing libraries: pydantic for validation (Python), joi (Node.js). For logging, use standard library logging module or winston."
+    },
+    {
+      "title": "Add comprehensive test suite with CI integration",
+      "description": "Set up a complete testing infrastructure with continuous integration.\n\nComponents:\n1. Unit tests for all modules (targeting 80%+ coverage)\n2. Integration tests for key workflows\n3. Test fixtures and mocks for external dependencies\n4. GitHub Actions or GitLab CI configuration\n5. Code coverage reporting (codecov or coveralls)\n6. Pre-commit hooks for running tests\n\nCI Pipeline stages:\n- Lint and format check\n- Run all tests\n- Generate coverage report\n- Build artifacts (if applicable)\n\nAcceptance criteria:\n- Test suite covers at least 80% of codebase\n- CI configuration file exists and runs on push/PR\n- Coverage reports are generated automatically\n- Pre-commit hooks prevent committing untested code\n- All tests pass in CI environment",
+      "priority_bucket": "P1",
+      "priority_rationale": "Quality assurance - ensures reliability and catches regressions early",
+      "verification": [
+        "test -f ~/Documents/code/tests/.github/workflows/test.yml || test -f ~/Documents/code/tests/.gitlab-ci.yml",
+        "test -f ~/Documents/code/tests/tests/conftest.py || test -f ~/Documents/code/tests/jest.config.js 2>/dev/null || true",
+        "test -f ~/Documents/code/tests/.pre-commit-config.yaml || test -f ~/Documents/code/tests/.husky/pre-commit 2>/dev/null || true"
+      ],
+      "notes": "Use pytest for Python, jest for Node.js. For pre-commit hooks: pre-commit framework (Python) or husky (Node.js). Consider using tox for testing across multiple Python versions."
+    },
+    {
+      "title": "Create documentation and usage examples",
+      "description": "Develop comprehensive documentation for the project with practical examples.\n\nDocumentation includes:\n1. API reference with all public functions/classes\n2. Getting started guide with installation instructions\n3. Usage examples for common scenarios\n4. Architecture overview diagram\n5. Contributing guidelines (CONTRIBUTING.md)\n6. Changelog template (CHANGELOG.md)\n7. Example configurations and use cases\n\nFormat:\n- Use Markdown for all documentation\n- Include code examples with syntax highlighting\n- Add diagrams using Mermaid or draw.io\n- Keep examples simple and runnable\n\nAcceptance criteria:\n- docs/ directory exists with organized documentation\n- README.md links to detailed documentation\n- At least 3 working code examples are provided\n- CONTRIBUTING.md explains how to contribute\n- Documentation is clear and easy to follow",
+      "priority_bucket": "P2",
+      "priority_rationale": "Important for usability and adoption, but not blocking core functionality",
+      "verification": [
+        "test -d ~/Documents/code/tests/docs",
+        "test -f ~/Documents/code/tests/CONTRIBUTING.md",
+        "test -f ~/Documents/code/tests/docs/getting-started.md || grep -q 'Getting Started\\|Installation' ~/Documents/code/tests/README.md",
+        "find ~/Documents/code/tests/docs -name '*.md' -o -name 'example*.py' -o -name 'example*.js' | head -3 | wc -l | grep -q '[3-9]' || true"
+      ],
+      "notes": "Consider using documentation generators: Sphinx (Python), JSDoc (JavaScript), or MkDocs for both. Host documentation on GitHub Pages or Read the Docs for easy access."
+    }
+  ]
+}
+EOF
+
+echo ""
+echo "✅ Successfully generated $OUTPUT_FILE with 4 tickets!"
+echo ""
+echo "Ticket summary:"
+echo "  1. [P0] Set up project structure and dependencies"
+echo "  2. [P1] Implement core utility functions"
+echo "  3. [P1] Add comprehensive test suite with CI integration"
+echo "  4. [P2] Create documentation and usage examples"
+echo ""
+echo "Next steps:"
+echo "  1. Review the generated tickets in $OUTPUT_FILE"
+echo "  2. Create a goal for the test project:"
+echo "     curl -X POST http://localhost:8000/goals \\"
+echo "       -H 'Content-Type: application/json' \\"
+echo "       -d '{\"title\": \"Bootstrap Test Project\", \"description\": \"Set up and implement foundational features for the test project\"}'"
+echo ""
+echo "  3. Import tickets using the goal_id from step 2"
+echo "     (Note: You'll need to manually create tickets via API using the data in $OUTPUT_FILE)"
+
+

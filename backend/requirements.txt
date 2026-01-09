@@ -7,3 +7,6 @@ aiosqlite>=0.19.0
 greenlet>=3.0.0
 celery[redis]>=5.3.0
 redis>=5.0.0
+httpx>=0.25.0
+litellm>=1.0.0
+boto3>=1.42.0  # AWS SDK for Bedrock LLM support

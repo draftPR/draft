@@ -37,6 +37,18 @@ class ValidationError(SmartKanbanError):
         super().__init__(self.message)
 
 
+class ConflictError(SmartKanbanError):
+    """Raised when an operation conflicts with current resource state.
+
+    Typically maps to HTTP 409 Conflict.
+    Example: Attempting to comment on a superseded revision.
+    """
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
+
+
 class WorkspaceError(SmartKanbanError):
     """Base exception for workspace-related errors."""
 
@@ -107,4 +119,32 @@ class ExecutorInvocationError(ExecutorError):
             full_message = f"{message} (exit code: {exit_code})"
         if stderr:
             full_message = f"{full_message}\nError output: {stderr}"
+        super().__init__(full_message)
+
+
+class ConfigurationError(SmartKanbanError):
+    """Raised when required configuration is missing or invalid."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
+
+
+class PlannerError(SmartKanbanError):
+    """Base exception for planner-related errors."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
+
+
+class LLMAPIError(PlannerError):
+    """Raised when an LLM API call fails."""
+
+    def __init__(self, message: str, provider: str, status_code: int | None = None):
+        self.provider = provider
+        self.status_code = status_code
+        full_message = f"[{provider}] {message}"
+        if status_code:
+            full_message = f"{full_message} (status: {status_code})"
         super().__init__(full_message)

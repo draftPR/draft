@@ -10,16 +10,31 @@ from fastapi.responses import JSONResponse
 
 from app.database import init_db
 from app.exceptions import (
+    ConfigurationError,
     InvalidStateTransitionError,
+    LLMAPIError,
     ResourceNotFoundError,
     SmartKanbanError,
     ValidationError,
 )
-from app.routers import board_router, evidence_router, goals_router, jobs_router, tickets_router
+from app.middleware import IdempotencyMiddleware, RateLimitMiddleware
+from app.routers import (
+    board_legacy_router,
+    boards_router,
+    debug_router,
+    evidence_router,
+    goals_router,
+    jobs_router,
+    maintenance_router,
+    merge_router,
+    planner_router,
+    revisions_router,
+    tickets_router,
+)
 
 load_dotenv()
 
-APP_NAME = "Smart Kanban"
+APP_NAME = "Orion Kanban"
 APP_VERSION = "0.1.0"
 
 
@@ -48,6 +63,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting for LLM endpoints (10 req/min)
+app.add_middleware(RateLimitMiddleware)
+
+# Idempotency support for expensive operations
+app.add_middleware(IdempotencyMiddleware)
 
 
 # Exception handlers
@@ -95,6 +116,35 @@ async def validation_error_handler(
     )
 
 
+@app.exception_handler(ConfigurationError)
+async def configuration_error_handler(
+    request: Request, exc: ConfigurationError
+) -> JSONResponse:
+    """Handle configuration errors (e.g., missing API keys)."""
+    return JSONResponse(
+        status_code=400,
+        content={
+            "detail": exc.message,
+            "error_type": "configuration_error",
+        },
+    )
+
+
+@app.exception_handler(LLMAPIError)
+async def llm_api_error_handler(
+    request: Request, exc: LLMAPIError
+) -> JSONResponse:
+    """Handle LLM API errors."""
+    return JSONResponse(
+        status_code=502,
+        content={
+            "detail": exc.message,
+            "error_type": "llm_api_error",
+            "provider": exc.provider,
+        },
+    )
+
+
 @app.exception_handler(SmartKanbanError)
 async def smart_kanban_error_handler(
     request: Request, exc: SmartKanbanError
@@ -112,9 +162,15 @@ async def smart_kanban_error_handler(
 # Include routers
 app.include_router(goals_router)
 app.include_router(tickets_router)
-app.include_router(board_router)
+app.include_router(boards_router)  # New multi-board endpoints (/boards/...)
+app.include_router(board_legacy_router)  # Legacy kanban view (/board)
 app.include_router(jobs_router)
 app.include_router(evidence_router)
+app.include_router(planner_router)
+app.include_router(revisions_router)
+app.include_router(merge_router)
+app.include_router(maintenance_router)
+app.include_router(debug_router)
 
 
 @app.get("/health")

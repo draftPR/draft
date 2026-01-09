@@ -3,13 +3,17 @@
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+# Get the backend directory (where this file lives is app/, so go up one level)
+_BACKEND_DIR = Path(__file__).parent.parent.resolve()
+
 # Synchronous database URL - defaults to SQLite file in the backend directory
-# Note: We remove the async driver prefix for synchronous access
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./kanban.db")
+# Use absolute path to ensure worker finds the same database as the server
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{_BACKEND_DIR}/kanban.db")
 if DATABASE_URL.startswith("sqlite+aiosqlite"):
     DATABASE_URL = DATABASE_URL.replace("sqlite+aiosqlite", "sqlite")
 

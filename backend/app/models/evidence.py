@@ -53,6 +53,11 @@ class EvidenceKind(str, Enum):
     VERIFY_STDOUT = "verify_stdout"
     VERIFY_STDERR = "verify_stderr"
 
+    # Merge evidence
+    MERGE_STDOUT = "merge_stdout"
+    MERGE_STDERR = "merge_stderr"
+    MERGE_META = "merge_meta"  # JSON: strategy, branch, base_branch, exit_code, duration_ms, evidence_ids
+
     # Legacy types (backwards compatibility)
     COMMAND_LOG = "command_log"
     TEST_REPORT = "test_report"

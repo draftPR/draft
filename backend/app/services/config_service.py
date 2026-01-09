@@ -148,19 +148,6 @@ class ExecuteConfig:
         msg += "Add this path to yolo_allowlist if you trust it."
         return msg
 
-    def get_yolo_refusal_reason(self) -> str:
-        """Get a human-readable reason for YOLO refusal."""
-        if not self.yolo_allowlist:
-            return (
-                "YOLO mode enabled but yolo_allowlist is empty. "
-                "For safety, you must explicitly list trusted repo paths in yolo_allowlist. "
-                "Refusing to run with --dangerously-skip-permissions."
-            )
-        return (
-            "YOLO mode enabled but this worktree is not in yolo_allowlist. "
-            "Add this path to yolo_allowlist if you trust it."
-        )
-
 
 @dataclass
 class VerifyConfig:
@@ -177,6 +164,130 @@ class VerifyConfig:
             commands=data.get("commands") or [],
             on_success=data.get("on_success", "needs_human"),
             on_failure=data.get("on_failure", "blocked"),
+        )
+
+
+@dataclass
+class CleanupConfig:
+    """Configuration for cleanup policy.
+
+    Controls automatic cleanup of worktrees and evidence files.
+    """
+
+    auto_cleanup_on_merge: bool = True  # Delete worktree after successful merge
+    worktree_ttl_days: int = 14  # Delete worktrees older than this
+    evidence_ttl_days: int = 30  # Delete evidence files older than this
+    max_worktrees: int = 50  # Maximum number of active worktrees
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CleanupConfig":
+        """Create a config instance from a dictionary."""
+        return cls(
+            auto_cleanup_on_merge=data.get("auto_cleanup_on_merge", True),
+            worktree_ttl_days=data.get("worktree_ttl_days", 14),
+            evidence_ttl_days=data.get("evidence_ttl_days", 30),
+            max_worktrees=data.get("max_worktrees", 50),
+        )
+
+
+@dataclass
+class MergeConfig:
+    """Configuration for merge operations."""
+
+    default_strategy: str = "merge"  # "merge" or "rebase"
+    pull_before_merge: bool = True  # git pull --ff-only before merge
+    delete_branch_after_merge: bool = True  # Delete branch after merge
+    require_pull_success: bool = True  # If pull fails, abort merge (safer default)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MergeConfig":
+        """Create a config instance from a dictionary."""
+        return cls(
+            default_strategy=data.get("default_strategy", "merge"),
+            pull_before_merge=data.get("pull_before_merge", True),
+            delete_branch_after_merge=data.get("delete_branch_after_merge", True),
+            require_pull_success=data.get("require_pull_success", True),
+        )
+
+
+@dataclass
+class PlannerFeaturesConfig:
+    """Feature flags for the planner."""
+
+    auto_execute: bool = True
+    propose_followups: bool = True
+    generate_reflections: bool = True
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PlannerFeaturesConfig":
+        """Create a config instance from a dictionary."""
+        return cls(
+            auto_execute=data.get("auto_execute", True),
+            propose_followups=data.get("propose_followups", True),
+            generate_reflections=data.get("generate_reflections", True),
+        )
+
+
+@dataclass
+class PlannerConfig:
+    """Configuration for the AI planner.
+
+    The planner automates workflow decisions:
+    - Picks next ticket to execute (deterministic)
+    - Proposes follow-up tickets for blocked items (LLM)
+    - Generates reflection summaries for done tickets (LLM)
+    - Generates tickets from goals using agent CLI
+
+    Safety caps prevent runaway follow-up generation:
+    - max_followups_per_ticket: Max follow-ups for any single blocked ticket
+    - max_followups_per_tick: Max follow-ups created in one tick
+    - skip_followup_reasons: Blocker reasons that should NOT trigger follow-ups
+    """
+
+    model: str = "gpt-4o-mini"
+    max_tokens_reflection: int = 300
+    max_tokens_followup: int = 500
+    timeout: int = 30
+    features: PlannerFeaturesConfig = field(default_factory=PlannerFeaturesConfig)
+
+    # Agent path for ticket generation (cursor-agent or claude CLI)
+    # Supports ~ for home directory expansion
+    agent_path: str = "~/.local/bin/cursor-agent"
+
+    # Follow-up caps to prevent spam
+    max_followups_per_ticket: int = 2  # Total follow-ups for any blocked ticket
+    max_followups_per_tick: int = 3  # Max follow-ups created in one tick
+
+    # Blocker reasons that should NOT trigger follow-ups
+    # These are typically prompt/requirements issues, not new tickets
+    skip_followup_reasons: list[str] = field(default_factory=lambda: [
+        "no changes produced",
+        "no changes",
+        "empty diff",
+    ])
+
+    def get_agent_path(self) -> str:
+        """Get the expanded agent path."""
+        return os.path.expanduser(self.agent_path)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PlannerConfig":
+        """Create a config instance from a dictionary."""
+        features_data = data.get("features", {})
+        features = PlannerFeaturesConfig.from_dict(features_data) if features_data else PlannerFeaturesConfig()
+
+        default_skip_reasons = ["no changes produced", "no changes", "empty diff"]
+
+        return cls(
+            model=data.get("model", "gpt-4o-mini"),
+            max_tokens_reflection=data.get("max_tokens_reflection", 300),
+            max_tokens_followup=data.get("max_tokens_followup", 500),
+            timeout=data.get("timeout", 30),
+            features=features,
+            agent_path=data.get("agent_path", "~/.local/bin/cursor-agent"),
+            max_followups_per_ticket=data.get("max_followups_per_ticket", 2),
+            max_followups_per_tick=data.get("max_followups_per_tick", 3),
+            skip_followup_reasons=data.get("skip_followup_reasons") or default_skip_reasons,
         )
 
 
@@ -199,6 +310,27 @@ class SmartKanbanConfig:
           on_success: "needs_human"
           on_failure: "blocked"
 
+        planner_config:
+          model: "gpt-4o-mini"
+          max_tokens_reflection: 300
+          max_tokens_followup: 500
+          timeout: 30
+          features:
+            auto_execute: true
+            propose_followups: true
+            generate_reflections: true
+
+        cleanup_config:
+          auto_cleanup_on_merge: true
+          worktree_ttl_days: 14
+          evidence_ttl_days: 30
+          max_worktrees: 50
+
+        merge_config:
+          default_strategy: "merge"
+          pull_before_merge: true
+          delete_branch_after_merge: true
+
     Legacy Support:
         For backwards compatibility, also supports:
         - verify_commands (top-level) → verify_config.commands
@@ -208,6 +340,9 @@ class SmartKanbanConfig:
     project: ProjectConfig = field(default_factory=ProjectConfig)
     execute_config: ExecuteConfig = field(default_factory=ExecuteConfig)
     verify_config: VerifyConfig = field(default_factory=VerifyConfig)
+    planner_config: PlannerConfig = field(default_factory=PlannerConfig)
+    cleanup_config: CleanupConfig = field(default_factory=CleanupConfig)
+    merge_config: MergeConfig = field(default_factory=MergeConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SmartKanbanConfig":
@@ -234,10 +369,25 @@ class SmartKanbanConfig:
                 on_failure="blocked",
             )
 
+        # Parse planner config
+        planner_data = data.get("planner_config", {})
+        planner_config = PlannerConfig.from_dict(planner_data) if planner_data else PlannerConfig()
+
+        # Parse cleanup config
+        cleanup_data = data.get("cleanup_config", {})
+        cleanup_config = CleanupConfig.from_dict(cleanup_data) if cleanup_data else CleanupConfig()
+
+        # Parse merge config
+        merge_data = data.get("merge_config", {})
+        merge_config = MergeConfig.from_dict(merge_data) if merge_data else MergeConfig()
+
         return cls(
             project=project,
             execute_config=execute_config,
             verify_config=verify_config,
+            planner_config=planner_config,
+            cleanup_config=cleanup_config,
+            merge_config=merge_config,
         )
 
     # Convenience properties for backwards compatibility
@@ -275,28 +425,18 @@ class ConfigService:
         """Get the path to the config file."""
         return self.repo_path / self.CONFIG_FILENAME
 
-    def load_config(self, use_cache: bool = True) -> SmartKanbanConfig:
+    def load_config(self, use_cache: bool = False) -> SmartKanbanConfig:
         """
         Load and parse the smartkanban.yaml configuration.
 
         Args:
-            use_cache: Whether to use cached config if available.
+            use_cache: Whether to use cached config if available (default: False for dev).
 
         Returns:
             SmartKanbanConfig instance with parsed configuration.
             Returns default config if file doesn't exist or is invalid.
         """
-        cache_key = str(self.config_path)
-
-        if use_cache and cache_key in self._cache:
-            return self._cache[cache_key]
-
-        config = self._load_config_from_file()
-
-        if use_cache:
-            self._cache[cache_key] = config
-
-        return config
+        return self._load_config_from_file()
 
     def _load_config_from_file(self) -> SmartKanbanConfig:
         """Load config from file, returning defaults if not found or invalid."""
@@ -349,3 +489,15 @@ class ConfigService:
         """Get the absolute repo root path."""
         config = self.load_config()
         return config.project.get_absolute_repo_root(self.repo_path)
+
+    def get_planner_config(self) -> PlannerConfig:
+        """Get the planner configuration."""
+        return self.load_config().planner_config
+
+    def get_cleanup_config(self) -> CleanupConfig:
+        """Get the cleanup configuration."""
+        return self.load_config().cleanup_config
+
+    def get_merge_config(self) -> MergeConfig:
+        """Get the merge configuration."""
+        return self.load_config().merge_config

@@ -206,3 +206,4 @@ class WorktreeValidator:
         """
         return self.validate(worktree_path).valid
 
+

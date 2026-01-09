@@ -52,7 +52,9 @@ dev-frontend:
 	cd frontend && npm run dev
 
 dev-worker:
-	cd backend && . venv/bin/activate && celery -A app.celery_app worker --loglevel=info
+	@# Clean up stale celerybeat-schedule SQLite lock files to prevent locking protocol errors
+	rm -f backend/celerybeat-schedule-shm backend/celerybeat-schedule-wal
+	cd backend && . venv/bin/activate && celery -A app.celery_app worker --beat --loglevel=info
 
 redis:
 	redis-server
@@ -89,6 +91,7 @@ clean:
 	rm -rf backend/app/__pycache__
 	rm -rf backend/.ruff_cache
 	rm -rf backend/.pytest_cache
+	rm -f backend/celerybeat-schedule backend/celerybeat-schedule-shm backend/celerybeat-schedule-wal
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@echo "✓ Clean complete!"

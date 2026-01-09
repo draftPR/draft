@@ -261,11 +261,33 @@ class WorkspaceService:
         if worktree_dir.exists():
             shutil.rmtree(worktree_dir)
 
-        # Create the worktree with a new branch
-        self._run_git_command(
-            ["worktree", "add", "-b", branch_name, str(worktree_dir), base_branch],
+        # Check if branch already exists (e.g., from previous execution before cleanup)
+        branch_exists_result = self._run_git_command(
+            ["rev-parse", "--verify", f"refs/heads/{branch_name}"],
             cwd=repo_path,
+            check=False,
         )
+        branch_exists = branch_exists_result.returncode == 0
+
+        if branch_exists:
+            # Branch exists - create worktree using existing branch
+            # First, make sure the branch isn't checked out elsewhere
+            self._run_git_command(
+                ["worktree", "prune"],
+                cwd=repo_path,
+                check=False,
+            )
+            # Create worktree with existing branch
+            self._run_git_command(
+                ["worktree", "add", str(worktree_dir), branch_name],
+                cwd=repo_path,
+            )
+        else:
+            # Create the worktree with a new branch
+            self._run_git_command(
+                ["worktree", "add", "-b", branch_name, str(worktree_dir), base_branch],
+                cwd=repo_path,
+            )
 
         # Create or update workspace record
         if existing:

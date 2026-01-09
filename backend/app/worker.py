@@ -111,7 +111,7 @@ def get_log_path_for_job(job_id: str, worktree_path: Path | None) -> tuple[Path,
         return full_path, f"logs/{job_id}.log"
 
 
-def update_job_started(job_id: str, log_path: str) -> bool:
+def update_job_started(job_id: str, log_path: str, timeout_seconds: int | None = None) -> bool:
     """Mark job as running. Returns False if job was canceled."""
     with get_sync_db() as db:
         job = db.query(Job).filter(Job.id == job_id).first()
@@ -122,9 +122,29 @@ def update_job_started(job_id: str, log_path: str) -> bool:
         if job.status == JobStatus.CANCELED.value:
             return False
 
+        now = datetime.now(UTC)
         job.status = JobStatus.RUNNING.value
-        job.started_at = datetime.now(UTC)
+        job.started_at = now
+        job.last_heartbeat_at = now
         job.log_path = log_path
+        if timeout_seconds:
+            job.timeout_seconds = timeout_seconds
+        db.commit()
+        return True
+
+
+def update_job_heartbeat(job_id: str) -> bool:
+    """Update job heartbeat timestamp. Returns False if job was canceled."""
+    with get_sync_db() as db:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            return False
+
+        # Check if job was canceled
+        if job.status == JobStatus.CANCELED.value:
+            return False
+
+        job.last_heartbeat_at = datetime.now(UTC)
         db.commit()
         return True
 
@@ -290,6 +310,161 @@ def create_evidence_record(
         return evidence
 
 
+def create_revision_for_job(
+    ticket_id: str,
+    job_id: str,
+    diff_stat_evidence_id: str | None = None,
+    diff_patch_evidence_id: str | None = None,
+) -> str | None:
+    """Create a Revision record for a job that produced changes.
+
+    This function is IDEMPOTENT - if the same job_id is retried, returns existing revision.
+    Automatically supersedes any existing open revisions for the ticket.
+
+    Args:
+        ticket_id: UUID of the ticket
+        job_id: UUID of the job
+        diff_stat_evidence_id: Optional evidence ID for git diff stat
+        diff_patch_evidence_id: Optional evidence ID for git diff patch
+
+    Returns:
+        The revision ID if created/found, None on error
+    """
+    from app.models.revision import Revision, RevisionStatus
+
+    with get_sync_db() as db:
+        try:
+            # IDEMPOTENCY CHECK: Return existing revision if job was already processed
+            existing = (
+                db.query(Revision)
+                .filter(
+                    Revision.ticket_id == ticket_id,
+                    Revision.job_id == job_id,
+                )
+                .first()
+            )
+            if existing:
+                import logging
+                logging.getLogger(__name__).info(
+                    f"Revision already exists for job {job_id}: {existing.id}"
+                )
+                return existing.id
+
+            # Supersede any open revisions (in same transaction)
+            open_revisions = (
+                db.query(Revision)
+                .filter(
+                    Revision.ticket_id == ticket_id,
+                    Revision.status == RevisionStatus.OPEN.value,
+                )
+                .all()
+            )
+            for rev in open_revisions:
+                rev.status = RevisionStatus.SUPERSEDED.value
+
+            # Get next revision number
+            last_revision = (
+                db.query(Revision)
+                .filter(Revision.ticket_id == ticket_id)
+                .order_by(Revision.number.desc())
+                .first()
+            )
+            next_number = (last_revision.number if last_revision else 0) + 1
+
+            # Create new revision
+            revision = Revision(
+                ticket_id=ticket_id,
+                job_id=job_id,
+                number=next_number,
+                status=RevisionStatus.OPEN.value,
+                diff_stat_evidence_id=diff_stat_evidence_id,
+                diff_patch_evidence_id=diff_patch_evidence_id,
+            )
+            db.add(revision)
+            db.commit()
+            db.refresh(revision)
+            return revision.id
+        except Exception as e:
+            db.rollback()
+            # Log but don't fail the job
+            import logging
+            logging.getLogger(__name__).error(f"Failed to create revision: {e}")
+            return None
+
+
+def get_feedback_bundle_for_ticket(ticket_id: str) -> dict | None:
+    """Get the feedback bundle from the most recent changes_requested revision.
+
+    This is used when re-running an execute job after changes were requested.
+
+    Args:
+        ticket_id: UUID of the ticket
+
+    Returns:
+        Feedback bundle dict if found, None otherwise
+    """
+    from app.models.review_comment import ReviewComment
+    from app.models.review_summary import ReviewSummary
+    from app.models.revision import Revision, RevisionStatus
+
+    with get_sync_db() as db:
+        try:
+            # Find the most recent revision with changes_requested status
+            revision = (
+                db.query(Revision)
+                .filter(
+                    Revision.ticket_id == ticket_id,
+                    Revision.status == RevisionStatus.CHANGES_REQUESTED.value,
+                )
+                .order_by(Revision.number.desc())
+                .first()
+            )
+
+            if not revision:
+                return None
+
+            # Get review summary
+            review_summary = (
+                db.query(ReviewSummary)
+                .filter(ReviewSummary.revision_id == revision.id)
+                .first()
+            )
+
+            # Get unresolved comments
+            comments = (
+                db.query(ReviewComment)
+                .filter(
+                    ReviewComment.revision_id == revision.id,
+                    ReviewComment.resolved == False,  # noqa: E712
+                )
+                .order_by(ReviewComment.created_at)
+                .all()
+            )
+
+            # Build feedback bundle
+            return {
+                "ticket_id": ticket_id,
+                "revision_id": revision.id,
+                "revision_number": revision.number,
+                "decision": "changes_requested",
+                "summary": review_summary.body if review_summary else "",
+                "comments": [
+                    {
+                        "file_path": c.file_path,
+                        "line_number": c.line_number,
+                        "anchor": c.anchor,
+                        "body": c.body,
+                        "line_content": c.line_content,
+                    }
+                    for c in comments
+                ],
+            }
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to get feedback bundle: {e}")
+            return None
+
+
 def transition_ticket_sync(
     ticket_id: str,
     to_state: TicketState,
@@ -365,9 +540,14 @@ def _enqueue_verify_job_sync(ticket_id: str) -> str | None:
             # Already has an active verify job - skip to avoid duplicates
             return None
 
-        # Create the job record
+        # Get the ticket to inherit board_id
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        board_id = ticket.board_id if ticket else None
+
+        # Create the job record with board_id for permission scoping
         job = Job(
             ticket_id=ticket_id,
+            board_id=board_id,
             kind=JobKind.VERIFY.value,
             status=JobStatus.QUEUED.value,
         )
@@ -592,6 +772,47 @@ def execute_ticket_task(self, job_id: str) -> dict:
         write_log(log_path, "Job was canceled or not found, aborting.")
         raise Ignore()
 
+    # Transition ticket to EXECUTING state BEFORE any execution work begins
+    # This is critical - the ticket MUST be in EXECUTING state while running
+    # This handles transitions from PLANNED, DONE (changes requested), or NEEDS_HUMAN
+    from app.state_machine import validate_transition
+    
+    with get_sync_db() as db:
+        current_ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not current_ticket:
+            write_log(log_path, "ERROR: Ticket not found in database")
+            update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
+            return {"job_id": job_id, "status": "failed", "error": "Ticket not found"}
+        
+        current_state = TicketState(current_ticket.state)
+        write_log(log_path, f"Current ticket state: '{current_state.value}'")
+        
+        if current_state == TicketState.EXECUTING:
+            write_log(log_path, "Ticket already in 'executing' state")
+        elif validate_transition(current_state, TicketState.EXECUTING):
+            write_log(log_path, f"Transitioning ticket from '{current_state.value}' to 'executing'")
+            # Important: Do transition INSIDE the same db context to ensure atomicity
+            current_ticket.state = TicketState.EXECUTING.value
+            
+            # Create transition event
+            event = TicketEvent(
+                ticket_id=ticket_id,
+                event_type=EventType.TRANSITIONED.value,
+                from_state=current_state.value,
+                to_state=TicketState.EXECUTING.value,
+                actor_type=ActorType.EXECUTOR.value,
+                actor_id="execute_worker",
+                reason=f"Execution started (job {job_id})",
+                payload_json=json.dumps({"job_id": job_id}),
+            )
+            db.add(event)
+            db.commit()
+            write_log(log_path, "Successfully transitioned to 'executing' state")
+        else:
+            # This shouldn't happen for valid workflows, but log and continue
+            write_log(log_path, f"WARNING: Cannot transition from '{current_state.value}' to 'executing' (invalid transition)")
+            write_log(log_path, "Continuing execution anyway...")
+
     # Check for cancellation
     if check_canceled(job_id):
         write_log(log_path, "Job canceled, stopping execution.")
@@ -602,6 +823,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
     config_service = ConfigService(worktree_path)
     config = config_service.load_config(use_cache=False)
     execute_config = config.execute_config
+    planner_config = config.planner_config
 
     # Get main repo path for validation
     # Use WorkspaceService.get_repo_path() which knows the actual main repo root
@@ -677,7 +899,10 @@ def execute_ticket_task(self, job_id: str) -> dict:
 
     # Detect available executor CLI
     try:
-        executor_info = ExecutorService.detect_executor(preferred=execute_config.preferred_executor)
+        executor_info = ExecutorService.detect_executor(
+            preferred=execute_config.preferred_executor,
+            agent_path=planner_config.agent_path,
+        )
         write_log(log_path, f"Found executor: {executor_info.executor_type.value} ({executor_info.mode.value}) at {executor_info.path}")
     except ExecutorNotFoundError as e:
         write_log(log_path, f"ERROR: {e.message}")
@@ -691,12 +916,22 @@ def execute_ticket_task(self, job_id: str) -> dict:
         )
         return {"job_id": job_id, "status": "failed", "error": e.message}
 
+    # Check for feedback from previous revision (if this is a re-run after changes requested)
+    feedback_bundle = get_feedback_bundle_for_ticket(ticket_id)
+    if feedback_bundle:
+        write_log(log_path, f"Found feedback from revision #{feedback_bundle.get('revision_number', '?')}")
+        write_log(log_path, f"  - Summary: {feedback_bundle.get('summary', '')[:100]}...")
+        write_log(log_path, f"  - Comments to address: {len(feedback_bundle.get('comments', []))}")
+    else:
+        write_log(log_path, "No previous revision feedback found (fresh execution)")
+
     # Build prompt bundle
     write_log(log_path, "Building prompt bundle...")
     prompt_builder = PromptBundleBuilder(worktree_path, job_id)
     prompt_file = prompt_builder.build_prompt(
         ticket_title=ticket.title,
         ticket_description=ticket.description,
+        feedback_bundle=feedback_bundle,
     )
     write_log(log_path, f"Prompt bundle created at: {prompt_file}")
 
@@ -941,6 +1176,19 @@ def execute_ticket_task(self, job_id: str) -> dict:
 
     # Case 3: Executor succeeded with changes → verifying
     write_log(log_path, "Execution completed successfully with changes!")
+
+    # Create revision for this execution
+    revision_id = create_revision_for_job(
+        ticket_id=ticket_id,
+        job_id=job_id,
+        diff_stat_evidence_id=diff_stat_evidence_id,
+        diff_patch_evidence_id=diff_patch_evidence_id,
+    )
+    if revision_id:
+        write_log(log_path, f"Created revision {revision_id}")
+    else:
+        write_log(log_path, "WARNING: Failed to create revision record")
+
     write_log(log_path, "Transitioning ticket to 'verifying'")
     transition_ticket_sync(
         ticket_id,
@@ -952,6 +1200,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
             "diff_summary": diff_stat,
             "has_changes": True,
             "yolo_mode": yolo_enabled,
+            "revision_id": revision_id,
         },
         actor_id="execute_worker",
     )
@@ -964,6 +1213,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
         "evidence_ids": evidence_records,
         "diff_summary": diff_stat,
         "has_changes": True,
+        "revision_id": revision_id,
     }
 
 
@@ -1193,6 +1443,85 @@ def verify_ticket_task(self, job_id: str) -> dict:
         }
 
 
+@celery_app.task(bind=True, name="job_watchdog")
+def job_watchdog_task(self) -> dict:
+    """
+    Periodic task to monitor and recover stuck jobs.
+
+    This task runs every minute via Celery Beat and checks for:
+    1. RUNNING jobs with stale heartbeat (no update in 2 minutes)
+    2. RUNNING jobs that exceeded their timeout
+    3. QUEUED jobs stuck in queue for over 10 minutes
+
+    For each stuck job, it marks the job as FAILED and transitions
+    the associated ticket to BLOCKED.
+    """
+    from app.services.job_watchdog_service import run_job_watchdog
+
+    result = run_job_watchdog()
+
+    return {
+        "stale_jobs_recovered": result.stale_jobs_recovered,
+        "timed_out_jobs_recovered": result.timed_out_jobs_recovered,
+        "stuck_queued_jobs_failed": result.stuck_queued_jobs_failed,
+        "tickets_blocked": result.tickets_blocked,
+        "details": result.details,
+    }
+
+
+@celery_app.task(bind=True, name="planner_tick")
+def planner_tick_task(self) -> dict:
+    """
+    Periodic task to run a planner tick and pick up next tickets.
+
+    This task runs every 5 seconds via Celery Beat and:
+    1. Checks if any PLANNED tickets are ready to execute
+    2. If no ticket is currently EXECUTING/VERIFYING, queues the next one
+    3. Handles follow-ups for BLOCKED tickets (if LLM configured)
+
+    This ensures tickets automatically flow through the queue without
+    requiring the /planner/start HTTP request to stay connected.
+    """
+    import asyncio
+
+    async def run_tick():
+        """Run the planner tick with an async database session."""
+        from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+        from app.database import DATABASE_URL
+        from app.services.planner_service import PlannerService, PlannerLockError
+
+        # Create a dedicated async engine for this task
+        engine = create_async_engine(DATABASE_URL, echo=False)
+        async_session = async_sessionmaker(
+            engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with async_session() as db:
+                service = PlannerService(db)
+                try:
+                    result = await service.tick()
+                    return {
+                        "status": "success",
+                        "actions_count": len(result.actions),
+                        "summary": result.summary,
+                    }
+                except PlannerLockError:
+                    # Lock conflict - another tick is running, this is fine
+                    return {"status": "skipped", "reason": "Another tick in progress"}
+        finally:
+            await engine.dispose()
+
+    try:
+        return asyncio.run(run_tick())
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Planner tick failed: {e}")
+        return {"status": "error", "error": str(e)[:200]}
+
+
 @celery_app.task(bind=True, name="resume_ticket")
 def resume_ticket_task(self, job_id: str) -> dict:
     """
@@ -1260,10 +1589,14 @@ def resume_ticket_task(self, job_id: str) -> dict:
     diff_stat_evidence_id = str(uuid.uuid4())
     diff_patch_evidence_id = str(uuid.uuid4())
 
+    # Get repo root for relative path computation
+    repo_root = WorkspaceService.get_repo_path()
+
     diff_exit_code, diff_stat_path, diff_patch_path, diff_stat, has_changes = capture_git_diff(
         cwd=worktree_path,
         evidence_dir=evidence_dir,
         evidence_id=diff_stat_evidence_id,
+        repo_root=repo_root,
     )
 
     # Create typed evidence records for git diff

@@ -64,3 +64,27 @@ class CancelJobResponse(BaseModel):
     id: str
     status: JobStatus
     message: str
+
+
+class QueuedJobResponse(BaseModel):
+    """Schema for a job in the queue with ticket info."""
+
+    id: str
+    ticket_id: str
+    ticket_title: str
+    kind: JobKind
+    status: JobStatus
+    created_at: datetime
+    started_at: datetime | None = None
+    queue_position: int | None = Field(None, description="Position in queue (1-based, None if running)")
+
+    model_config = {"from_attributes": True}
+
+
+class QueueStatusResponse(BaseModel):
+    """Schema for queue status response."""
+
+    running: list[QueuedJobResponse] = Field(default_factory=list, description="Currently running jobs")
+    queued: list[QueuedJobResponse] = Field(default_factory=list, description="Jobs waiting in queue (ordered)")
+    total_running: int = 0
+    total_queued: int = 0

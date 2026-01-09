@@ -10,11 +10,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.board import Board
     from app.models.ticket import Ticket
 
 
 class Workspace(Base):
-    """Workspace model representing an isolated git worktree for a ticket."""
+    """Workspace model representing an isolated git worktree for a ticket.
+    
+    IMPORTANT: Workspaces are scoped by board_id for permission enforcement.
+    """
 
     __tablename__ = "workspaces"
 
@@ -22,6 +26,12 @@ class Workspace(Base):
         String(36),
         primary_key=True,
         default=lambda: str(uuid.uuid4()),
+    )
+    board_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("boards.id", ondelete="CASCADE"),
+        nullable=True,  # Nullable for migration compatibility
+        index=True,
     )
     ticket_id: Mapped[str] = mapped_column(
         String(36),
@@ -49,6 +59,7 @@ class Workspace(Base):
     )
 
     # Relationships
+    board: Mapped["Board | None"] = relationship("Board", back_populates="workspaces")
     ticket: Mapped["Ticket"] = relationship("Ticket", back_populates="workspace")
 
     @property

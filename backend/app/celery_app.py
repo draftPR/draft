@@ -3,6 +3,7 @@
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,4 +29,15 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    # Celery Beat schedule for periodic tasks
+    beat_schedule={
+        "job-watchdog": {
+            "task": "job_watchdog",
+            "schedule": 15.0,  # Run every 15 seconds for fast recovery
+        },
+        "planner-tick": {
+            "task": "planner_tick",
+            "schedule": 5.0,  # Run every 5 seconds to pick up next tickets quickly
+        },
+    },
 )

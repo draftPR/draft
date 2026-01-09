@@ -1,28 +1,237 @@
 """API router for Board endpoints."""
 
-from fastapi import APIRouter, Depends
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.ticket import BoardResponse, TicketResponse, TicketsByState
+from app.schemas.board import (
+    BoardCreate,
+    BoardListResponse,
+    BoardResponse,
+    BoardUpdate,
+)
+from app.schemas.planner import AnalyzeCodebaseRequest, AnalyzeCodebaseResponse
+from app.schemas.ticket import BoardResponse as KanbanBoardResponse
+from app.schemas.ticket import TicketResponse, TicketsByState
+from app.services.board_service import BoardService
+from app.services.config_service import ConfigService
+from app.services.ticket_generation_service import TicketGenerationService
 from app.services.ticket_service import TicketService
 
-router = APIRouter(prefix="/board", tags=["board"])
+router = APIRouter(prefix="/boards", tags=["boards"])
+
+
+# ============================================================================
+# Board CRUD endpoints
+# ============================================================================
+
+@router.post(
+    "",
+    response_model=BoardResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new board",
+)
+async def create_board(
+    data: BoardCreate,
+    db: AsyncSession = Depends(get_db),
+) -> BoardResponse:
+    """Create a new board with a repository root.
+    
+    **Important:** The repo_root must be an absolute path to an existing
+    git repository. This becomes the authoritative path for all file
+    operations on this board.
+    """
+    service = BoardService(db)
+    try:
+        board = await service.create_board(data)
+        return BoardResponse.model_validate(board)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get(
     "",
+    response_model=BoardListResponse,
+    summary="List all boards",
+)
+async def list_boards(
+    db: AsyncSession = Depends(get_db),
+) -> BoardListResponse:
+    """Get all boards."""
+    service = BoardService(db)
+    boards = await service.get_boards()
+    return BoardListResponse(
+        boards=[BoardResponse.model_validate(b) for b in boards],
+        total=len(boards),
+    )
+
+
+@router.get(
+    "/{board_id}",
     response_model=BoardResponse,
-    summary="Get the board view",
+    summary="Get a board by ID",
 )
 async def get_board(
+    board_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> BoardResponse:
+    """Get a board by its ID."""
+    service = BoardService(db)
+    try:
+        board = await service.get_board_by_id(board_id)
+        return BoardResponse.model_validate(board)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch(
+    "/{board_id}",
+    response_model=BoardResponse,
+    summary="Update a board",
+)
+async def update_board(
+    board_id: str,
+    data: BoardUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> BoardResponse:
+    """Update a board's name, description, or default branch."""
+    service = BoardService(db)
+    try:
+        board = await service.update_board(board_id, data)
+        return BoardResponse.model_validate(board)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete(
+    "/{board_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a board",
+)
+async def delete_board(
+    board_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a board and all its associated goals, tickets, jobs, workspaces."""
+    service = BoardService(db)
+    try:
+        await service.delete_board(board_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ============================================================================
+# Board-scoped operations (use board's repo_root, NOT client-provided paths)
+# ============================================================================
+
+@router.post(
+    "/{board_id}/analyze-codebase",
+    response_model=AnalyzeCodebaseResponse,
+    summary="Analyze codebase and generate improvement tickets",
+)
+async def analyze_codebase(
+    board_id: str,
+    request: AnalyzeCodebaseRequest,
+    db: AsyncSession = Depends(get_db),
+) -> AnalyzeCodebaseResponse:
     """
-    Get the board view with all tickets grouped by state.
+    Analyze the board's repository codebase and generate improvement tickets.
+
+    **Security:**
+    - Repository path is taken from the board's repo_root, NOT from client request
+    - Sensitive files (.env, keys, secrets) are automatically excluded
+    - Only metadata and small excerpts are sent to the LLM
+
+    **Caching:**
+    - Results are cached for 10 minutes to avoid expensive repeated LLM calls
+    - `cache_hit: true` in response indicates cached result
+
+    **Focus Areas (optional):**
+    - `security`: Look for security issues
+    - `performance`: Look for performance problems
+    - `tests`: Look for missing tests
+    - `docs`: Look for documentation gaps
+
+    **Goal attachment:**
+    - If `goal_id` is provided, tickets are created in the database
+    - If `goal_id` is omitted, returns preview only (no DB write)
+    - **Goal must belong to this board** (board_id check enforced)
+
+    **Tickets include priority buckets:**
+    - P0 (90): Critical - security, data loss
+    - P1 (70): High - important features, performance
+    - P2 (50): Medium - improvements
+    - P3 (30): Low - cleanup, docs
+    """
+    # Get repo_root from board (authoritative source)
+    board_service = BoardService(db)
+    try:
+        repo_root = await board_service.get_repo_root(board_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if not repo_root.exists():
+        raise HTTPException(
+            status_code=500,
+            detail=f"Board's repo_root does not exist: {repo_root}",
+        )
+
+    # If goal_id provided, verify it belongs to this board
+    if request.goal_id:
+        from sqlalchemy import select
+        from app.models import Goal
+        
+        result = await db.execute(
+            select(Goal).where(Goal.id == request.goal_id)
+        )
+        goal = result.scalar_one_or_none()
+        if not goal:
+            raise HTTPException(status_code=404, detail=f"Goal not found: {request.goal_id}")
+        if goal.board_id and goal.board_id != board_id:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Goal {request.goal_id} belongs to board {goal.board_id}, not {board_id}",
+            )
+
+    service = TicketGenerationService(db)
+    try:
+        return await service.analyze_codebase(
+            repo_root=repo_root,
+            goal_id=request.goal_id,
+            focus_areas=request.focus_areas,
+            include_readme=request.include_readme,
+            board_id=board_id,  # Pass board_id for context/caching
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============================================================================
+# Legacy kanban board view (kept for backwards compatibility)
+# ============================================================================
+
+# Create a separate router for the legacy /board endpoint
+legacy_router = APIRouter(prefix="/board", tags=["board"])
+
+
+@legacy_router.get(
+    "",
+    response_model=KanbanBoardResponse,
+    summary="Get the kanban board view",
+)
+async def get_kanban_board(
+    db: AsyncSession = Depends(get_db),
+) -> KanbanBoardResponse:
+    """
+    Get the kanban board view with all tickets grouped by state.
 
     Returns tickets organized into columns by state, ordered by priority
     (highest first) within each column.
+    
+    **Note:** This is a legacy endpoint. For multi-board support, use
+    GET /boards/{board_id}/tickets instead.
     """
     service = TicketService(db)
     columns = await service.get_board()
@@ -40,7 +249,46 @@ async def get_board(
             )
         )
 
-    return BoardResponse(
+    return KanbanBoardResponse(
         columns=response_columns,
         total_tickets=total_tickets,
     )
+
+
+@legacy_router.post(
+    "/analyze-codebase",
+    response_model=AnalyzeCodebaseResponse,
+    summary="[DEPRECATED] Analyze codebase - use /boards/{board_id}/analyze-codebase",
+    deprecated=True,
+)
+async def analyze_codebase_legacy(
+    request: AnalyzeCodebaseRequest,
+    db: AsyncSession = Depends(get_db),
+) -> AnalyzeCodebaseResponse:
+    """
+    **DEPRECATED:** Use POST /boards/{board_id}/analyze-codebase instead.
+    
+    This endpoint uses the repo_root from smartkanban.yaml config.
+    The board-scoped endpoint is preferred for multi-board setups.
+    """
+    # Get repo root from config - legacy path
+    config_service = ConfigService()
+    config = config_service.load_config()
+    repo_root = Path(config.project.repo_root).resolve()
+
+    if not repo_root.exists():
+        raise HTTPException(
+            status_code=500,
+            detail=f"Configured repo_root does not exist: {repo_root}",
+        )
+
+    service = TicketGenerationService(db)
+    try:
+        return await service.analyze_codebase(
+            repo_root=repo_root,
+            goal_id=request.goal_id,
+            focus_areas=request.focus_areas,
+            include_readme=request.include_readme,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

@@ -18,3 +18,4 @@ class WorkspaceResponse(BaseModel):
     cleaned_up_at: datetime | None = None
     is_active: bool
 
+

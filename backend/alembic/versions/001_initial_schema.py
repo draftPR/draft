@@ -102,3 +102,4 @@ def downgrade() -> None:
     op.drop_table("ticket_events")
     op.drop_table("tickets")
     op.drop_table("goals")
+

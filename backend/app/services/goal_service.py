@@ -24,9 +24,20 @@ class GoalService:
         Returns:
             The created Goal instance
         """
+        # If board_id provided, verify the board exists
+        if data.board_id:
+            from app.models.board import Board
+            
+            result = await self.db.execute(
+                select(Board).where(Board.id == data.board_id)
+            )
+            if not result.scalar_one_or_none():
+                raise ValueError(f"Board not found: {data.board_id}")
+        
         goal = Goal(
             title=data.title,
             description=data.description,
+            board_id=data.board_id,
         )
         self.db.add(goal)
         await self.db.flush()

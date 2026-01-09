@@ -1,6 +1,26 @@
-"""State machine implementation for ticket workflow."""
+"""State machine implementation for ticket workflow.
+
+This module contains the TicketState enum and state transition rules.
+Event types and actor types are defined in models/enums.py but re-exported
+here for backwards compatibility.
+"""
 
 from enum import Enum
+
+# Re-export event types and actor types for backwards compatibility
+# The canonical definitions are in models/enums.py
+from app.models.enums import ActorType, EventType
+
+__all__ = [
+    "TicketState",
+    "ActorType",
+    "EventType",
+    "ALLOWED_TRANSITIONS",
+    "TERMINAL_STATES",
+    "validate_transition",
+    "get_allowed_transitions",
+    "is_terminal_state",
+]
 
 
 class TicketState(str, Enum):
@@ -14,24 +34,6 @@ class TicketState(str, Enum):
     BLOCKED = "blocked"
     DONE = "done"
     ABANDONED = "abandoned"
-
-
-class ActorType(str, Enum):
-    """Enum representing the type of actor performing an action."""
-
-    HUMAN = "human"
-    PLANNER = "planner"
-    SYSTEM = "system"
-    EXECUTOR = "executor"
-
-
-class EventType(str, Enum):
-    """Enum representing types of ticket events."""
-
-    CREATED = "created"
-    TRANSITIONED = "transitioned"
-    UPDATED = "updated"
-    COMMENT = "comment"
 
 
 # Allowed state transitions map
@@ -60,13 +62,16 @@ ALLOWED_TRANSITIONS: dict[TicketState, list[TicketState]] = {
     TicketState.NEEDS_HUMAN: [
         TicketState.EXECUTING,  # Human resolved, back to executing
         TicketState.PLANNED,  # Human replanned
+        TicketState.DONE,  # Human approved revision
         TicketState.ABANDONED,
     ],
     TicketState.BLOCKED: [
         TicketState.PLANNED,  # Unblocked, back to planning
         TicketState.ABANDONED,
     ],
-    TicketState.DONE: [],  # Terminal state
+    TicketState.DONE: [
+        TicketState.EXECUTING,  # Human requested changes on revision
+    ],
     TicketState.ABANDONED: [],  # Terminal state
 }
 
@@ -100,7 +105,9 @@ def get_allowed_transitions(current_state: TicketState) -> list[TicketState]:
     return ALLOWED_TRANSITIONS.get(current_state, [])
 
 
-# Terminal states where tickets cannot transition further
+# Terminal states for workspace cleanup and watchdog purposes.
+# Note: DONE can transition back to EXECUTING if human requests changes on revision,
+# but is still considered "terminal" for cleanup purposes (workspace recreated if needed).
 TERMINAL_STATES: set[TicketState] = {TicketState.DONE, TicketState.ABANDONED}
 
 

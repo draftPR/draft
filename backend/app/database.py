@@ -2,13 +2,18 @@
 
 import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models.base import Base
 
+# Get the backend directory (where this file lives is app/, so go up one level)
+_BACKEND_DIR = Path(__file__).parent.parent.resolve()
+
 # Database URL - defaults to SQLite file in the backend directory
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./kanban.db")
+# Use absolute path to ensure consistency across different working directories
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{_BACKEND_DIR}/kanban.db")
 
 # Create async engine
 engine = create_async_engine(

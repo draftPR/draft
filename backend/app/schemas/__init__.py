@@ -1,5 +1,11 @@
 """Pydantic schemas for Smart Kanban API."""
 
+from app.schemas.board import (
+    BoardCreate,
+    BoardListResponse,
+    BoardResponse as BoardEntityResponse,
+    BoardUpdate,
+)
 from app.schemas.common import ErrorResponse, SuccessResponse
 from app.schemas.evidence import (
     EvidenceDetailResponse,
@@ -17,6 +23,25 @@ from app.schemas.job import (
     JobResponse,
     JobStatus,
 )
+from app.schemas.review import (
+    AuthorType,
+    FeedbackBundle,
+    FeedbackComment,
+    ReviewCommentCreate,
+    ReviewCommentListResponse,
+    ReviewCommentResponse,
+    ReviewDecision,
+    ReviewSubmit,
+    ReviewSummaryResponse,
+)
+from app.schemas.revision import (
+    DiffFile,
+    RevisionDetailResponse,
+    RevisionDiffResponse,
+    RevisionListResponse,
+    RevisionResponse,
+    RevisionStatus,
+)
 from app.schemas.ticket import (
     BoardResponse,
     TicketCreate,
@@ -30,6 +55,12 @@ from app.schemas.ticket_event import TicketEventListResponse, TicketEventRespons
 from app.schemas.workspace import WorkspaceResponse
 
 __all__ = [
+    # Board schemas
+    "BoardCreate",
+    "BoardEntityResponse",
+    "BoardListResponse",
+    "BoardUpdate",
+    # Goal schemas
     "GoalCreate",
     "GoalResponse",
     "GoalListResponse",
@@ -56,4 +87,21 @@ __all__ = [
     "JobCreateResponse",
     "CancelJobResponse",
     "WorkspaceResponse",
+    # Revision schemas
+    "RevisionStatus",
+    "RevisionResponse",
+    "RevisionDetailResponse",
+    "RevisionListResponse",
+    "RevisionDiffResponse",
+    "DiffFile",
+    # Review schemas
+    "AuthorType",
+    "ReviewDecision",
+    "ReviewCommentCreate",
+    "ReviewCommentResponse",
+    "ReviewCommentListResponse",
+    "ReviewSubmit",
+    "ReviewSummaryResponse",
+    "FeedbackComment",
+    "FeedbackBundle",
 ]

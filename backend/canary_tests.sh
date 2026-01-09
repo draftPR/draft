@@ -169,10 +169,14 @@ canary_1() {
     local ticket_id=$(create_ticket "$goal_id" "Add a comment to README" "Add a comment at the top of README.md")
     log_info "Ticket ID: $ticket_id"
     
-    log_info "Transitioning to executing state..."
+    log_info "Transitioning to planned then executing..."
     curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
         -H "Content-Type: application/json" \
-        -d '{"to_state": "executing", "actor_type": "human", "reason": "Starting canary test"}'
+        -d '{"to_state": "planned", "actor_type": "human", "reason": "Planning canary test"}'
+
+    curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
+        -H "Content-Type: application/json" \
+        -d '{"to_state": "executing", "actor_type": "human", "reason": "Executing canary test"}'
     
     log_info "Running execute job..."
     local execute_response=$(run_execute "$ticket_id")
@@ -228,10 +232,14 @@ canary_2() {
     local ticket_id=$(create_ticket "$goal_id" "Review code, no changes needed" "Just review the code structure, don't make any changes")
     log_info "Ticket ID: $ticket_id"
     
-    log_info "Transitioning to executing state..."
+    log_info "Transitioning to planned then executing..."
     curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
         -H "Content-Type: application/json" \
-        -d '{"to_state": "executing", "actor_type": "human", "reason": "Starting canary test"}'
+        -d '{"to_state": "planned", "actor_type": "human", "reason": "Planning canary test"}'
+
+    curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
+        -H "Content-Type: application/json" \
+        -d '{"to_state": "executing", "actor_type": "human", "reason": "Executing canary test"}'
     
     log_info "Running execute job..."
     local execute_response=$(run_execute "$ticket_id")
@@ -286,10 +294,14 @@ canary_3() {
     local ticket_id=$(create_ticket "$goal_id" "Test YOLO refusal" "This should be refused if YOLO is enabled with empty allowlist")
     log_info "Ticket ID: $ticket_id"
     
-    log_info "Transitioning to executing state..."
+    log_info "Transitioning to planned then executing..."
     curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
         -H "Content-Type: application/json" \
-        -d '{"to_state": "executing", "actor_type": "human", "reason": "Starting canary test"}'
+        -d '{"to_state": "planned", "actor_type": "human", "reason": "Planning canary test"}'
+
+    curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
+        -H "Content-Type: application/json" \
+        -d '{"to_state": "executing", "actor_type": "human", "reason": "Executing canary test"}'
     
     log_info "Running execute job..."
     local execute_response=$(run_execute "$ticket_id")
@@ -347,10 +359,14 @@ canary_4() {
     local ticket_id=$(create_ticket "$goal_id" "Interactive change test" "This requires human interaction if using Cursor")
     log_info "Ticket ID: $ticket_id"
     
-    log_info "Transitioning to executing state..."
+    log_info "Transitioning to planned then executing..."
     curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
         -H "Content-Type: application/json" \
-        -d '{"to_state": "executing", "actor_type": "human", "reason": "Starting canary test"}'
+        -d '{"to_state": "planned", "actor_type": "human", "reason": "Planning canary test"}'
+
+    curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
+        -H "Content-Type: application/json" \
+        -d '{"to_state": "executing", "actor_type": "human", "reason": "Executing canary test"}'
     
     log_info "Running execute job..."
     local execute_response=$(run_execute "$ticket_id")
@@ -443,10 +459,14 @@ canary_5() {
         "Add 'def broken_function(' (missing closing paren and body) to backend/app/worker.py. This should fail verification.")
     log_info "Ticket ID: $ticket_id"
     
-    log_info "Transitioning to executing state..."
+    log_info "Transitioning to planned then executing..."
     curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
         -H "Content-Type: application/json" \
-        -d '{"to_state": "executing", "actor_type": "human", "reason": "Starting canary test - expecting failure"}'
+        -d '{"to_state": "planned", "actor_type": "human", "reason": "Planning canary test"}'
+
+    curl -s -X POST "$API_BASE/tickets/$ticket_id/transition" \
+        -H "Content-Type: application/json" \
+        -d '{"to_state": "executing", "actor_type": "human", "reason": "Executing canary test"}'
     
     log_info "Running execute job..."
     local execute_response=$(run_execute "$ticket_id")

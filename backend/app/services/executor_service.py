@@ -1,5 +1,6 @@
 """Service for executing code changes using CLI tools (Claude Code CLI or Cursor CLI)."""
 
+import os
 import shutil
 from dataclasses import dataclass
 from enum import Enum
@@ -13,6 +14,7 @@ class ExecutorType(str, Enum):
     """Supported executor CLI types."""
 
     CLAUDE = "claude"  # Headless executor - can run automatically
+    CURSOR_AGENT = "cursor-agent"  # Headless executor - Cursor Agent CLI
     CURSOR = "cursor"  # Interactive executor - requires human completion
 
 
@@ -35,10 +37,10 @@ class ExecutorInfo:
     def mode(self) -> ExecutorMode:
         """Get the execution mode for this executor.
 
-        Claude CLI supports headless operation.
+        Claude CLI and Cursor Agent CLI support headless operation.
         Cursor CLI is interactive - it opens the editor for human completion.
         """
-        if self.executor_type == ExecutorType.CLAUDE:
+        if self.executor_type in (ExecutorType.CLAUDE, ExecutorType.CURSOR_AGENT):
             return ExecutorMode.HEADLESS
         return ExecutorMode.INTERACTIVE
 
@@ -78,6 +80,17 @@ class ExecutorInfo:
                 cmd.append("--dangerously-skip-permissions")
             cmd.append(prompt_content)
             return cmd
+        elif self.executor_type == ExecutorType.CURSOR_AGENT:
+            # Cursor Agent CLI with non-interactive mode:
+            # - --print: Non-interactive mode that prints response and exits
+            # - --force: Allow all commands without prompting (like YOLO mode)
+            # - --workspace: Set the working directory
+            prompt_content = prompt_file.read_text()
+            cmd = [self.command, "--print", "--workspace", str(worktree_path)]
+            if yolo_mode:
+                cmd.append("--force")
+            cmd.append(prompt_content)
+            return cmd
         elif self.executor_type == ExecutorType.CURSOR:
             # Cursor CLI is INTERACTIVE ONLY
             # It opens the editor with the worktree. User must complete changes manually.
@@ -92,29 +105,67 @@ class ExecutorService:
 
     Executor Types:
         - Claude CLI (headless): Can run fully automated. Preferred for CI/automation.
+        - Cursor Agent CLI (headless): Can run fully automated via cursor-agent.
         - Cursor CLI (interactive): Opens editor for human completion. Use as handoff.
 
     Design Decisions:
         - Claude CLI is preferred for headless operation
+        - Cursor Agent CLI is an alternative headless executor
         - Cursor CLI is a fallback that prepares workspace + prompt, then hands off to user
         - If only Cursor is available, caller should transition to needs_human
     """
 
     # CLI names to check in order of preference
-    # Claude is preferred because it supports headless operation
+    # Claude and cursor-agent are preferred because they support headless operation
     CLI_PREFERENCES = [
         (ExecutorType.CLAUDE, "claude"),
+        (ExecutorType.CURSOR_AGENT, "cursor-agent"),
         (ExecutorType.CURSOR, "cursor"),
     ]
 
+    # Common paths to check for cursor-agent (not always in PATH)
+    CURSOR_AGENT_PATHS = [
+        "~/.local/bin/cursor-agent",
+        "/usr/local/bin/cursor-agent",
+        "/opt/homebrew/bin/cursor-agent",
+    ]
+
     @classmethod
-    def detect_executor(cls, preferred: str | None = None) -> ExecutorInfo:
+    def _find_cursor_agent(cls, config_path: str | None = None) -> str | None:
+        """Find cursor-agent CLI, checking config path and common locations.
+
+        Args:
+            config_path: Optional custom path from config.
+
+        Returns:
+            Full path to cursor-agent if found, None otherwise.
+        """
+        # Check config path first
+        if config_path:
+            expanded = os.path.expanduser(config_path)
+            if os.path.isfile(expanded) and os.access(expanded, os.X_OK):
+                return expanded
+
+        # Check common installation paths
+        for path in cls.CURSOR_AGENT_PATHS:
+            expanded = os.path.expanduser(path)
+            if os.path.isfile(expanded) and os.access(expanded, os.X_OK):
+                return expanded
+
+        # Fall back to PATH
+        return shutil.which("cursor-agent")
+
+    @classmethod
+    def detect_executor(
+        cls, preferred: str | None = None, agent_path: str | None = None
+    ) -> ExecutorInfo:
         """
         Detect an available executor CLI.
 
         Args:
             preferred: Preferred executor type ("cursor" or "claude").
                       If specified and available, it will be used.
+            agent_path: Custom path for cursor-agent (from config).
 
         Returns:
             ExecutorInfo with details about the detected CLI.
@@ -137,11 +188,16 @@ class ExecutorService:
 
         # Check each CLI in order
         for exec_type, cmd in cli_order:
-            path = shutil.which(cmd)
+            if exec_type == ExecutorType.CURSOR_AGENT:
+                # Use custom detection for cursor-agent
+                path = cls._find_cursor_agent(agent_path)
+            else:
+                path = shutil.which(cmd)
+
             if path:
                 return ExecutorInfo(
                     executor_type=exec_type,
-                    command=cmd,
+                    command=path,  # Use full path for cursor-agent
                     path=path,
                 )
 
@@ -151,11 +207,14 @@ class ExecutorService:
             "Please install one of the following:\n"
             "  - Claude Code CLI (recommended for automation): "
             "https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview\n"
+            "  - Cursor Agent CLI: Set agent_path in smartkanban.yaml\n"
             "  - Cursor CLI (interactive, opens editor): https://docs.cursor.com/cli"
         )
 
     @classmethod
-    def detect_headless_executor(cls, preferred: str | None = None) -> ExecutorInfo | None:
+    def detect_headless_executor(
+        cls, preferred: str | None = None, agent_path: str | None = None
+    ) -> ExecutorInfo | None:
         """
         Detect a headless executor CLI only.
 
@@ -164,12 +223,13 @@ class ExecutorService:
 
         Args:
             preferred: Preferred executor type.
+            agent_path: Custom path for cursor-agent (from config).
 
         Returns:
             ExecutorInfo if a headless executor is found, None otherwise.
         """
         try:
-            executor = cls.detect_executor(preferred=preferred)
+            executor = cls.detect_executor(preferred=preferred, agent_path=agent_path)
             if executor.is_headless():
                 return executor
             return None
@@ -228,6 +288,7 @@ class PromptBundleBuilder:
         ticket_title: str,
         ticket_description: str | None,
         additional_context: str | None = None,
+        feedback_bundle: dict | None = None,
     ) -> Path:
         """
         Build a prompt bundle file for the executor CLI.
@@ -236,6 +297,7 @@ class PromptBundleBuilder:
             ticket_title: Title of the ticket.
             ticket_description: Description of the ticket (may be None).
             additional_context: Optional additional context to include.
+            feedback_bundle: Optional feedback from previous revision review.
 
         Returns:
             Path to the created prompt file.
@@ -248,6 +310,7 @@ class PromptBundleBuilder:
             ticket_title=ticket_title,
             ticket_description=ticket_description,
             additional_context=additional_context,
+            feedback_bundle=feedback_bundle,
         )
 
         # Write the prompt file
@@ -260,6 +323,7 @@ class PromptBundleBuilder:
         ticket_title: str,
         ticket_description: str | None,
         additional_context: str | None = None,
+        feedback_bundle: dict | None = None,
     ) -> str:
         """
         Generate the content for the prompt bundle.
@@ -268,6 +332,7 @@ class PromptBundleBuilder:
             ticket_title: Title of the ticket.
             ticket_description: Description of the ticket.
             additional_context: Optional additional context.
+            feedback_bundle: Optional feedback from previous revision review.
 
         Returns:
             Formatted prompt string.
@@ -288,14 +353,25 @@ class PromptBundleBuilder:
             - Preserve existing code style and conventions
             - Do NOT introduce unnecessary dependencies
             - Keep changes atomic and reviewable
+        """)
 
+        # Add revision feedback if present
+        if feedback_bundle:
+            prompt += self._format_feedback_section(feedback_bundle)
+
+        prompt += dedent("""\
             ## Completion Criteria
 
             - Code compiles without errors
             - Tests pass (if applicable)
             - Changes are minimal and focused on the task
             - No unrelated modifications
+        """)
 
+        if feedback_bundle:
+            prompt += "            - All review feedback has been addressed\n"
+
+        prompt += dedent("""\
             ## Instructions
 
             1. Analyze the codebase to understand the current structure
@@ -310,6 +386,42 @@ class PromptBundleBuilder:
             prompt += f"\n## Additional Context\n\n{additional_context}\n"
 
         return prompt
+
+    def _format_feedback_section(self, feedback_bundle: dict) -> str:
+        """
+        Format the feedback bundle as a prompt section.
+
+        Args:
+            feedback_bundle: The feedback bundle dict.
+
+        Returns:
+            Formatted feedback section for the prompt.
+        """
+        section = "\n## Previous Revision Feedback\n\n"
+        section += f"**Revision #{feedback_bundle.get('revision_number', '?')} was reviewed and changes were requested.**\n\n"
+
+        # Add overall summary
+        summary = feedback_bundle.get("summary", "")
+        if summary:
+            section += f"### Reviewer Summary\n\n{summary}\n\n"
+
+        # Add inline comments
+        comments = feedback_bundle.get("comments", [])
+        if comments:
+            section += "### Inline Comments to Address\n\n"
+            for comment in comments:
+                file_path = comment.get("file_path", "unknown")
+                line_number = comment.get("line_number", "?")
+                body = comment.get("body", "")
+                line_content = comment.get("line_content", "")
+                section += f"- **{file_path}:{line_number}**: {body}\n"
+                if line_content:
+                    section += f"  - Line content: `{line_content}`\n"
+            section += "\n"
+
+        section += "**Important**: Address ALL feedback above while preserving correct changes from the previous revision.\n\n"
+
+        return section
 
     def get_evidence_dir(self) -> Path:
         """

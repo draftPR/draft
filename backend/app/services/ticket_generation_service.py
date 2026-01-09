@@ -1,0 +1,1086 @@
+"""Ticket generation service - orchestrates context gathering, agent calls, and validation.
+
+This service is responsible for:
+1. Collecting repository context via ContextGatherer
+2. Building prompts for ticket generation
+3. Calling the agent CLI (cursor-agent/claude) to generate tickets
+4. Validating, capping, and sanitizing output
+5. De-duplicating against existing tickets
+6. Caching analysis results
+
+Ticket generation uses the same agent infrastructure as execution for consistency.
+"""
+
+import hashlib
+import json
+import logging
+import re
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+from sqlalchemy import and_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.analysis_cache import AnalysisCache
+from app.models.goal import Goal
+from app.models.ticket import Ticket
+from app.models.ticket_event import TicketEvent
+from app.schemas.planner import (
+    AnalyzeCodebaseResponse,
+    ContextStats,
+    CreatedTicketSchema,
+    ExcludedMatch,
+    FiletypeCount,
+    GeneratedTicket,
+    PriorityBucket,
+    ReflectionResult,
+    SimilarTicketWarning,
+    SuggestedPriorityChange,
+    bucket_to_priority,
+    priority_to_bucket,
+)
+from app.services.config_service import ConfigService, PlannerConfig
+from app.services.context_gatherer import ContextGatherer, RepoContext
+from app.services.executor_service import ExecutorService, ExecutorType
+from app.services.llm_service import LLMService
+from app.state_machine import ActorType, EventType, TicketState
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Cache TTL for analysis results
+ANALYSIS_CACHE_TTL_MINUTES = 10
+
+# Max tickets to generate in one call
+MAX_TICKETS_PER_GENERATION = 10
+
+# Similarity threshold for dedup (token overlap)
+DEDUP_SIMILARITY_THRESHOLD = 0.6
+
+
+# =============================================================================
+# Dataclasses
+# =============================================================================
+
+
+@dataclass
+class GenerationResult:
+    """Result of ticket generation."""
+
+    tickets: list[CreatedTicketSchema]
+    goal_id: str | None
+    from_cache: bool = False
+
+
+# =============================================================================
+# Service
+# =============================================================================
+
+
+class TicketGenerationService:
+    """Orchestrates ticket generation from goals or codebase analysis.
+
+    This service coordinates:
+    - Context gathering (ContextGatherer)
+    - LLM calls (LLMService)
+    - Ticket creation and validation
+    - Caching and deduplication
+    """
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        llm_service: LLMService | None = None,
+        config: PlannerConfig | None = None,
+    ):
+        """Initialize the ticket generation service.
+
+        Args:
+            db: Async database session.
+            llm_service: LLM service instance. If None, creates one.
+            config: Planner configuration. If None, loads from config file.
+        """
+        self.db = db
+
+        if config is None:
+            config_service = ConfigService()
+            config = config_service.get_planner_config()
+        self.config = config
+
+        if llm_service is None:
+            llm_service = LLMService(config)
+        self.llm = llm_service
+
+        self.context_gatherer = ContextGatherer()
+
+    # =========================================================================
+    # PUBLIC METHODS
+    # =========================================================================
+
+    async def generate_from_goal(
+        self,
+        goal_id: str,
+        repo_root: Path | str | None = None,
+        include_readme: bool = False,
+    ) -> GenerationResult:
+        """Generate tickets from a goal using the agent CLI.
+
+        Args:
+            goal_id: ID of the goal to generate tickets for.
+            repo_root: Optional path to repository for context.
+            include_readme: Whether to include README excerpt.
+
+        Returns:
+            GenerationResult with created tickets.
+
+        Raises:
+            ValueError: If goal not found or no agent available.
+        """
+        # Fetch goal
+        result = await self.db.execute(select(Goal).where(Goal.id == goal_id))
+        goal = result.scalar_one_or_none()
+        if not goal:
+            raise ValueError(f"Goal not found: {goal_id}")
+
+        # Determine repo_root from goal's board if not provided
+        if not repo_root and goal.board_id:
+            from app.models.board import Board
+            board_result = await self.db.execute(select(Board).where(Board.id == goal.board_id))
+            board = board_result.scalar_one_or_none()
+            if board:
+                repo_root = board.repo_root
+
+        if not repo_root:
+            raise ValueError("No repository path available for ticket generation")
+
+        repo_root = Path(repo_root)
+
+        # Build prompt for agent
+        prompt = self._build_agent_ticket_generation_prompt(goal, include_readme)
+
+        # Call agent to generate tickets
+        agent_response = self._call_agent_for_tickets(prompt, repo_root)
+
+        # Parse and validate response
+        data = self._parse_agent_json_response(agent_response)
+        raw_tickets = data.get("tickets", [])
+
+        # Get existing tickets for dedup
+        existing_tickets = await self._get_existing_tickets(goal_id)
+
+        # Create tickets in database
+        created_tickets: list[CreatedTicketSchema] = []
+        for raw in raw_tickets[:MAX_TICKETS_PER_GENERATION]:
+            # Validate required fields
+            title = raw.get("title", "").strip()
+            if not title or len(title) > 255:
+                continue
+
+            # Dedup check - only block on exact match
+            status, _, _, _ = self._check_duplicate(title, existing_tickets)
+            if status == "exact":
+                logger.debug(f"Skipping exact duplicate ticket: {title}")
+                continue
+            # Note: "similar" status just logs a warning, doesn't block
+
+            # Parse priority bucket
+            bucket_str = raw.get("priority_bucket", "P2")
+            try:
+                bucket = PriorityBucket(bucket_str)
+            except ValueError:
+                bucket = PriorityBucket.P2  # Default to medium
+
+            priority = bucket_to_priority(bucket)
+            rationale = raw.get("priority_rationale", "")
+
+            # Create ticket
+            ticket = Ticket(
+                goal_id=goal_id,
+                title=title,
+                description=raw.get("description", ""),
+                state=TicketState.PROPOSED.value,
+                priority=priority,
+            )
+            self.db.add(ticket)
+            await self.db.flush()
+            await self.db.refresh(ticket)
+
+            # Create event
+            event = TicketEvent(
+                ticket_id=ticket.id,
+                event_type=EventType.CREATED.value,
+                from_state=None,
+                to_state=TicketState.PROPOSED.value,
+                actor_type=ActorType.PLANNER.value,
+                actor_id="ticket_generation_service",
+                reason=f"Generated from goal: {goal.title}",
+                payload_json=json.dumps({
+                    "priority_bucket": bucket.value,
+                    "priority_rationale": rationale,
+                    "verification": raw.get("verification", []),
+                    "notes": raw.get("notes"),
+                }),
+            )
+            self.db.add(event)
+
+            created_tickets.append(
+                CreatedTicketSchema(
+                    id=ticket.id,
+                    title=ticket.title,
+                    description=ticket.description or "",
+                    priority_bucket=bucket,
+                    priority=priority,
+                    priority_rationale=rationale,
+                    verification=raw.get("verification", []),
+                    notes=raw.get("notes"),
+                )
+            )
+
+            existing_tickets.append((ticket.id, title))  # Add to dedup list
+
+        await self.db.commit()
+
+        return GenerationResult(
+            tickets=created_tickets,
+            goal_id=goal_id,
+        )
+
+    async def analyze_codebase(
+        self,
+        repo_root: Path | str,
+        goal_id: str | None = None,
+        focus_areas: list[str] | None = None,
+        include_readme: bool = False,
+        board_id: str | None = None,
+    ) -> AnalyzeCodebaseResponse:
+        """Analyze a codebase and generate improvement tickets.
+
+        Args:
+            repo_root: Path to the repository.
+            goal_id: Optional goal to attach tickets to.
+            focus_areas: Optional focus hints.
+            include_readme: Whether to include README excerpt.
+            board_id: Board ID for scoping (required for multi-board setups).
+
+        Returns:
+            AnalyzeCodebaseResponse with generated tickets.
+        """
+        repo_root = Path(repo_root).resolve()
+
+        # Get git HEAD SHA for cache invalidation
+        head_sha = self._get_git_head_sha(repo_root)
+
+        # Check cache (includes HEAD SHA so invalidates on new commits)
+        cache_key = self._compute_cache_key(repo_root, focus_areas, head_sha)
+        cached = await self._get_cached_analysis(cache_key)
+        if cached:
+            return AnalyzeCodebaseResponse(
+                tickets=cached.get("tickets", []),
+                goal_id=goal_id,
+                analysis_summary=cached.get("analysis_summary", ""),
+                cache_hit=True,
+                context_stats=cached.get("context_stats"),
+                similar_warnings=cached.get("similar_warnings", []),
+                repo_head_sha=head_sha,
+            )
+
+        # Gather context
+        context = self.context_gatherer.gather(
+            repo_root=repo_root,
+            include_readme_excerpt=include_readme,
+        )
+
+        # Build context stats for observability
+        # Build excluded_matches (top 10 by count)
+        excluded_matches = [
+            ExcludedMatch(pattern=pattern, count=count)
+            for pattern, count in sorted(
+                context.stats.excluded_by_pattern.items(),
+                key=lambda x: -x[1],
+            )[:10]
+        ]
+
+        # Build filetype histogram (top 10 by count)
+        filetype_histogram = [
+            FiletypeCount(extension=ext, count=count)
+            for ext, count in sorted(
+                context.stats.extensions_scanned.items(),
+                key=lambda x: -x[1],
+            )[:10]
+        ]
+
+        context_stats = ContextStats(
+            files_scanned=context.stats.files_scanned,
+            todos_collected=context.stats.todo_lines_found,
+            context_truncated=(
+                context.stats.files_scanned >= self.context_gatherer.MAX_FILES_SCANNED
+                or context.stats.bytes_read >= self.context_gatherer.MAX_BYTES_TOTAL
+            ),
+            skipped_excluded=context.stats.skipped_excluded,
+            skipped_symlinks=context.stats.skipped_symlinks,
+            bytes_read=context.stats.bytes_read,
+            excluded_matches=excluded_matches,
+            filetype_histogram=filetype_histogram,
+        )
+
+        # Build prompt for agent
+        prompt = self._build_agent_analysis_prompt(focus_areas)
+
+        # Call agent to analyze codebase
+        agent_response = self._call_agent_for_tickets(prompt, repo_root)
+
+        # Parse response
+        data = self._parse_agent_json_response(agent_response)
+        raw_tickets = data.get("tickets", [])
+        summary = data.get("summary", "Analysis complete.")
+
+        # Get existing tickets for dedup (across all goals if no goal specified)
+        existing_tickets = await self._get_existing_tickets(goal_id)
+
+        # Create tickets with improved dedup (exact=block, similar=warn)
+        created_tickets: list[CreatedTicketSchema] = []
+        similar_warnings: list[SimilarTicketWarning] = []
+
+        for raw in raw_tickets[:MAX_TICKETS_PER_GENERATION]:
+            title = raw.get("title", "").strip()
+            if not title or len(title) > 255:
+                continue
+
+            # Check for duplicates
+            status, existing_id, existing_title, similarity = self._check_duplicate(
+                title, existing_tickets
+            )
+
+            if status == "exact":
+                # Hard block on exact match
+                logger.debug(f"Blocking exact duplicate ticket: {title}")
+                continue
+            elif status == "similar":
+                # Warn but don't block on similar
+                similar_warnings.append(
+                    SimilarTicketWarning(
+                        proposed_title=title,
+                        similar_to_id=existing_id,
+                        similar_to_title=existing_title,
+                        similarity_score=similarity,
+                    )
+                )
+                logger.debug(f"Warning: ticket '{title}' similar to '{existing_title}'")
+                # Continue creating the ticket (warn, don't block)
+
+            bucket_str = raw.get("priority_bucket", "P2")
+            try:
+                bucket = PriorityBucket(bucket_str)
+            except ValueError:
+                bucket = PriorityBucket.P2
+
+            priority = bucket_to_priority(bucket)
+            rationale = raw.get("priority_rationale", "")
+
+            # Only create in DB if goal_id provided
+            if goal_id:
+                ticket = Ticket(
+                    goal_id=goal_id,
+                    board_id=board_id,  # Scope to board for permission boundary
+                    title=title,
+                    description=raw.get("description", ""),
+                    state=TicketState.PROPOSED.value,
+                    priority=priority,
+                )
+                self.db.add(ticket)
+                await self.db.flush()
+                await self.db.refresh(ticket)
+
+                event = TicketEvent(
+                    ticket_id=ticket.id,
+                    event_type=EventType.CREATED.value,
+                    from_state=None,
+                    to_state=TicketState.PROPOSED.value,
+                    actor_type=ActorType.PLANNER.value,
+                    actor_id="ticket_generation_service",
+                    reason="Generated from codebase analysis",
+                    payload_json=json.dumps({
+                        "priority_bucket": bucket.value,
+                        "priority_rationale": rationale,
+                        "focus_areas": focus_areas,
+                        "repo_head_sha": head_sha,
+                    }),
+                )
+                self.db.add(event)
+
+                ticket_id = ticket.id
+            else:
+                # Preview mode - no DB write
+                ticket_id = f"preview-{len(created_tickets)}"
+
+            created_tickets.append(
+                CreatedTicketSchema(
+                    id=ticket_id,
+                    title=title,
+                    description=raw.get("description", ""),
+                    priority_bucket=bucket,
+                    priority=priority,
+                    priority_rationale=rationale,
+                    verification=raw.get("verification", []),
+                    notes=raw.get("notes"),
+                )
+            )
+
+            # Add to existing for remaining dedup checks
+            existing_tickets.append((ticket_id, title))
+
+        if goal_id:
+            await self.db.commit()
+
+        # Cache result (includes stats and warnings)
+        await self._cache_analysis(
+            cache_key,
+            {
+                "tickets": [t.model_dump() for t in created_tickets],
+                "analysis_summary": summary,
+                "context_stats": context_stats.model_dump(),
+                "similar_warnings": [w.model_dump() for w in similar_warnings],
+            },
+        )
+
+        return AnalyzeCodebaseResponse(
+            tickets=created_tickets,
+            goal_id=goal_id,
+            analysis_summary=summary,
+            cache_hit=False,
+            context_stats=context_stats,
+            similar_warnings=similar_warnings,
+            repo_head_sha=head_sha,
+        )
+
+    async def reflect_on_proposals(self, goal_id: str) -> ReflectionResult:
+        """Reflect on proposed tickets for a goal.
+
+        Evaluates ticket quality, identifies coverage gaps, and suggests
+        priority adjustments.
+
+        Args:
+            goal_id: ID of the goal whose proposals to reflect on.
+
+        Returns:
+            ReflectionResult with assessment and suggestions.
+        """
+        # Get goal
+        result = await self.db.execute(select(Goal).where(Goal.id == goal_id))
+        goal = result.scalar_one_or_none()
+        if not goal:
+            raise ValueError(f"Goal not found: {goal_id}")
+
+        # Get proposed tickets
+        result = await self.db.execute(
+            select(Ticket).where(
+                and_(
+                    Ticket.goal_id == goal_id,
+                    Ticket.state == TicketState.PROPOSED.value,
+                )
+            )
+        )
+        tickets = list(result.scalars().all())
+
+        if not tickets:
+            return ReflectionResult(
+                overall_quality="insufficient",
+                quality_notes="No proposed tickets found for this goal.",
+                coverage_gaps=["No tickets have been generated yet."],
+                suggested_changes=[],
+            )
+
+        # Build prompt
+        system_prompt = self._build_reflection_system_prompt()
+        user_prompt = self._build_reflection_user_prompt(goal, tickets)
+
+        response = self.llm.call_completion(
+            messages=[{"role": "user", "content": user_prompt}],
+            max_tokens=1500,
+            system_prompt=system_prompt,
+        )
+
+        # Parse response
+        data = self.llm.safe_parse_json(
+            response.content,
+            {
+                "overall_quality": "needs_work",
+                "quality_notes": "Unable to analyze tickets.",
+                "coverage_gaps": [],
+                "suggested_changes": [],
+            },
+        )
+
+        # Build suggested changes with ticket info
+        suggested_changes: list[SuggestedPriorityChange] = []
+        for change in data.get("suggested_changes", []):
+            ticket_id = change.get("ticket_id")
+            # Find the ticket
+            ticket = next((t for t in tickets if t.id == ticket_id), None)
+            if not ticket:
+                continue
+
+            try:
+                current_bucket = priority_to_bucket(ticket.priority or 50)
+                suggested_bucket = PriorityBucket(change.get("suggested_bucket", "P2"))
+            except ValueError:
+                continue
+
+            suggested_changes.append(
+                SuggestedPriorityChange(
+                    ticket_id=ticket_id,
+                    ticket_title=ticket.title,
+                    current_bucket=current_bucket,
+                    current_priority=ticket.priority or 50,
+                    suggested_bucket=suggested_bucket,
+                    suggested_priority=bucket_to_priority(suggested_bucket),
+                    reason=change.get("reason", ""),
+                )
+            )
+
+        return ReflectionResult(
+            overall_quality=data.get("overall_quality", "needs_work"),
+            quality_notes=data.get("quality_notes", ""),
+            coverage_gaps=data.get("coverage_gaps", []),
+            suggested_changes=suggested_changes,
+        )
+
+    # =========================================================================
+    # PROMPT BUILDERS
+    # =========================================================================
+
+    def _build_goal_system_prompt(self) -> str:
+        """Build system prompt for goal-based ticket generation."""
+        return """You are a technical project planner. Given a goal and optional repository context, break it down into 2-5 specific, actionable tickets.
+
+Your response MUST be valid JSON with this exact structure:
+{
+  "tickets": [
+    {
+      "title": "Short, action-oriented title (verb first)",
+      "description": "Clear description with acceptance criteria",
+      "priority_bucket": "P0|P1|P2|P3",
+      "priority_rationale": "Brief explanation of why this priority",
+      "verification": ["command1", "command2"],
+      "notes": "Optional implementation notes"
+    }
+  ]
+}
+
+Priority Buckets (USE THESE EXACTLY):
+- P0: Critical - security issues, blocking bugs, data loss risks
+- P1: High - important features, performance issues affecting users
+- P2: Medium - improvements, nice-to-haves, minor bugs
+- P3: Low - cleanup, documentation, cosmetic issues
+
+Guidelines:
+- Create 2-5 tickets that together achieve the goal
+- Each ticket should be independently implementable
+- Titles should be concise and action-oriented (start with a verb)
+- Descriptions should clearly explain the task and acceptance criteria
+- Verification commands should be shell commands that verify completion
+- Order tickets by logical implementation sequence
+- Be realistic with priorities - not everything is P0!"""
+
+    def _build_goal_user_prompt(self, goal: Goal, context: RepoContext | None) -> str:
+        """Build user prompt for goal-based generation."""
+        parts = [
+            f"Goal: {goal.title}",
+        ]
+        if goal.description:
+            parts.append(f"Description: {goal.description}")
+        if context:
+            parts.append(f"\nRepository context:\n{context.to_prompt_string()}")
+
+        parts.append("\nGenerate actionable tickets as JSON.")
+        return "\n".join(parts)
+
+    def _build_analysis_system_prompt(self, focus_areas: list[str] | None) -> str:
+        """Build system prompt for codebase analysis."""
+        focus_hint = ""
+        if focus_areas:
+            focus_hint = f"\n\nFocus on these areas: {', '.join(focus_areas)}"
+
+        return f"""You are a technical project planner analyzing a codebase. Based on the repository structure, TODOs, and metadata, identify improvement opportunities and generate actionable tickets.
+
+Your response MUST be valid JSON with this exact structure:
+{{
+  "summary": "Brief overall assessment of the codebase (2-3 sentences)",
+  "tickets": [
+    {{
+      "title": "Short, action-oriented title",
+      "description": "What needs to be done and why",
+      "priority_bucket": "P0|P1|P2|P3",
+      "priority_rationale": "Why this priority",
+      "verification": ["command to verify"],
+      "notes": "Optional notes"
+    }}
+  ]
+}}
+
+Priority Buckets:
+- P0: Critical (security, data loss, blocking bugs)
+- P1: High (performance, important features)  
+- P2: Medium (improvements, minor issues)
+- P3: Low (cleanup, docs, cosmetic){focus_hint}
+
+Guidelines:
+- Generate 3-7 tickets based on what you observe
+- Prioritize issues found in TODOs/FIXMEs
+- Look for patterns: missing tests, outdated deps, code smells
+- Be specific - reference actual files/paths when relevant
+- Don't generate vague tickets like "improve code quality"
+- Be conservative with P0/P1 - most tickets should be P2/P3"""
+
+    def _build_analysis_user_prompt(
+        self, context: RepoContext, focus_areas: list[str] | None
+    ) -> str:
+        """Build user prompt for codebase analysis."""
+        parts = [context.to_prompt_string()]
+
+        if focus_areas:
+            parts.append(f"\nFocus areas requested: {', '.join(focus_areas)}")
+
+        parts.append("\nAnalyze this codebase and generate improvement tickets as JSON.")
+        return "\n".join(parts)
+
+    def _build_reflection_system_prompt(self) -> str:
+        """Build system prompt for ticket reflection."""
+        return """You are reviewing proposed tickets for quality and coverage. Evaluate the tickets and suggest improvements.
+
+Your response MUST be valid JSON with this structure:
+{
+  "overall_quality": "good|needs_work|insufficient",
+  "quality_notes": "Detailed assessment of ticket quality",
+  "coverage_gaps": ["Area not covered 1", "Area not covered 2"],
+  "suggested_changes": [
+    {
+      "ticket_id": "uuid-here",
+      "suggested_bucket": "P0|P1|P2|P3",
+      "reason": "Why the priority should change"
+    }
+  ]
+}
+
+Evaluation criteria:
+- Are tickets specific and actionable?
+- Do they cover the goal comprehensively?
+- Are priorities realistic (not everything is critical)?
+- Are there obvious gaps or missing concerns?
+
+Only suggest priority changes when clearly warranted. Don't change priorities just for the sake of it."""
+
+    def _build_reflection_user_prompt(self, goal: Goal, tickets: list[Ticket]) -> str:
+        """Build user prompt for reflection."""
+        parts = [
+            f"Goal: {goal.title}",
+        ]
+        if goal.description:
+            parts.append(f"Description: {goal.description}")
+
+        parts.append("\nProposed tickets:")
+        for t in tickets:
+            bucket = priority_to_bucket(t.priority or 50)
+            parts.append(
+                f"- [{t.id}] {t.title} (Priority: {bucket.value})"
+                f"\n  {t.description or 'No description'}"
+            )
+
+        parts.append("\nEvaluate these tickets and respond with JSON.")
+        return "\n".join(parts)
+
+    # =========================================================================
+    # AGENT-BASED TICKET GENERATION
+    # =========================================================================
+
+    def _build_agent_ticket_generation_prompt(
+        self, goal: Goal, include_readme: bool = False
+    ) -> str:
+        """Build prompt for agent-based ticket generation.
+
+        The agent will analyze the codebase in the workspace and generate tickets.
+        """
+        prompt = f"""# Task: Generate Implementation Tickets
+
+## Goal
+**{goal.title}**
+
+{goal.description or "No additional description provided."}
+
+## Instructions
+
+Analyze this codebase and break down the goal into 2-5 specific, actionable tickets.
+
+**IMPORTANT**: Your response MUST include a JSON code block with the tickets. Use this exact format:
+
+```json
+{{
+  "tickets": [
+    {{
+      "title": "Short, action-oriented title (verb first)",
+      "description": "Clear description with acceptance criteria",
+      "priority_bucket": "P0|P1|P2|P3",
+      "priority_rationale": "Brief explanation of why this priority",
+      "verification": ["shell command to verify completion"],
+      "notes": "Optional implementation notes"
+    }}
+  ]
+}}
+```
+
+## Priority Buckets (use these exactly)
+- **P0**: Critical - security issues, blocking bugs, data loss risks
+- **P1**: High - important features, performance issues affecting users
+- **P2**: Medium - improvements, nice-to-haves, minor bugs
+- **P3**: Low - cleanup, documentation, cosmetic issues
+
+## Guidelines
+- Create 2-5 tickets that together achieve the goal
+- Each ticket should be independently implementable
+- Titles should be concise and action-oriented (start with a verb)
+- Descriptions should clearly explain the task and acceptance criteria
+- Be realistic with priorities - not everything is P0!
+- Reference actual files/paths when relevant
+
+Now analyze the codebase and generate the tickets JSON."""
+
+        return prompt
+
+    def _build_agent_analysis_prompt(self, focus_areas: list[str] | None = None) -> str:
+        """Build prompt for agent-based codebase analysis.
+
+        The agent will analyze the codebase in the workspace and generate improvement tickets.
+        """
+        focus_hint = ""
+        if focus_areas:
+            focus_hint = f"\n\n**Focus Areas**: {', '.join(focus_areas)}"
+
+        prompt = f"""# Task: Analyze Codebase and Generate Improvement Tickets
+
+## Instructions
+
+Analyze this codebase and identify improvement opportunities. Generate 3-7 actionable tickets.{focus_hint}
+
+**IMPORTANT**: Your response MUST include a JSON code block with the analysis. Use this exact format:
+
+```json
+{{
+  "summary": "Brief overall assessment of the codebase (2-3 sentences)",
+  "tickets": [
+    {{
+      "title": "Short, action-oriented title",
+      "description": "What needs to be done and why",
+      "priority_bucket": "P0|P1|P2|P3",
+      "priority_rationale": "Why this priority",
+      "verification": ["shell command to verify"],
+      "notes": "Optional notes"
+    }}
+  ]
+}}
+```
+
+## Priority Buckets
+- **P0**: Critical (security, data loss, blocking bugs)
+- **P1**: High (performance, important features)
+- **P2**: Medium (improvements, minor issues)
+- **P3**: Low (cleanup, docs, cosmetic)
+
+## What to Look For
+- TODOs and FIXMEs in the code
+- Missing tests or test coverage gaps
+- Security issues or potential vulnerabilities
+- Performance bottlenecks
+- Code duplication or refactoring opportunities
+- Missing documentation
+- Outdated dependencies
+
+## Guidelines
+- Be specific - reference actual files/paths
+- Don't generate vague tickets like "improve code quality"
+- Be conservative with P0/P1 - most tickets should be P2/P3
+- Each ticket should be independently implementable
+
+Now analyze the codebase and generate the JSON."""
+
+        return prompt
+
+    def _call_agent_for_tickets(self, prompt: str, repo_root: Path) -> str:
+        """Call the agent CLI to generate tickets.
+
+        Args:
+            prompt: The prompt for ticket generation.
+            repo_root: Path to the repository.
+
+        Returns:
+            The agent's response text.
+
+        Raises:
+            ValueError: If no agent is available or agent fails.
+        """
+        import os
+        
+        # Get agent path from config
+        agent_path = self.config.get_agent_path()
+        
+        if os.path.exists(agent_path):
+            logger.info(f"Using agent from config: {agent_path}")
+            # Determine if it's cursor-agent style (needs --workspace) or claude style
+            if "cursor-agent" in agent_path:
+                cmd = [agent_path, "--print", "--workspace", str(repo_root), prompt]
+            else:
+                # Claude-style: doesn't need --workspace
+                cmd = [agent_path, "--print", prompt]
+        else:
+            # Fall back to executor service detection
+            logger.warning(f"Agent not found at configured path: {agent_path}, falling back to auto-detection")
+            try:
+                executor = ExecutorService.detect_headless_executor(agent_path=agent_path)
+                if not executor:
+                    executor = ExecutorService.detect_executor(agent_path=agent_path)
+            except Exception as e:
+                raise ValueError(f"No agent CLI available at {agent_path} and auto-detection failed: {e}")
+
+            logger.info(f"Using agent: {executor.executor_type.value} for ticket generation")
+
+            # Build command based on executor type
+            if executor.executor_type == ExecutorType.CLAUDE:
+                cmd = [executor.command, "--print", prompt]
+            elif executor.executor_type == ExecutorType.CURSOR_AGENT:
+                cmd = [executor.command, "--print", "--workspace", str(repo_root), prompt]
+            else:
+                # Cursor (interactive) - not suitable for automated generation
+                raise ValueError(
+                    f"Agent {executor.executor_type.value} is interactive only. "
+                    "Need cursor-agent or claude CLI for automated ticket generation."
+                )
+
+        # Run the agent
+        logger.debug(f"Running agent command in {repo_root}")
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=120,  # 2 minute timeout for ticket generation
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Agent failed with code {result.returncode}: {result.stderr}")
+                raise ValueError(f"Agent failed: {result.stderr[:500]}")
+
+            return result.stdout
+
+        except subprocess.TimeoutExpired:
+            raise ValueError("Agent timed out after 120 seconds")
+        except FileNotFoundError:
+            raise ValueError(f"Agent command not found: {executor.command}")
+
+    def _parse_agent_json_response(self, response: str) -> dict:
+        """Parse JSON from agent response.
+
+        The agent may include explanatory text around the JSON.
+        This method extracts and parses the JSON block.
+
+        Args:
+            response: The full agent response text.
+
+        Returns:
+            Parsed JSON dict with tickets.
+        """
+        # Try to find JSON in code blocks first
+        json_block_pattern = r"```(?:json)?\s*(\{[\s\S]*?\})\s*```"
+        matches = re.findall(json_block_pattern, response)
+
+        for match in matches:
+            try:
+                data = json.loads(match)
+                if "tickets" in data:
+                    return data
+            except json.JSONDecodeError:
+                continue
+
+        # Try to find raw JSON object
+        json_pattern = r"\{[\s\S]*\"tickets\"[\s\S]*\}"
+        matches = re.findall(json_pattern, response)
+
+        for match in matches:
+            try:
+                data = json.loads(match)
+                if "tickets" in data:
+                    return data
+            except json.JSONDecodeError:
+                continue
+
+        # Fallback: try to parse entire response as JSON
+        try:
+            data = json.loads(response)
+            if "tickets" in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+
+        logger.warning(f"Could not parse JSON from agent response: {response[:500]}")
+        return {"tickets": []}
+
+    # =========================================================================
+    # HELPERS
+    # =========================================================================
+
+    async def _get_existing_tickets(self, goal_id: str | None) -> list[tuple[str, str]]:
+        """Get existing ticket (id, title) pairs for deduplication."""
+        query = select(Ticket.id, Ticket.title)
+        if goal_id:
+            query = query.where(Ticket.goal_id == goal_id)
+        result = await self.db.execute(query)
+        return [(row[0], row[1]) for row in result.fetchall()]
+
+    def _check_duplicate(
+        self, new_title: str, existing_tickets: list[tuple[str, str]]
+    ) -> tuple[str, str | None, str | None, float]:
+        """Check if a title is a duplicate.
+
+        Returns:
+            Tuple of (status, existing_id, existing_title, similarity):
+            - status: "exact" (hard block), "similar" (warning only), or "ok" (no match)
+            - existing_id: ID of matching ticket if any
+            - existing_title: Title of matching ticket if any
+            - similarity: Similarity score (0-1)
+        """
+        new_lower = new_title.lower().strip()
+        new_tokens = set(new_lower.split())
+
+        best_match: tuple[str, str, float] | None = None
+
+        for existing_id, existing_title in existing_tickets:
+            existing_lower = existing_title.lower().strip()
+
+            # Exact match = hard block
+            if new_lower == existing_lower:
+                return ("exact", existing_id, existing_title, 1.0)
+
+            # Token overlap for similarity
+            existing_tokens = set(existing_lower.split())
+            if not new_tokens or not existing_tokens:
+                continue
+
+            overlap = len(new_tokens & existing_tokens)
+            similarity = overlap / min(len(new_tokens), len(existing_tokens))
+
+            if similarity > DEDUP_SIMILARITY_THRESHOLD:
+                if best_match is None or similarity > best_match[2]:
+                    best_match = (existing_id, existing_title, similarity)
+
+        if best_match:
+            return ("similar", best_match[0], best_match[1], best_match[2])
+
+        return ("ok", None, None, 0.0)
+
+    def _get_git_head_sha(self, repo_root: Path) -> str | None:
+        """Get the current git HEAD SHA (full 40-char SHA) for cache invalidation.
+        
+        We store the full SHA to avoid rare collision issues with short SHAs.
+        """
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()  # Full SHA (40 chars)
+        except Exception as e:
+            logger.debug(f"Failed to get git HEAD: {e}")
+        return None
+
+    def _get_workspace_head_sha(self, workspace_path: Path, repo_root: Path) -> str | None:
+        """Get the git HEAD SHA for a workspace path if different from repo root.
+        
+        Worktrees may be at different SHAs than the main repo.
+        Returns None if workspace_path is the same as repo_root or not a git dir.
+        """
+        if workspace_path.resolve() == repo_root.resolve():
+            return None  # Same as repo root, no need for separate SHA
+        
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()  # Full SHA
+        except Exception as e:
+            logger.debug(f"Failed to get workspace HEAD: {e}")
+        return None
+
+    def _compute_cache_key(
+        self, repo_root: Path, focus_areas: list[str] | None, head_sha: str | None
+    ) -> str:
+        """Compute cache key for analysis results.
+
+        Includes git HEAD SHA so cache invalidates on new commits.
+        """
+        key_parts = [str(repo_root)]
+        if head_sha:
+            key_parts.append(head_sha)
+        if focus_areas:
+            key_parts.extend(sorted(focus_areas))
+        key_str = "|".join(key_parts)
+        return hashlib.sha256(key_str.encode()).hexdigest()[:32]
+
+    async def _get_cached_analysis(self, cache_key: str) -> dict | None:
+        """Get cached analysis result if valid."""
+        try:
+            result = await self.db.execute(
+                select(AnalysisCache).where(
+                    and_(
+                        AnalysisCache.id == cache_key,
+                        AnalysisCache.expires_at > datetime.now(UTC),
+                    )
+                )
+            )
+            cached = result.scalar_one_or_none()
+            if cached:
+                return json.loads(cached.result_json)
+        except Exception as e:
+            logger.debug(f"Cache lookup failed: {e}")
+        return None
+
+    async def _cache_analysis(self, cache_key: str, result: dict) -> None:
+        """Cache analysis result."""
+        try:
+            expires_at = datetime.now(UTC) + timedelta(minutes=ANALYSIS_CACHE_TTL_MINUTES)
+
+            # Upsert cache entry
+            existing = await self.db.execute(
+                select(AnalysisCache).where(AnalysisCache.id == cache_key)
+            )
+            cache_entry = existing.scalar_one_or_none()
+
+            if cache_entry:
+                cache_entry.result_json = json.dumps(result)
+                cache_entry.expires_at = expires_at
+            else:
+                cache_entry = AnalysisCache(
+                    id=cache_key,
+                    result_json=json.dumps(result),
+                    expires_at=expires_at,
+                )
+                self.db.add(cache_entry)
+
+            await self.db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to cache analysis: {e}")
+
