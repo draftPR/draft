@@ -1116,6 +1116,62 @@ def create_manual_work_followup_sync(
         return None
 
 
+def _get_related_tickets_context_sync(ticket_id: str) -> dict | None:
+    """
+    Get context about related tickets for better prompt building.
+    
+    Returns dict with:
+        - dependencies: list of tickets this ticket depends on
+        - completed_tickets: list of DONE tickets in the same goal
+        - goal_title: title of the goal this ticket belongs to
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, selectinload
+    from app.database import get_database_url
+    from app.models.ticket import Ticket
+    from app.models.goal import Goal
+    from app.state_machine import TicketState
+    
+    engine = create_engine(get_database_url())
+    with Session(engine) as db:
+        # Get the current ticket with its goal and dependencies
+        ticket = db.query(Ticket).options(
+            selectinload(Ticket.blocked_by),
+            selectinload(Ticket.goal)
+        ).filter(Ticket.id == ticket_id).first()
+        
+        if not ticket or not ticket.goal_id:
+            return None
+        
+        context = {
+            "goal_title": ticket.goal.title if ticket.goal else None,
+            "dependencies": [],
+            "completed_tickets": []
+        }
+        
+        # Add dependency information
+        if ticket.blocked_by:
+            context["dependencies"].append({
+                "title": ticket.blocked_by.title,
+                "state": ticket.blocked_by.state
+            })
+        
+        # Get completed tickets in the same goal (for context)
+        completed_tickets = db.query(Ticket).filter(
+            Ticket.goal_id == ticket.goal_id,
+            Ticket.state == TicketState.DONE.value,
+            Ticket.id != ticket_id
+        ).order_by(Ticket.created_at.asc()).limit(5).all()
+        
+        for comp_ticket in completed_tickets:
+            context["completed_tickets"].append({
+                "title": comp_ticket.title,
+                "description": comp_ticket.description
+            })
+        
+        return context if (context["dependencies"] or context["completed_tickets"]) else None
+
+
 @celery_app.task(bind=True, name="execute_ticket")
 def execute_ticket_task(self, job_id: str) -> dict:
     """
@@ -1363,6 +1419,11 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         write_log(log_path, f"Found queued follow-up: {followup_prompt[:100]}...")
         additional_context = f"\n\n--- FOLLOW-UP REQUEST ---\n{followup_prompt}\n\nPlease address the above follow-up request while continuing work on this ticket."
 
+    # Get related tickets context for better prompt
+    related_tickets_context = _get_related_tickets_context_sync(ticket_id)
+    if related_tickets_context:
+        write_log(log_path, f"Found context: {len(related_tickets_context.get('completed_tickets', []))} completed tickets, {len(related_tickets_context.get('dependencies', []))} dependencies")
+
     # Build prompt bundle
     write_log(log_path, "Building prompt bundle...")
     prompt_builder = PromptBundleBuilder(worktree_path, job_id)
@@ -1371,6 +1432,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         ticket_description=ticket.description,
         feedback_bundle=feedback_bundle,
         additional_context=additional_context,
+        related_tickets_context=related_tickets_context,
     )
     write_log(log_path, f"Prompt bundle created at: {prompt_file}")
 

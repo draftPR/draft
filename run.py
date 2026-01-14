@@ -40,6 +40,7 @@ class ProcessManager:
     
     def __init__(self):
         self.processes: List[subprocess.Popen] = []
+        self.shutting_down = False
         self.setup_signal_handlers()
     
     def setup_signal_handlers(self):
@@ -78,6 +79,16 @@ class ProcessManager:
     
     def shutdown(self, signum=None, frame=None):
         """Gracefully shutdown all processes."""
+        # Prevent re-entrant calls
+        if self.shutting_down:
+            return
+        
+        self.shutting_down = True
+        
+        # Ignore further signals during shutdown
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        
         print(f"\n{Colors.WARNING}{Colors.BOLD}[Shutdown]{Colors.ENDC} Stopping all services...")
         
         for process in reversed(self.processes):
@@ -85,6 +96,7 @@ class ProcessManager:
                 process.terminate()
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
+                print(f"{Colors.WARNING}  Process {process.pid} not responding, force killing...{Colors.ENDC}")
                 process.kill()
                 process.wait()
         

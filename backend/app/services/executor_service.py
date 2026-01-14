@@ -290,6 +290,7 @@ class PromptBundleBuilder:
         ticket_description: str | None,
         additional_context: str | None = None,
         feedback_bundle: dict | None = None,
+        related_tickets_context: dict | None = None,
     ) -> Path:
         """
         Build a prompt bundle file for the executor CLI.
@@ -299,6 +300,12 @@ class PromptBundleBuilder:
             ticket_description: Description of the ticket (may be None).
             additional_context: Optional additional context to include.
             feedback_bundle: Optional feedback from previous revision review.
+            related_tickets_context: Optional context about related tickets and dependencies.
+                Expected format: {
+                    "dependencies": [{"title": str, "state": str}],  # tickets this depends on
+                    "completed_tickets": [{"title": str, "description": str}],  # already done
+                    "goal_title": str  # optional goal title
+                }
 
         Returns:
             Path to the created prompt file.
@@ -312,6 +319,7 @@ class PromptBundleBuilder:
             ticket_description=ticket_description,
             additional_context=additional_context,
             feedback_bundle=feedback_bundle,
+            related_tickets_context=related_tickets_context,
         )
 
         # Write the prompt file
@@ -325,6 +333,7 @@ class PromptBundleBuilder:
         ticket_description: str | None,
         additional_context: str | None = None,
         feedback_bundle: dict | None = None,
+        related_tickets_context: dict | None = None,
     ) -> str:
         """
         Generate the content for the prompt bundle.
@@ -334,6 +343,7 @@ class PromptBundleBuilder:
             ticket_description: Description of the ticket.
             additional_context: Optional additional context.
             feedback_bundle: Optional feedback from previous revision review.
+            related_tickets_context: Optional context about related tickets.
 
         Returns:
             Formatted prompt string.
@@ -346,9 +356,19 @@ class PromptBundleBuilder:
             ## Description
 
             {description_text}
+        """)
 
+        # Add related tickets context if provided
+        if related_tickets_context:
+            prompt += self._format_related_tickets_section(related_tickets_context)
+
+        prompt += dedent("""\
             ## Constraints
 
+            - **CRITICAL**: Analyze the codebase structure FIRST before making changes
+            - If the ticket mentions specific file paths (e.g., `app/utils/file.py`), check if that structure exists
+            - Adapt paths to match the ACTUAL project structure (don't blindly create new directories)
+            - If paths don't match reality, use the existing structure instead
             - Make minimal, focused changes to accomplish the task
             - Do NOT modify files that are unrelated to this task
             - Preserve existing code style and conventions
@@ -375,18 +395,73 @@ class PromptBundleBuilder:
         prompt += dedent("""\
             ## Instructions
 
-            1. Analyze the codebase to understand the current structure
-            2. Implement the changes described above
-            3. After completing the changes, provide a brief summary explaining:
-               - What files were modified
+            1. **First, explore the codebase** to understand:
+               - The current directory structure
+               - Naming conventions and patterns
+               - Where similar functionality already exists
+               - Dependencies and existing modules
+            
+            2. **Validate the approach**:
+               - If the ticket mentions specific paths, verify they match the actual structure
+               - If paths don't exist, decide: create them OR adapt to existing structure
+               - Choose the approach that's most consistent with the codebase
+            
+            3. **Implement the changes** described in the task
+            
+            4. **Provide a summary** explaining:
+               - What files were modified or created
                - What changes were made
                - Why each change was necessary
+               - Any path adaptations you made from the ticket description
         """)
 
         if additional_context:
             prompt += f"\n## Additional Context\n\n{additional_context}\n"
 
         return prompt
+
+    def _format_related_tickets_section(self, related_tickets_context: dict) -> str:
+        """
+        Format related tickets context as a prompt section.
+
+        Args:
+            related_tickets_context: Dictionary with dependencies and completed tickets.
+
+        Returns:
+            Formatted related tickets section for the prompt.
+        """
+        section = "\n## Related Tickets Context\n\n"
+        
+        goal_title = related_tickets_context.get("goal_title")
+        if goal_title:
+            section += f"**Goal**: {goal_title}\n\n"
+        
+        # Add completed tickets for context
+        completed_tickets = related_tickets_context.get("completed_tickets", [])
+        if completed_tickets:
+            section += "### Previously Completed Tickets\n\n"
+            section += "These tickets in the same goal have already been completed:\n\n"
+            for ticket in completed_tickets:
+                section += f"- **{ticket['title']}**"
+                if ticket.get('description'):
+                    # Truncate long descriptions
+                    desc = ticket['description']
+                    if len(desc) > 150:
+                        desc = desc[:150] + "..."
+                    section += f": {desc}"
+                section += "\n"
+            section += "\n**Important**: Build upon this existing work. Don't recreate what's already done.\n\n"
+        
+        # Add dependency information
+        dependencies = related_tickets_context.get("dependencies", [])
+        if dependencies:
+            section += "### Dependencies\n\n"
+            section += "This ticket depends on the following tickets being completed:\n\n"
+            for dep in dependencies:
+                section += f"- **{dep['title']}** (Status: {dep['state']})\n"
+            section += "\n**Note**: You can assume dependencies are complete and build upon their work.\n\n"
+        
+        return section
 
     def _format_feedback_section(self, feedback_bundle: dict) -> str:
         """
