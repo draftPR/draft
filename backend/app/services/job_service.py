@@ -102,17 +102,18 @@ class JobService:
         await self.db.flush()
         await self.db.refresh(job)
 
-        # Enqueue the Celery task (import here to avoid circular dependency)
-        from app.worker import execute_ticket_task, resume_ticket_task, verify_ticket_task
+        # Enqueue the Celery task using send_task (safer, avoids circular imports)
+        from app.celery_app import celery_app
 
-        if kind == JobKind.EXECUTE:
-            task = execute_ticket_task.delay(job.id)
-        elif kind == JobKind.VERIFY:
-            task = verify_ticket_task.delay(job.id)
-        elif kind == JobKind.RESUME:
-            task = resume_ticket_task.delay(job.id)
-        else:
+        task_names = {
+            JobKind.EXECUTE: "execute_ticket",
+            JobKind.VERIFY: "verify_ticket",
+            JobKind.RESUME: "resume_ticket",
+        }
+        task_name = task_names.get(kind)
+        if not task_name:
             raise ValueError(f"Unknown job kind: {kind}")
+        task = celery_app.send_task(task_name, args=[job.id])
 
         # Store the Celery task ID for later reference (e.g., cancellation)
         job.celery_task_id = task.id

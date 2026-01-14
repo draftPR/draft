@@ -151,10 +151,15 @@ class ExecuteConfig:
 
 @dataclass
 class VerifyConfig:
-    """Configuration for verify jobs."""
+    """Configuration for verify jobs.
+    
+    Note: After verification passes, tickets always transition to 'needs_human'
+    for user review. Only when the user approves the revision does it move to 'done'.
+    The on_success field is kept for backwards compatibility but is ignored.
+    """
 
     commands: list[str] = field(default_factory=list)
-    on_success: str = "needs_human"  # "needs_human" or "done"
+    on_success: str = "needs_human"  # DEPRECATED: Always "needs_human", kept for backwards compatibility
     on_failure: str = "blocked"  # "blocked" (only option for now)
 
     @classmethod
@@ -162,7 +167,7 @@ class VerifyConfig:
         """Create a config instance from a dictionary."""
         return cls(
             commands=data.get("commands") or [],
-            on_success=data.get("on_success", "needs_human"),
+            on_success="needs_human",  # Always needs_human - user must approve to move to done
             on_failure=data.get("on_failure", "blocked"),
         )
 
@@ -398,8 +403,12 @@ class SmartKanbanConfig:
 
     @property
     def auto_transition_on_success(self) -> bool:
-        """Get auto-transition setting (legacy accessor)."""
-        return self.verify_config.on_success == "done"
+        """Get auto-transition setting (legacy accessor).
+        
+        DEPRECATED: Always returns False. Tickets must be approved by user
+        to transition from needs_human to done.
+        """
+        return False
 
 
 class ConfigService:
@@ -470,8 +479,11 @@ class ConfigService:
         return self.load_config().verify_commands
 
     def get_verify_on_success(self) -> str:
-        """Get the target state when verification succeeds."""
-        return self.load_config().verify_config.on_success
+        """Get the target state when verification succeeds.
+        
+        Always returns 'needs_human' - user must approve to move to done.
+        """
+        return "needs_human"
 
     def get_execute_config(self) -> ExecuteConfig:
         """Get the execute configuration."""

@@ -83,10 +83,11 @@ class ExecutorInfo:
         elif self.executor_type == ExecutorType.CURSOR_AGENT:
             # Cursor Agent CLI with non-interactive mode:
             # - --print: Non-interactive mode that prints response and exits
+            # - --output-format=stream-json: Stream JSON output line-by-line for real-time logs
             # - --force: Allow all commands without prompting (like YOLO mode)
             # - --workspace: Set the working directory
             prompt_content = prompt_file.read_text()
-            cmd = [self.command, "--print", "--workspace", str(worktree_path)]
+            cmd = [self.command, "--print", "--output-format=stream-json", "--workspace", str(worktree_path)]
             if yolo_mode:
                 cmd.append("--force")
             cmd.append(prompt_content)

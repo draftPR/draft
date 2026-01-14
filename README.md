@@ -74,9 +74,33 @@ This will:
 make db-migrate
 ```
 
-### 3. Run the Application
+### 3. Run the Application ⚡
 
-Open four terminal windows:
+**Option A: One Command (Recommended)** 🚀
+
+Just like `npx vibe-kanban`, run everything with a single command:
+
+```bash
+make run
+```
+
+Or directly:
+
+```bash
+./run.py
+```
+
+This automatically starts:
+- ✅ Redis server
+- ✅ FastAPI backend (http://localhost:8000)
+- ✅ Celery worker
+- ✅ Vite frontend (http://localhost:5173)
+
+Press `Ctrl+C` to stop all services gracefully.
+
+**Option B: Manual (4 terminals)**
+
+If you prefer to run services separately:
 
 **Terminal 1 - Redis:**
 ```bash

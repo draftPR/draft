@@ -37,7 +37,11 @@ celery_app.conf.update(
         },
         "planner-tick": {
             "task": "planner_tick",
-            "schedule": 5.0,  # Run every 5 seconds to pick up next tickets quickly
+            "schedule": 2.0,  # Run every 2 seconds for instant developer feedback
+        },
+        "poll-pr-statuses": {
+            "task": "poll_pr_statuses",
+            "schedule": 300.0,  # Run every 5 minutes
         },
     },
 )

@@ -13,6 +13,7 @@ from app.models.base import Base
 if TYPE_CHECKING:
     from app.models.board import Board
     from app.models.evidence import Evidence
+    from app.models.normalized_log import NormalizedLogEntry
     from app.models.revision import Revision
     from app.models.ticket import Ticket
 
@@ -134,6 +135,13 @@ class Job(Base):
         "Revision",
         foreign_keys="Job.source_revision_id",
         viewonly=True,  # Don't allow writes through this relationship
+    )
+    # Normalized log entries for this job
+    normalized_logs: Mapped[list["NormalizedLogEntry"]] = relationship(
+        "NormalizedLogEntry",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        order_by="NormalizedLogEntry.sequence",
     )
 
     @property

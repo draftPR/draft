@@ -48,7 +48,7 @@ def _to_naive_utc(dt: datetime) -> datetime:
 # Default thresholds
 HEARTBEAT_STALE_SECONDS = 120  # Job is stale if no heartbeat in 2 minutes
 QUEUED_REENQUEUE_SECONDS = 30  # Re-enqueue lost tasks after 30 seconds
-QUEUED_STALE_MINUTES = 2  # Job is stuck in queue if queued for 2 minutes (fail after this)
+QUEUED_STALE_MINUTES = 15  # Job is stuck in queue if queued for 15 minutes (increased from 2 to handle busy workers)
 DEFAULT_JOB_TIMEOUT_SECONDS = 900  # 15 minutes default timeout
 
 # SQLite retry config
@@ -190,25 +190,39 @@ def run_job_watchdog() -> WatchdogResult:
 
         # 5. Find QUEUED jobs that haven't been picked up even after re-enqueue attempts
         # This is the final fallback - fail jobs stuck for too long
-        queued_threshold = now_naive - timedelta(minutes=QUEUED_STALE_MINUTES)
-        stuck_queued_jobs = (
+        # BUT: Only fail if there are NO running jobs (worker is idle but not picking up work)
+        # If there are running jobs, the worker is just busy - let queued jobs wait
+        running_jobs_count = (
             db.query(Job)
-            .filter(
-                Job.status == JobStatus.QUEUED.value,
-                Job.created_at < queued_threshold,
-            )
-            .all()
+            .filter(Job.status == JobStatus.RUNNING.value)
+            .count()
         )
 
-        for job in stuck_queued_jobs:
-            _fail_job_with_retry(
-                db=db,
-                job=job,
-                reason=f"Stuck in queue for over {QUEUED_STALE_MINUTES} minutes - worker may be down",
-                result=result,
-                now=now,
+        if running_jobs_count == 0:
+            # Worker appears idle but jobs are stuck in queue - something is wrong
+            queued_threshold = now_naive - timedelta(minutes=QUEUED_STALE_MINUTES)
+            stuck_queued_jobs = (
+                db.query(Job)
+                .filter(
+                    Job.status == JobStatus.QUEUED.value,
+                    Job.created_at < queued_threshold,
+                )
+                .all()
             )
-            result.stuck_queued_jobs_failed += 1
+
+            for job in stuck_queued_jobs:
+                _fail_job_with_retry(
+                    db=db,
+                    job=job,
+                    reason=f"Stuck in queue for over {QUEUED_STALE_MINUTES} minutes with no active jobs - worker may be down",
+                    result=result,
+                    now=now,
+                )
+                result.stuck_queued_jobs_failed += 1
+        else:
+            logger.debug(
+                f"Skipping stuck queue check: {running_jobs_count} jobs currently running"
+            )
 
     logger.info(
         f"Watchdog completed: {result.stale_jobs_recovered} stale, "
@@ -237,8 +251,30 @@ def _reenqueue_lost_task(db: Session, job: Job, result: WatchdogResult) -> bool:
         True if the task was re-enqueued, False if it was still active
     """
     from app.celery_app import celery_app
-    from app.worker import execute_ticket_task, verify_ticket_task, resume_ticket_task
     from app.models.job import JobKind
+
+    # First check if the ticket is in a state where re-enqueueing makes sense
+    # If ticket is already BLOCKED, DONE, or ABANDONED, don't re-enqueue
+    ticket = db.query(Ticket).filter(Ticket.id == job.ticket_id).first()
+    if ticket:
+        terminal_states = [
+            TicketState.BLOCKED.value,
+            TicketState.DONE.value,
+            TicketState.ABANDONED.value,
+        ]
+        if ticket.state in terminal_states:
+            # Ticket is in terminal/blocked state - fail the job instead of re-enqueueing
+            logger.info(
+                f"Job {job.id} ticket is in {ticket.state} state - failing job instead of re-enqueueing"
+            )
+            job.status = JobStatus.FAILED.value
+            job.finished_at = datetime.now(UTC)
+            job.exit_code = -1
+            db.commit()
+            result.details.append(
+                f"Job {job.id} ({job.kind}): Failed (ticket already {ticket.state})"
+            )
+            return False
 
     # Check if the Celery task is still pending/active
     if job.celery_task_id:
@@ -251,15 +287,19 @@ def _reenqueue_lost_task(db: Session, job: Job, result: WatchdogResult) -> bool:
         except Exception as e:
             logger.warning(f"Error checking task status for job {job.id}: {e}")
 
-    # Task is lost or never existed - re-enqueue
+    # Task is lost or never existed - re-enqueue using send_task (safer for forked processes)
     try:
         task = None
+        task_name = None
         if job.kind == JobKind.EXECUTE.value:
-            task = execute_ticket_task.delay(job.id)
+            task_name = "execute_ticket"
         elif job.kind == JobKind.VERIFY.value:
-            task = verify_ticket_task.delay(job.id)
+            task_name = "verify_ticket"
         elif job.kind == JobKind.RESUME.value:
-            task = resume_ticket_task.delay(job.id)
+            task_name = "resume_ticket"
+
+        if task_name:
+            task = celery_app.send_task(task_name, args=[job.id])
 
         if task:
             old_task_id = job.celery_task_id

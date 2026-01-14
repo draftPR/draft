@@ -9,7 +9,6 @@ import {
 import { EvidenceList } from "@/components/EvidenceList";
 import { RevisionViewer } from "@/components/RevisionViewer";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   fetchTicketEvents,
   fetchTicketEvidence,
@@ -49,7 +48,14 @@ import {
   RefreshCw,
   Check,
   X,
+  Activity,
+  Brain,
 } from "lucide-react";
+import { LiveAgentLogs } from "@/components/LiveAgentLogs";
+import { CreatePRButton } from "@/components/PullRequest/CreatePRButton";
+import { PRStatusBadge } from "@/components/PullRequest/PRStatusBadge";
+import { NormalizedConversation } from "@/components/NormalizedConversation";
+import { AgentActivityLog } from "@/components/AgentActivityLog";
 
 interface TicketDetailDrawerProps {
   ticket: Ticket | null;
@@ -91,6 +97,7 @@ export function TicketDetailDrawer({
   const [mergeLoading, setMergeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRevisionViewer, setShowRevisionViewer] = useState(false);
+  const [logViewMode, setLogViewMode] = useState<"raw" | "normalized">("raw");
 
   const loadEvents = useCallback(async (ticketId: string) => {
     setLoading(true);
@@ -214,6 +221,13 @@ export function TicketDetailDrawer({
     }
   }, [ticket, loadRevisions, loadEvidence, loadEvents]);
 
+  const handleRefresh = useCallback(() => {
+    if (ticket) {
+      loadEvents(ticket.id);
+      loadMergeStatus(ticket.id);
+    }
+  }, [ticket, loadEvents, loadMergeStatus]);
+
   useEffect(() => {
     if (ticket && open) {
       loadEvents(ticket.id);
@@ -226,6 +240,18 @@ export function TicketDetailDrawer({
     // Only re-fetch when ticket ID changes or drawer opens, not on ticket object reference changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticket?.id, open, loadEvents, loadEvidence, loadRevisions, loadMergeStatus, loadJobs]);
+
+  // Auto-refresh jobs when there's a running job (to update status)
+  const hasRunningJob = jobs.some(j => j.status === JobStatus.RUNNING || j.status === JobStatus.QUEUED);
+  useEffect(() => {
+    if (!hasRunningJob || !ticket || !open) return;
+
+    const interval = setInterval(() => {
+      loadJobs(ticket.id);
+    }, 5000); // Refresh every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [hasRunningJob, ticket, open, loadJobs]);
 
   // Check if ticket can show revision viewer
   const canShowRevisions = ticket && (
@@ -268,6 +294,12 @@ export function TicketDetailDrawer({
           <SheetDescription className="sr-only">
             Ticket details and event history
           </SheetDescription>
+          
+          {/* GitHub PR Actions */}
+          <div className="flex items-center gap-3 pt-4">
+            <PRStatusBadge ticket={ticket} onRefresh={handleRefresh} />
+            <CreatePRButton ticket={ticket} onPRCreated={handleRefresh} />
+          </div>
         </SheetHeader>
 
         <div className="mt-8 space-y-10">
@@ -293,10 +325,6 @@ export function TicketDetailDrawer({
               </h3>
               <p className="text-[13px] text-foreground">
                 {STATE_DISPLAY_NAMES[ticket.state]}
-                {/* Clarify that Verified doesn't mean merged */}
-                {ticket.state === "done" && (
-                  <span className="text-muted-foreground text-[11px] ml-1">(unmerged)</span>
-                )}
               </p>
             </div>
             <div className="space-y-3">
@@ -426,48 +454,89 @@ export function TicketDetailDrawer({
             </div>
           )}
 
-          {/* Jobs Section */}
-          {jobs.length > 0 && (
-            <div className="space-y-4">
-              <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
-                <Loader2 className="h-3.5 w-3.5" />
-                Jobs
-              </h3>
+          {/* Agent Chain of Thought - Full History */}
+          <div className="space-y-4">
+            <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
+              <Brain className="h-3.5 w-3.5" />
+              Agent Chain of Thought
+              {jobs.some(j => j.status === JobStatus.RUNNING) && (
+                <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium uppercase tracking-wide ml-1">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                  </span>
+                  LIVE
+                </span>
+              )}
+            </h3>
+            <AgentActivityLog ticketId={ticket.id} />
+          </div>
 
-              <div className="space-y-2">
-                {jobs.slice(0, 5).map((job) => (
-                  <div
-                    key={job.id}
-                    className="flex items-center justify-between bg-muted/30 rounded-lg p-2"
+          {/* Jobs Section with Live Logs (for real-time streaming) */}
+          {jobs.length > 0 && jobs.some(j => j.status === JobStatus.RUNNING) && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
+                  <Activity className="h-3.5 w-3.5" />
+                  Live Agent Stream
+                </h3>
+                
+                {/* Log View Toggle */}
+                <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5">
+                  <button
+                    onClick={() => setLogViewMode("raw")}
+                    className={cn(
+                      "px-2 py-1 text-[10px] font-medium rounded transition-colors",
+                      logViewMode === "raw"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
                   >
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-[10px] px-1.5 py-0",
-                          job.status === JobStatus.SUCCEEDED && "border-emerald-500 text-emerald-500",
-                          job.status === JobStatus.FAILED && "border-red-500 text-red-500",
-                          job.status === JobStatus.RUNNING && "border-amber-500 text-amber-500",
-                          job.status === JobStatus.QUEUED && "border-blue-500 text-blue-500",
-                          job.status === JobStatus.CANCELED && "border-gray-500 text-gray-500"
-                        )}
-                      >
-                        {job.status}
-                      </Badge>
-                      <span className="text-[12px] text-muted-foreground capitalize">
-                        {job.kind}
-                      </span>
-                    </div>
+                    Raw
+                  </button>
+                  <button
+                    onClick={() => setLogViewMode("normalized")}
+                    className={cn(
+                      "px-2 py-1 text-[10px] font-medium rounded transition-colors",
+                      logViewMode === "normalized"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Normalized
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {jobs.filter(j => j.status === JobStatus.RUNNING).map((job, index) => (
+                  <div key={job.id} className="space-y-2">
+                    {logViewMode === "raw" ? (
+                      <LiveAgentLogs
+                        jobId={job.id}
+                        jobStatus={job.status}
+                        jobKind={job.kind}
+                        defaultExpanded={true}
+                      />
+                    ) : (
+                      <NormalizedConversation
+                        jobId={job.id}
+                        jobStatus={job.status}
+                        defaultExpanded={true}
+                      />
+                    )}
                     {(job.status === JobStatus.FAILED || job.status === JobStatus.CANCELED) && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 px-2 text-[11px]"
-                        onClick={() => handleRetryJob(job.id)}
-                      >
-                        <RefreshCw className="h-3 w-3 mr-1" />
-                        Retry
-                      </Button>
+                      <div className="flex justify-end">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-3 text-[11px]"
+                          onClick={() => handleRetryJob(job.id)}
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1.5" />
+                          Retry Job
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ))}

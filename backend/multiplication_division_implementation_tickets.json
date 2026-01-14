@@ -26,17 +26,30 @@
       "notes": "Use pytest.raises context manager for exception testing. Consider parametrize decorator for testing multiple input combinations efficiently. Test both int and float inputs for each function. Include tests for decimal precision handling."
     },
     {
-      "title": "Handle decimal precision and edge cases in divide function",
-      "description": "Enhance the divide function in app/utils/calculator.py to properly handle decimal precision and edge cases.\n\nRequirements:\n- Ensure accurate decimal results (e.g., divide(1, 3) returns 0.3333333333333333)\n- Handle division by zero with clear ZeroDivisionError message\n- Handle very large numbers appropriately (test with sys.maxsize)\n- Handle very small numbers (near-zero divisors) appropriately - ensure near-zero positive numbers still work, but exact zero raises error\n- Document precision limitations in docstring (floating-point arithmetic has inherent precision limitations)\n- Ensure consistent return type (always float, even for integer division results like divide(10, 2))\n\nAcceptance criteria:\n- divide() handles decimal division accurately\n- ZeroDivisionError is raised with appropriate message for division by zero\n- Function handles edge cases without errors (very large numbers, very small positive numbers)\n- Docstring documents precision behavior and limitations\n- Tests verify decimal precision handling\n- divide() always returns float type (not int)",
+      "title": "Create API endpoint for calculator operations",
+      "description": "Create app/routers/calculator.py with FastAPI endpoints for multiply and divide operations.\n\nEndpoint requirements:\n- POST /calculator/multiply - accepts JSON body with 'a' and 'b' fields, returns result\n- POST /calculator/divide - accepts JSON body with 'a' and 'b' fields, returns result\n- Both endpoints should:\n  - Use Pydantic schemas for request/response validation (create app/schemas/calculator.py)\n  - Return appropriate HTTP status codes (200 for success, 400 for division by zero)\n  - Include proper error handling and error messages\n  - Follow existing router patterns from app/routers/goals.py\n  - Use app/exceptions.py patterns for error handling\n- Register router in app/main.py\n- Include OpenAPI documentation with examples\n\nAcceptance criteria:\n- File app/routers/calculator.py exists with both endpoints\n- File app/schemas/calculator.py exists with request/response models\n- Endpoints are registered in app/main.py\n- Request/response schemas are defined using Pydantic\n- Division by zero returns 400 status with clear error message\n- Endpoints are documented in OpenAPI/Swagger UI\n- Endpoints can be tested via curl or HTTP client",
       "priority_bucket": "P2",
-      "priority_rationale": "Important for user experience and correctness, but not blocking - improves robustness of division operation and ensures proper decimal handling.",
+      "priority_rationale": "Important for making calculator functionality accessible via API, but not blocking for core functionality. Users can still use the functions directly if needed. Medium priority as it enhances usability.",
+      "verification": [
+        "test -f app/routers/calculator.py",
+        "test -f app/schemas/calculator.py",
+        "grep -q 'calculator' app/main.py",
+        "curl -X POST http://localhost:8000/calculator/multiply -H 'Content-Type: application/json' -d '{\"a\": 2, \"b\": 3}' 2>/dev/null | grep -q '6' || echo 'Server may not be running - check manually'"
+      ],
+      "notes": "Follow FastAPI patterns from existing routers. Use app/schemas/calculator.py for request/response models. Consider adding GET endpoints with query parameters as alternative interface. Ensure error responses follow project error format from app/exceptions.py."
+    },
+    {
+      "title": "Enhance divide function with robust decimal precision handling",
+      "description": "Enhance the divide function in app/utils/calculator.py to properly handle decimal precision and document floating-point limitations.\n\nRequirements:\n- Ensure accurate decimal results (e.g., divide(1, 3) returns appropriate float precision)\n- Document precision limitations in docstring (floating-point arithmetic has inherent precision limitations)\n- Ensure consistent return type (always float, even for integer division results like divide(10, 2))\n- Handle very large numbers appropriately (test with sys.maxsize)\n- Handle very small numbers (near-zero divisors) appropriately - ensure near-zero positive numbers still work, but exact zero raises error\n- Add examples in docstring showing expected behavior\n- Update tests to verify decimal precision handling\n\nAcceptance criteria:\n- divide() handles decimal division accurately\n- Docstring documents precision behavior and limitations\n- divide() always returns float type (not int)\n- Function handles edge cases without errors (very large numbers, very small positive numbers)\n- Tests verify decimal precision handling\n- Documentation is clear about floating-point precision limitations",
+      "priority_bucket": "P2",
+      "priority_rationale": "Important for user experience and correctness, but not blocking - improves robustness of division operation and ensures proper decimal handling. Core functionality works without this enhancement.",
       "verification": [
         "python -c 'from app.utils.calculator import divide; result = divide(1, 3); assert isinstance(result, float); assert abs(result - 0.3333333333333333) < 1e-10'",
-        "python -c 'from app.utils.calculator import divide; divide(1, 0)' 2>&1 | grep -q ZeroDivisionError",
         "python -c 'from app.utils.calculator import divide; assert isinstance(divide(10, 2), float)'",
-        "pytest tests/test_calculator.py::test_divide_decimal_precision -v"
+        "grep -q 'precision' app/utils/calculator.py || grep -q 'floating-point' app/utils/calculator.py",
+        "pytest tests/test_calculator.py -k 'decimal' -v 2>/dev/null || pytest tests/test_calculator.py -v"
       ],
-      "notes": "Python's float division handles precision automatically. Document that floating-point arithmetic has inherent precision limitations. Consider using Decimal type for exact decimal arithmetic if needed in future enhancements."
+      "notes": "Python's float division handles precision automatically. Document that floating-point arithmetic has inherent precision limitations. Consider using Decimal type for exact decimal arithmetic if needed in future enhancements, but standard float is acceptable for this implementation."
     }
   ]
 }

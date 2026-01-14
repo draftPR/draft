@@ -14,6 +14,10 @@ class TicketCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
     priority: int | None = Field(None, ge=0, le=100)
+    blocked_by_ticket_id: str | None = Field(
+        None,
+        description="UUID of a ticket that blocks this one. This ticket cannot be executed until the blocker is DONE.",
+    )
     actor_type: ActorType = Field(
         default=ActorType.HUMAN,
         description="Type of actor creating the ticket",
@@ -32,6 +36,9 @@ class TicketResponse(BaseModel):
     description: str | None
     state: TicketState
     priority: int | None
+    blocked_by_ticket_id: str | None = Field(
+        None, description="UUID of ticket blocking this one"
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -45,6 +52,12 @@ class TicketDetailResponse(TicketResponse):
     goal_description: str | None = None
     priority_label: str | None = None
     state_display: str
+    blocked_by_ticket_title: str | None = Field(
+        None, description="Title of the ticket blocking this one"
+    )
+    is_blocked: bool = Field(
+        False, description="True if this ticket is blocked by an incomplete dependency"
+    )
 
     @staticmethod
     def get_priority_label(priority: int | None) -> str | None:

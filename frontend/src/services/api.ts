@@ -26,6 +26,7 @@ import type {
   PlannerStartResponse,
   PlannerStatusResponse,
   PlannerTickResponse,
+  QueuedMessageStatus,
   QueueStatusResponse,
   ReflectionResult,
   ReviewComment,
@@ -585,21 +586,116 @@ export function streamOrchestratorLogs(
 }
 
 /**
- * Create EventSource for streaming agent logs for a running job (SSE)
+ * Log message from streaming endpoint
+ */
+export interface StreamLogMessage {
+  level: "stdout" | "stderr" | "info" | "error" | "progress" | "normalized" | "finished";
+  content: string;
+  timestamp: string;
+  progress_pct?: number;
+  stage?: string;
+}
+
+/**
+ * Normalized log entry from streaming (parsed cursor-agent JSON)
+ */
+export interface StreamNormalizedEntry {
+  entry_type: "system_message" | "assistant_message" | "thinking" | "tool_use" | "error_message";
+  content: string;
+  sequence: number;
+  tool_name?: string | null;
+  action_type?: string | null;
+  tool_status?: string | null;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Callback data for streaming logs
+ */
+export interface StreamCallbackData {
+  content?: string;
+  error?: string;
+  status?: string;
+  progress?: number;
+  stage?: string;
+  normalized?: StreamNormalizedEntry;
+}
+
+/**
+ * Create EventSource for streaming job logs via the optimized SSE endpoint.
+ * 
+ * This uses the hybrid in-memory + Redis streaming for ultra-low latency (<10ms).
+ * Each event type corresponds to a log level (stdout, stderr, info, error, progress, normalized, finished).
  */
 export function streamAgentLogs(
   jobId: string,
-  onMessage: (data: { content?: string; error?: string; status?: string }) => void,
+  onMessage: (data: StreamCallbackData) => void,
   onError?: (error: Event) => void
 ): EventSource {
-  const eventSource = new EventSource(`${API_BASE}/debug/agent/stream/${jobId}`);
+  const eventSource = new EventSource(`${API_BASE}/jobs/${jobId}/logs/stream`);
   
+  // Handle different event types
+  const handleEvent = (event: MessageEvent, level: string) => {
+    try {
+      const content = event.data;
+      
+      if (level === "finished") {
+        onMessage({ status: "completed" });
+        eventSource.close();
+        return;
+      }
+      
+      if (level === "error") {
+        onMessage({ error: content });
+        return;
+      }
+      
+      if (level === "progress") {
+        // Progress events may contain JSON with percentage
+        try {
+          const data = JSON.parse(content);
+          onMessage({ progress: data.progress_pct, stage: data.stage });
+        } catch {
+          onMessage({ content });
+        }
+        return;
+      }
+      
+      if (level === "normalized") {
+        // Normalized log entry from cursor-agent JSON parsing
+        try {
+          const entry = JSON.parse(content) as StreamNormalizedEntry;
+          onMessage({ normalized: entry });
+        } catch (e) {
+          console.error("Failed to parse normalized entry:", e);
+          onMessage({ content: content + "\n" });
+        }
+        return;
+      }
+      
+      // stdout, stderr, info
+      onMessage({ content: content + "\n" });
+    } catch (e) {
+      console.error("Failed to parse agent log:", e);
+    }
+  };
+  
+  // Listen to all event types
+  eventSource.addEventListener("stdout", (e) => handleEvent(e, "stdout"));
+  eventSource.addEventListener("stderr", (e) => handleEvent(e, "stderr"));
+  eventSource.addEventListener("info", (e) => handleEvent(e, "info"));
+  eventSource.addEventListener("error", (e) => handleEvent(e, "error"));
+  eventSource.addEventListener("progress", (e) => handleEvent(e, "progress"));
+  eventSource.addEventListener("normalized", (e) => handleEvent(e, "normalized"));
+  eventSource.addEventListener("finished", (e) => handleEvent(e, "finished"));
+  
+  // Fallback for untyped messages
   eventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
       onMessage(data);
-    } catch (e) {
-      console.error("Failed to parse agent log:", e);
+    } catch {
+      onMessage({ content: event.data + "\n" });
     }
   };
   
@@ -608,4 +704,290 @@ export function streamAgentLogs(
   }
   
   return eventSource;
+}
+
+// ==================== Queued Message API ====================
+
+/**
+ * Queue a follow-up message for a ticket.
+ * 
+ * This enables instant follow-up UX: while the agent is working,
+ * you can type the next instruction. When execution completes,
+ * the queued message auto-executes.
+ */
+export async function queueFollowupMessage(
+  ticketId: string,
+  message: string
+): Promise<QueuedMessageStatus> {
+  return apiFetch<QueuedMessageStatus>(`/tickets/${ticketId}/queue`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+/**
+ * Get the queued message status for a ticket
+ */
+export async function getQueuedMessage(
+  ticketId: string
+): Promise<QueuedMessageStatus> {
+  return apiFetch<QueuedMessageStatus>(`/tickets/${ticketId}/queue`);
+}
+
+/**
+ * Cancel a queued message for a ticket
+ */
+export async function cancelQueuedMessage(
+  ticketId: string
+): Promise<QueuedMessageStatus> {
+  return apiFetch<QueuedMessageStatus>(`/tickets/${ticketId}/queue`, {
+    method: "DELETE",
+  });
+}
+
+// ==================== Dashboard API ====================
+
+export interface BudgetStatus {
+  daily_budget: number | null;
+  daily_spent: number;
+  daily_remaining: number;
+  weekly_budget: number | null;
+  weekly_spent: number;
+  weekly_remaining: number;
+  monthly_budget: number | null;
+  monthly_spent: number;
+  monthly_remaining: number;
+  is_over_budget: boolean;
+  warning_threshold_reached: boolean;
+}
+
+export interface SprintMetrics {
+  total_tickets: number;
+  completed_tickets: number;
+  in_progress_tickets: number;
+  blocked_tickets: number;
+  completion_rate: number;
+  avg_cycle_time_hours: number;
+  velocity: number;
+}
+
+export interface AgentMetrics {
+  total_sessions: number;
+  successful_sessions: number;
+  success_rate: number;
+  avg_turns_per_session: number;
+  most_used_agent: string;
+  total_cost_usd: number;
+}
+
+export interface CostTrendItem {
+  date: string;
+  cost: number;
+}
+
+export interface DashboardResponse {
+  budget: BudgetStatus;
+  sprint: SprintMetrics;
+  agent: AgentMetrics;
+  cost_trend: CostTrendItem[];
+}
+
+/**
+ * Fetch dashboard data with metrics and budget status
+ */
+export async function fetchDashboard(
+  goalId?: string,
+  dailyBudget: number = 10,
+  weeklyBudget: number = 50,
+  monthlyBudget: number = 150
+): Promise<DashboardResponse> {
+  const params = new URLSearchParams();
+  if (goalId) params.set("goal_id", goalId);
+  params.set("daily_budget", dailyBudget.toString());
+  params.set("weekly_budget", weeklyBudget.toString());
+  params.set("monthly_budget", monthlyBudget.toString());
+  return apiFetch<DashboardResponse>(`/dashboard?${params.toString()}`);
+}
+
+// ==================== Agents API ====================
+
+export interface AgentInfo {
+  type: string;
+  name: string;
+  available: boolean;
+  supports_yolo: boolean;
+  supports_session_resume: boolean;
+  supports_mcp: boolean;
+  cost_per_1k_input: number | null;
+  cost_per_1k_output: number | null;
+  description: string;
+}
+
+export interface AgentListResponse {
+  agents: AgentInfo[];
+  default_agent: string;
+}
+
+export interface SessionInfo {
+  id: string;
+  ticket_id: string;
+  agent_type: string;
+  agent_session_id: string | null;
+  is_active: boolean;
+  turn_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  estimated_cost_usd: number;
+  last_prompt: string | null;
+  created_at: string;
+  updated_at: string;
+  ended_at: string | null;
+}
+
+/**
+ * Fetch all available AI agents
+ */
+export async function fetchAgents(): Promise<AgentListResponse> {
+  return apiFetch<AgentListResponse>("/agents");
+}
+
+/**
+ * Fetch only available agents
+ */
+export async function fetchAvailableAgents(): Promise<string[]> {
+  return apiFetch<string[]>("/agents/available");
+}
+
+/**
+ * Fetch agent info by type
+ */
+export async function fetchAgentInfo(agentType: string): Promise<AgentInfo> {
+  return apiFetch<AgentInfo>(`/agents/${agentType}`);
+}
+
+/**
+ * Fetch agent sessions for a ticket
+ */
+export async function fetchTicketSessions(
+  ticketId: string,
+  includeEnded: boolean = false
+): Promise<{ sessions: SessionInfo[]; total: number }> {
+  const params = new URLSearchParams({ include_ended: String(includeEnded) });
+  return apiFetch<{ sessions: SessionInfo[]; total: number }>(
+    `/agents/sessions/ticket/${ticketId}?${params.toString()}`
+  );
+}
+
+/**
+ * Normalized Logs API
+ */
+import type { NormalizedLogEntry } from "@/types/logs";
+
+/**
+ * Fetch normalized logs for a job
+ */
+export async function getNormalizedLogs(
+  jobId: string
+): Promise<NormalizedLogEntry[]> {
+  return apiFetch<NormalizedLogEntry[]>(`/jobs/${jobId}/normalized-logs`);
+}
+
+/**
+ * Trigger manual log normalization for a job
+ */
+export async function normalizeJobLogs(
+  jobId: string,
+  agentType: string = "claude"
+): Promise<{ success: boolean; entries_created: number; message: string }> {
+  return apiFetch<{ success: boolean; entries_created: number; message: string }>(
+    `/jobs/${jobId}/normalize-logs?agent_type=${agentType}`,
+    { method: "POST" }
+  );
+}
+
+/**
+ * Job execution summary with agent logs
+ */
+export interface JobExecutionSummary {
+  job_id: string;
+  job_kind: string;
+  job_status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
+  entry_count: number;
+  entries: NormalizedLogEntry[];
+}
+
+/**
+ * Response containing all agent execution logs for a ticket
+ */
+export interface TicketAgentLogsResponse {
+  ticket_id: string;
+  ticket_title: string;
+  total_entries: number;
+  total_jobs: number;
+  executions: JobExecutionSummary[];
+}
+
+/**
+ * Fetch all agent execution logs for a ticket (chain of thought, tool calls, etc.)
+ */
+export async function fetchTicketAgentLogs(
+  ticketId: string,
+  includeEntries: boolean = true
+): Promise<TicketAgentLogsResponse> {
+  const params = new URLSearchParams({ include_entries: String(includeEntries) });
+  return apiFetch<TicketAgentLogsResponse>(
+    `/tickets/${ticketId}/agent-logs?${params.toString()}`
+  );
+}
+
+// ============================================================================
+// Pull Request API
+// ============================================================================
+
+export interface PRStatus {
+  pr_number: number;
+  pr_url: string;
+  pr_state: string;
+  pr_created_at: string | null;
+  pr_merged_at: string | null;
+  pr_head_branch: string | null;
+  pr_base_branch: string | null;
+}
+
+export interface CreatePRRequest {
+  ticket_id: string;
+  title?: string;
+  body?: string;
+  base_branch?: string;
+}
+
+/**
+ * Create a GitHub Pull Request for a ticket
+ */
+export async function createPullRequest(
+  request: CreatePRRequest
+): Promise<PRStatus> {
+  return apiFetch<PRStatus>("/pull-requests", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Get PR status for a ticket
+ */
+export async function getPRStatus(ticketId: string): Promise<PRStatus> {
+  return apiFetch<PRStatus>(`/pull-requests/${ticketId}`);
+}
+
+/**
+ * Manually refresh PR status from GitHub
+ */
+export async function refreshPRStatus(ticketId: string): Promise<PRStatus> {
+  return apiFetch<PRStatus>(`/pull-requests/${ticketId}/refresh`, {
+    method: "POST",
+  });
 }

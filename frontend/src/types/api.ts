@@ -71,6 +71,14 @@ export interface Ticket {
   priority: number | null;
   created_at: string;
   updated_at: string;
+  // GitHub PR fields
+  pr_number?: number | null;
+  pr_url?: string | null;
+  pr_state?: string | null;
+  pr_created_at?: string | null;
+  pr_merged_at?: string | null;
+  pr_head_branch?: string | null;
+  pr_base_branch?: string | null;
 }
 
 export interface TicketCreate {
@@ -354,7 +362,7 @@ export const COLUMN_ORDER: TicketState[] = [
 ];
 
 // State display names
-// Note: "Done" means "verified in worktree" - NOT merged to main branch
+// Note: "Done" means human approved and code was merged to main branch
 export const STATE_DISPLAY_NAMES: Record<TicketState, string> = {
   [TicketState.PROPOSED]: "Proposed",
   [TicketState.PLANNED]: "Planned",
@@ -362,7 +370,7 @@ export const STATE_DISPLAY_NAMES: Record<TicketState, string> = {
   [TicketState.VERIFYING]: "Verifying",
   [TicketState.NEEDS_HUMAN]: "Needs Review",
   [TicketState.BLOCKED]: "Blocked",
-  [TicketState.DONE]: "Verified",  // Not merged - just verified in worktree
+  [TicketState.DONE]: "Done",  // Approved and merged to main branch
   [TicketState.ABANDONED]: "Abandoned",
 };
 
@@ -640,4 +648,12 @@ export interface CleanupResponse {
   evidence_files_failed: number;
   bytes_freed: number;
   details: string[];
+}
+
+// ==================== Queued Message Types ====================
+
+export interface QueuedMessageStatus {
+  status: "empty" | "queued";
+  message: string | null;
+  queued_at: string | null;
 }

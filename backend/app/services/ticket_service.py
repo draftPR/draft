@@ -47,6 +47,17 @@ class TicketService:
         Returns:
             The created Ticket instance
         """
+        # Validate blocked_by_ticket_id if provided
+        blocked_by_title = None
+        if data.blocked_by_ticket_id:
+            result = await self.db.execute(
+                select(Ticket).where(Ticket.id == data.blocked_by_ticket_id)
+            )
+            blocker = result.scalar_one_or_none()
+            if not blocker:
+                raise ResourceNotFoundError("Blocking Ticket", data.blocked_by_ticket_id)
+            blocked_by_title = blocker.title
+        
         # Create the ticket
         ticket = Ticket(
             goal_id=data.goal_id,
@@ -54,6 +65,7 @@ class TicketService:
             description=data.description,
             state=TicketState.PROPOSED.value,
             priority=data.priority,
+            blocked_by_ticket_id=data.blocked_by_ticket_id,
         )
         self.db.add(ticket)
         await self.db.flush()
@@ -73,6 +85,8 @@ class TicketService:
                     "description": data.description,
                     "goal_id": data.goal_id,
                     "priority": data.priority,
+                    "blocked_by_ticket_id": data.blocked_by_ticket_id,
+                    "blocked_by_title": blocked_by_title,
                 }
             ),
         )
@@ -98,7 +112,10 @@ class TicketService:
         result = await self.db.execute(
             select(Ticket)
             .where(Ticket.id == ticket_id)
-            .options(selectinload(Ticket.goal))
+            .options(
+                selectinload(Ticket.goal),
+                selectinload(Ticket.blocked_by),  # Load blocker relationship
+            )
         )
         ticket = result.scalar_one_or_none()
         if ticket is None:
@@ -187,7 +204,7 @@ class TicketService:
 
         try:
             # Import here to avoid circular dependency
-            from app.worker import verify_ticket_task
+            from app.celery_app import celery_app
 
             # IDEMPOTENCY CHECK: Is there already an active verify job?
             active_verify_result = await self.db.execute(
@@ -213,8 +230,8 @@ class TicketService:
             await self.db.flush()
             await self.db.refresh(job)
 
-            # Enqueue the Celery task
-            task = verify_ticket_task.delay(job.id)
+            # Enqueue the Celery task using send_task (safer)
+            task = celery_app.send_task("verify_ticket", args=[job.id])
 
             # Store the Celery task ID
             job.celery_task_id = task.id

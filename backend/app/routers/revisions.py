@@ -1,8 +1,11 @@
 """API router for Revision and Review endpoints."""
 
+import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -448,14 +451,38 @@ async def submit_review(
         ticket_service = TicketService(db)
 
         if data.decision.value == ReviewDecision.APPROVED.value:
-            # Transition ticket to done
-            await ticket_service.transition_ticket(
-                ticket_id=revision.ticket_id,
-                to_state=TicketState.DONE,
-                actor_type=TicketActorType.HUMAN,
-                reason="Revision approved by reviewer",
-                auto_verify=False,
-            )
+            # Get ticket to check current state
+            ticket = await ticket_service.get_ticket_by_id(revision.ticket_id)
+            
+            # Only transition if not already in done state
+            if ticket.state != TicketState.DONE.value:
+                await ticket_service.transition_ticket(
+                    ticket_id=revision.ticket_id,
+                    to_state=TicketState.DONE,
+                    actor_type=TicketActorType.HUMAN,
+                    reason="Revision approved by reviewer",
+                    auto_verify=False,
+                )
+            
+            # Auto-merge the worktree into the default branch
+            from app.services.merge_service import MergeService, MergeStrategy
+            merge_service = MergeService(db)
+            try:
+                merge_result = await merge_service.merge_ticket(
+                    ticket_id=revision.ticket_id,
+                    strategy=MergeStrategy.MERGE,
+                    delete_worktree=True,
+                    cleanup_artifacts=True,
+                    actor_id="review_approval",
+                )
+                if not merge_result.success:
+                    # Log the merge failure but don't fail the review
+                    logger.warning(
+                        f"Auto-merge failed for ticket {revision.ticket_id}: {merge_result.message}"
+                    )
+            except ValidationError as e:
+                # Merge prerequisites not met (no workspace, etc.) - log and continue
+                logger.info(f"Skipping auto-merge for ticket {revision.ticket_id}: {e.message}")
         elif data.decision.value == ReviewDecision.CHANGES_REQUESTED.value and data.auto_run_fix:
             # Auto-rerun caps to prevent infinite loops:
             # - Max 2 auto-reruns per revision (per source_revision_id)

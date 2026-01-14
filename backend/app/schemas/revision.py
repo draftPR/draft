@@ -1,18 +1,11 @@
 """Pydantic schemas for Revision entity."""
 
 from datetime import datetime
-from enum import Enum
 
 from pydantic import BaseModel, Field
 
-
-class RevisionStatus(str, Enum):
-    """Enum representing the status of a revision."""
-
-    OPEN = "open"
-    CHANGES_REQUESTED = "changes_requested"
-    APPROVED = "approved"
-    SUPERSEDED = "superseded"
+# Import RevisionStatus from models to avoid duplication
+from app.models.revision import RevisionStatus
 
 
 class RevisionResponse(BaseModel):

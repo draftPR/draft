@@ -549,10 +549,6 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
                   <div className="flex items-center gap-1.5 text-xs">
                     <span className="text-muted-foreground">●</span>
                     <span className="font-medium">{STATE_DISPLAY_NAMES[state]}</span>
-                    {/* Show "(unmerged)" for Verified state to clarify it's not merged */}
-                    {state === TicketState.DONE && (
-                      <span className="text-muted-foreground text-[10px]">(unmerged)</span>
-                    )}
                   </div>
                 </div>
               );

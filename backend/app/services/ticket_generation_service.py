@@ -177,6 +177,11 @@ class TicketGenerationService:
 
         # Create tickets in database
         created_tickets: list[CreatedTicketSchema] = []
+        # Track title -> ticket_id for resolving blocked_by references
+        title_to_ticket_id: dict[str, str] = {}
+        # Track tickets that need blocked_by resolved after all are created
+        pending_blocked_by: list[tuple[str, str]] = []  # (ticket_id, blocked_by_title)
+        
         for raw in raw_tickets[:MAX_TICKETS_PER_GENERATION]:
             # Validate required fields
             title = raw.get("title", "").strip()
@@ -211,6 +216,14 @@ class TicketGenerationService:
             self.db.add(ticket)
             await self.db.flush()
             await self.db.refresh(ticket)
+            
+            # Track title -> id mapping for blocked_by resolution
+            title_to_ticket_id[title.lower()] = ticket.id
+            
+            # Check if this ticket has a blocked_by reference
+            blocked_by_title = raw.get("blocked_by")
+            if blocked_by_title:
+                pending_blocked_by.append((ticket.id, blocked_by_title))
 
             # Create event
             event = TicketEvent(
@@ -226,6 +239,7 @@ class TicketGenerationService:
                     "priority_rationale": rationale,
                     "verification": raw.get("verification", []),
                     "notes": raw.get("notes"),
+                    "blocked_by_title": blocked_by_title,
                 }),
             )
             self.db.add(event)
@@ -244,6 +258,31 @@ class TicketGenerationService:
             )
 
             existing_tickets.append((ticket.id, title))  # Add to dedup list
+
+        # Resolve blocked_by references now that all tickets are created
+        for ticket_id, blocked_by_title in pending_blocked_by:
+            blocker_id = title_to_ticket_id.get(blocked_by_title.lower())
+            if blocker_id:
+                # Update the ticket with the blocker ID
+                result = await self.db.execute(
+                    select(Ticket).where(Ticket.id == ticket_id)
+                )
+                ticket = result.scalar_one_or_none()
+                if ticket:
+                    ticket.blocked_by_ticket_id = blocker_id
+                    logger.info(f"Ticket '{ticket.title}' blocked by ticket ID {blocker_id}")
+                    
+                    # Update the CreatedTicketSchema with blocked_by info
+                    for created in created_tickets:
+                        if created.id == ticket_id:
+                            created.blocked_by_ticket_id = blocker_id
+                            created.blocked_by_title = blocked_by_title
+                            break
+            else:
+                logger.warning(
+                    f"Could not resolve blocked_by reference '{blocked_by_title}' "
+                    f"for ticket {ticket_id}"
+                )
 
         await self.db.commit()
 
@@ -347,6 +386,10 @@ class TicketGenerationService:
         # Create tickets with improved dedup (exact=block, similar=warn)
         created_tickets: list[CreatedTicketSchema] = []
         similar_warnings: list[SimilarTicketWarning] = []
+        # Track title -> ticket_id for resolving blocked_by references
+        title_to_ticket_id: dict[str, str] = {}
+        # Track tickets that need blocked_by resolved after all are created
+        pending_blocked_by: list[tuple[str, str]] = []  # (ticket_id, blocked_by_title)
 
         for raw in raw_tickets[:MAX_TICKETS_PER_GENERATION]:
             title = raw.get("title", "").strip()
@@ -383,6 +426,7 @@ class TicketGenerationService:
 
             priority = bucket_to_priority(bucket)
             rationale = raw.get("priority_rationale", "")
+            blocked_by_title = raw.get("blocked_by")
 
             # Only create in DB if goal_id provided
             if goal_id:
@@ -397,6 +441,13 @@ class TicketGenerationService:
                 self.db.add(ticket)
                 await self.db.flush()
                 await self.db.refresh(ticket)
+                
+                # Track title -> id mapping for blocked_by resolution
+                title_to_ticket_id[title.lower()] = ticket.id
+                
+                # Check if this ticket has a blocked_by reference
+                if blocked_by_title:
+                    pending_blocked_by.append((ticket.id, blocked_by_title))
 
                 event = TicketEvent(
                     ticket_id=ticket.id,
@@ -411,6 +462,7 @@ class TicketGenerationService:
                         "priority_rationale": rationale,
                         "focus_areas": focus_areas,
                         "repo_head_sha": head_sha,
+                        "blocked_by_title": blocked_by_title,
                     }),
                 )
                 self.db.add(event)
@@ -419,6 +471,7 @@ class TicketGenerationService:
             else:
                 # Preview mode - no DB write
                 ticket_id = f"preview-{len(created_tickets)}"
+                title_to_ticket_id[title.lower()] = ticket_id
 
             created_tickets.append(
                 CreatedTicketSchema(
@@ -436,7 +489,32 @@ class TicketGenerationService:
             # Add to existing for remaining dedup checks
             existing_tickets.append((ticket_id, title))
 
+        # Resolve blocked_by references now that all tickets are created
         if goal_id:
+            for ticket_id, blocked_by_title in pending_blocked_by:
+                blocker_id = title_to_ticket_id.get(blocked_by_title.lower())
+                if blocker_id:
+                    # Update the ticket with the blocker ID
+                    result = await self.db.execute(
+                        select(Ticket).where(Ticket.id == ticket_id)
+                    )
+                    ticket = result.scalar_one_or_none()
+                    if ticket:
+                        ticket.blocked_by_ticket_id = blocker_id
+                        logger.info(f"Ticket '{ticket.title}' blocked by ticket ID {blocker_id}")
+                        
+                        # Update the CreatedTicketSchema with blocked_by info
+                        for created in created_tickets:
+                            if created.id == ticket_id:
+                                created.blocked_by_ticket_id = blocker_id
+                                created.blocked_by_title = blocked_by_title
+                                break
+                else:
+                    logger.warning(
+                        f"Could not resolve blocked_by reference '{blocked_by_title}' "
+                        f"for ticket {ticket_id}"
+                    )
+
             await self.db.commit()
 
         # Cache result (includes stats and warnings)
@@ -569,7 +647,8 @@ Your response MUST be valid JSON with this exact structure:
       "priority_bucket": "P0|P1|P2|P3",
       "priority_rationale": "Brief explanation of why this priority",
       "verification": ["command1", "command2"],
-      "notes": "Optional implementation notes"
+      "notes": "Optional implementation notes",
+      "blocked_by": "Title of another ticket in this list that must complete first (or null)"
     }
   ]
 }
@@ -579,6 +658,13 @@ Priority Buckets (USE THESE EXACTLY):
 - P1: High - important features, performance issues affecting users
 - P2: Medium - improvements, nice-to-haves, minor bugs
 - P3: Low - cleanup, documentation, cosmetic issues
+
+Dependencies (blocked_by):
+- If a ticket depends on another ticket being completed first, set blocked_by to that ticket's exact title
+- Example: A "Write unit tests for auth module" ticket should have blocked_by: "Implement auth module"
+- This prevents the blocked ticket from being executed until the blocker is done
+- Only specify blocked_by if there's a true dependency (code must exist, API must be ready, etc.)
+- Leave blocked_by as null if the ticket can be done independently
 
 Guidelines:
 - Create 2-5 tickets that together achieve the goal
@@ -620,7 +706,8 @@ Your response MUST be valid JSON with this exact structure:
       "priority_bucket": "P0|P1|P2|P3",
       "priority_rationale": "Why this priority",
       "verification": ["command to verify"],
-      "notes": "Optional notes"
+      "notes": "Optional notes",
+      "blocked_by": "Title of another ticket in this list that must complete first (or null)"
     }}
   ]
 }}
@@ -630,6 +717,11 @@ Priority Buckets:
 - P1: High (performance, important features)  
 - P2: Medium (improvements, minor issues)
 - P3: Low (cleanup, docs, cosmetic){focus_hint}
+
+Dependencies (blocked_by):
+- If a ticket depends on another ticket being completed first, set blocked_by to that ticket's exact title
+- Example: "Write unit tests for auth module" should have blocked_by: "Implement auth module"
+- Leave blocked_by as null if the ticket can be done independently
 
 Guidelines:
 - Generate 3-7 tickets based on what you observe
@@ -729,7 +821,8 @@ Analyze this codebase and break down the goal into 2-5 specific, actionable tick
       "priority_bucket": "P0|P1|P2|P3",
       "priority_rationale": "Brief explanation of why this priority",
       "verification": ["shell command to verify completion"],
-      "notes": "Optional implementation notes"
+      "notes": "Optional implementation notes",
+      "blocked_by": "Title of another ticket in this list that must complete first (or null)"
     }}
   ]
 }}
@@ -740,6 +833,12 @@ Analyze this codebase and break down the goal into 2-5 specific, actionable tick
 - **P1**: High - important features, performance issues affecting users
 - **P2**: Medium - improvements, nice-to-haves, minor bugs
 - **P3**: Low - cleanup, documentation, cosmetic issues
+
+## Dependencies (blocked_by)
+- If a ticket depends on another ticket being completed first, set `blocked_by` to that ticket's **exact title**
+- Example: A "Write unit tests for feature X" ticket should have `"blocked_by": "Implement feature X"`
+- The blocked ticket will NOT be executed until the blocking ticket is marked as DONE
+- Leave `blocked_by` as `null` if the ticket can be done independently
 
 ## Guidelines
 - Create 2-5 tickets that together achieve the goal
@@ -780,7 +879,8 @@ Analyze this codebase and identify improvement opportunities. Generate 3-7 actio
       "priority_bucket": "P0|P1|P2|P3",
       "priority_rationale": "Why this priority",
       "verification": ["shell command to verify"],
-      "notes": "Optional notes"
+      "notes": "Optional notes",
+      "blocked_by": "Title of another ticket in this list that must complete first (or null)"
     }}
   ]
 }}
@@ -791,6 +891,11 @@ Analyze this codebase and identify improvement opportunities. Generate 3-7 actio
 - **P1**: High (performance, important features)
 - **P2**: Medium (improvements, minor issues)
 - **P3**: Low (cleanup, docs, cosmetic)
+
+## Dependencies (blocked_by)
+- If a ticket depends on another ticket being completed first, set `blocked_by` to that ticket's **exact title**
+- Example: "Write unit tests for auth module" should have `"blocked_by": "Implement auth module"`
+- Leave `blocked_by` as `null` if the ticket can be done independently
 
 ## What to Look For
 - TODOs and FIXMEs in the code

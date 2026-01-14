@@ -11,6 +11,7 @@ from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.board import Board
+    from app.models.cost_budget import CostBudget
     from app.models.ticket import Ticket
 
 
@@ -52,6 +53,12 @@ class Goal(Base):
     tickets: Mapped[list["Ticket"]] = relationship(
         "Ticket",
         back_populates="goal",
+        cascade="all, delete-orphan",
+    )
+    budget: Mapped["CostBudget | None"] = relationship(
+        "CostBudget",
+        back_populates="goal",
+        uselist=False,
         cascade="all, delete-orphan",
     )
 

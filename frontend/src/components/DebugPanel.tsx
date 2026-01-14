@@ -8,9 +8,11 @@ import {
   fetchRecentEvents,
   fetchJobLogs,
   streamOrchestratorLogs,
+  fetchQueueStatus,
   type SystemStatusResponse,
   type OrchestratorLogEntry,
   type RecentEvent,
+  type QueueStatusResponse,
 } from "@/services/api";
 import {
   Bug,
@@ -32,6 +34,8 @@ import {
   Maximize2,
   Copy,
   Check,
+  ListOrdered,
+  Pause,
 } from "lucide-react";
 
 interface DebugPanelProps {
@@ -39,7 +43,7 @@ interface DebugPanelProps {
   onClose: () => void;
 }
 
-type TabType = "status" | "orchestrator" | "agent" | "events";
+type TabType = "status" | "queue" | "orchestrator" | "agent" | "events";
 
 function formatTime(timestamp: string): string {
   try {
@@ -100,6 +104,7 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
   
   // Data states
   const [systemStatus, setSystemStatus] = useState<SystemStatusResponse | null>(null);
+  const [queueStatus, setQueueStatus] = useState<QueueStatusResponse | null>(null);
   const [orchestratorLogs, setOrchestratorLogs] = useState<OrchestratorLogEntry[]>([]);
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -122,6 +127,16 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
       setSystemStatus(status);
     } catch (err) {
       console.error("Failed to load system status:", err);
+    }
+  }, []);
+
+  // Load queue status
+  const loadQueueStatus = useCallback(async () => {
+    try {
+      const status = await fetchQueueStatus();
+      setQueueStatus(status);
+    } catch (err) {
+      console.error("Failed to load queue status:", err);
     }
   }, []);
 
@@ -196,12 +211,16 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
     if (!isOpen) return;
 
     loadSystemStatus();
+    loadQueueStatus();
     loadOrchestratorLogs();
     loadRecentEvents();
 
     // Poll every 2 seconds
     const interval = setInterval(() => {
       loadSystemStatus();
+      if (activeTab === "queue") {
+        loadQueueStatus();
+      }
       if (activeTab === "events") {
         loadRecentEvents();
       }
@@ -214,7 +233,7 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
       clearInterval(interval);
       stopStreaming();
     };
-  }, [isOpen, activeTab, selectedJobId, loadSystemStatus, loadOrchestratorLogs, loadRecentEvents, loadAgentLogs, stopStreaming]);
+  }, [isOpen, activeTab, selectedJobId, loadSystemStatus, loadQueueStatus, loadOrchestratorLogs, loadRecentEvents, loadAgentLogs, stopStreaming]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -239,6 +258,7 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: "status", label: "Status", icon: <Activity className="h-3.5 w-3.5" /> },
+    { id: "queue", label: "Queue", icon: <ListOrdered className="h-3.5 w-3.5" /> },
     { id: "orchestrator", label: "Orchestrator", icon: <Zap className="h-3.5 w-3.5" /> },
     { id: "agent", label: "Agent", icon: <Terminal className="h-3.5 w-3.5" /> },
     { id: "events", label: "Events", icon: <ScrollText className="h-3.5 w-3.5" /> },
@@ -423,6 +443,95 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
                         <span className="font-mono text-xs">{formatTime(systemStatus.timestamp)}</span>
                       </div>
                     </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Queue Tab */}
+          {activeTab === "queue" && (
+            <div className="p-4 h-full overflow-y-auto">
+              {queueStatus ? (
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Running Jobs */}
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Play className="h-4 w-4 text-emerald-500" />
+                      Running ({queueStatus.total_running})
+                    </h3>
+                    {queueStatus.running.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No jobs running</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {queueStatus.running.map((job) => (
+                          <div
+                            key={job.id}
+                            className="p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20 cursor-pointer hover:bg-emerald-500/10 transition-colors"
+                            onClick={() => {
+                              setSelectedJobId(job.id);
+                              setActiveTab("agent");
+                              loadAgentLogs(job.id);
+                            }}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
+                                {job.kind}
+                              </Badge>
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                {job.id.slice(0, 8)}
+                              </span>
+                            </div>
+                            <p className="text-sm font-medium truncate">{job.ticket_title}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Started: {job.started_at ? formatTime(job.started_at) : "Starting..."}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Queued Jobs */}
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Pause className="h-4 w-4 text-amber-500" />
+                      Queued ({queueStatus.total_queued})
+                    </h3>
+                    {queueStatus.queued.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No jobs in queue</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {queueStatus.queued.map((job, index) => (
+                          <div
+                            key={job.id}
+                            className="p-3 rounded-lg border bg-amber-500/5 border-amber-500/20"
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-mono text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                                  #{index + 1}
+                                </span>
+                                <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-600 border-amber-500/30">
+                                  {job.kind}
+                                </Badge>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                {job.id.slice(0, 8)}
+                              </span>
+                            </div>
+                            <p className="text-sm font-medium truncate">{job.ticket_title}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Queued: {formatTime(job.created_at)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (

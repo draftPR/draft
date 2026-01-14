@@ -100,6 +100,11 @@ class ProposedTicketSchema(BaseModel):
         max_length=MAX_VERIFICATION_COMMANDS,
     )
     notes: str | None = Field(None, description="Optional context or notes")
+    blocked_by: str | None = Field(
+        None,
+        description="Title of another ticket in this batch that blocks this one. "
+        "The ticket cannot be executed until the blocker is DONE.",
+    )
 
     @field_validator("verification", mode="before")
     @classmethod
@@ -140,6 +145,10 @@ class GeneratedTicket(BaseModel):
     )
     verification: list[str] = Field(default_factory=list)
     notes: str | None = None
+    blocked_by: str | None = Field(
+        None,
+        description="Title of another ticket that blocks this one",
+    )
 
     @field_validator("verification", mode="before")
     @classmethod
@@ -191,6 +200,12 @@ class CreatedTicketSchema(BaseModel):
     )
     verification: list[str] = Field(default_factory=list)
     notes: str | None = None
+    blocked_by_ticket_id: str | None = Field(
+        None, description="ID of the ticket that blocks this one"
+    )
+    blocked_by_title: str | None = Field(
+        None, description="Title of the ticket that blocks this one (for display)"
+    )
 
 
 class GenerateTicketsResponse(BaseModel):

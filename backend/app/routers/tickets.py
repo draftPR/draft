@@ -66,8 +66,20 @@ async def get_ticket(
     db: AsyncSession = Depends(get_db),
 ) -> TicketDetailResponse:
     """Get a ticket by its ID with full context."""
+    from app.state_machine import TicketState as TS
+    
     service = TicketService(db)
     ticket = await service.get_ticket_by_id(ticket_id)
+    
+    # Determine if ticket is blocked by an incomplete dependency
+    is_blocked = False
+    blocked_by_title = None
+    if ticket.blocked_by_ticket_id:
+        if ticket.blocked_by:
+            blocked_by_title = ticket.blocked_by.title
+            is_blocked = ticket.blocked_by.state != TS.DONE.value
+        else:
+            is_blocked = True  # Assume blocked if relationship not loaded
 
     return TicketDetailResponse(
         id=ticket.id,
@@ -80,6 +92,9 @@ async def get_ticket(
         state_display=TicketDetailResponse.get_state_display(ticket.state_enum),
         priority=ticket.priority,
         priority_label=TicketDetailResponse.get_priority_label(ticket.priority),
+        blocked_by_ticket_id=ticket.blocked_by_ticket_id,
+        blocked_by_ticket_title=blocked_by_title,
+        is_blocked=is_blocked,
         created_at=ticket.created_at,
         updated_at=ticket.updated_at,
     )
@@ -713,4 +728,678 @@ async def bulk_update_priority(
         updated=results,
         updated_count=updated_count,
         failed_count=failed_count,
+    )
+
+
+# ==================== Queued Message Endpoints ====================
+# Like vibe-kanban, allows queuing the next prompt while execution is in progress
+
+
+from pydantic import BaseModel, Field
+from app.services.queued_message_service import queued_message_service, QueuedMessage
+
+
+class QueueMessageRequest(BaseModel):
+    """Request to queue a follow-up message."""
+    message: str = Field(..., description="The follow-up prompt to execute next")
+
+
+class QueueStatusResponse(BaseModel):
+    """Response showing queue status for a ticket."""
+    status: str = Field(..., description="Queue status: 'empty' or 'queued'")
+    message: str | None = Field(None, description="The queued message (if any)")
+    queued_at: str | None = Field(None, description="When the message was queued")
+
+
+@router.post(
+    "/{ticket_id}/queue",
+    response_model=QueueStatusResponse,
+    summary="Queue a follow-up message for a ticket",
+)
+async def queue_message(
+    ticket_id: str,
+    data: QueueMessageRequest,
+    db: AsyncSession = Depends(get_db),
+) -> QueueStatusResponse:
+    """Queue a follow-up message to be executed after the current job finishes.
+    
+    This enables a faster iteration loop for individual developers:
+    - While the agent is working on one task, you can type the next instruction
+    - When the current execution completes, the queued message auto-executes
+    - Only one message can be queued at a time (new message replaces old)
+    
+    Similar to vibe-kanban's queued message feature.
+    """
+    # Verify ticket exists
+    service = TicketService(db)
+    await service.get_ticket_by_id(ticket_id)
+    
+    queued = queued_message_service.queue_message(ticket_id, data.message)
+    
+    return QueueStatusResponse(
+        status="queued",
+        message=queued.message,
+        queued_at=queued.queued_at.isoformat(),
+    )
+
+
+@router.get(
+    "/{ticket_id}/queue",
+    response_model=QueueStatusResponse,
+    summary="Get queue status for a ticket",
+)
+async def get_queue_status(
+    ticket_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> QueueStatusResponse:
+    """Get the current queue status for a ticket.
+    
+    Returns the queued message if one exists, or empty status.
+    """
+    # Verify ticket exists
+    service = TicketService(db)
+    await service.get_ticket_by_id(ticket_id)
+    
+    queued = queued_message_service.get_queued(ticket_id)
+    
+    if queued:
+        return QueueStatusResponse(
+            status="queued",
+            message=queued.message,
+            queued_at=queued.queued_at.isoformat(),
+        )
+    
+    return QueueStatusResponse(status="empty", message=None, queued_at=None)
+
+
+@router.delete(
+    "/{ticket_id}/queue",
+    response_model=QueueStatusResponse,
+    summary="Cancel a queued message for a ticket",
+)
+async def cancel_queued_message(
+    ticket_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> QueueStatusResponse:
+    """Cancel/remove a queued message for a ticket.
+    
+    Returns empty status after cancellation.
+    """
+    # Verify ticket exists
+    service = TicketService(db)
+    await service.get_ticket_by_id(ticket_id)
+    
+    queued_message_service.cancel_queued(ticket_id)
+    
+    return QueueStatusResponse(status="empty", message=None, queued_at=None)
+
+
+# ==================== Agent Activity Logs ====================
+# Aggregated view of all agent execution logs for a ticket
+
+
+from app.models.normalized_log import NormalizedLogEntry
+from app.models.job import Job
+from app.models.evidence import Evidence, EvidenceKind
+from datetime import datetime as dt
+from typing import Optional
+from pathlib import Path
+import re
+import uuid as uuid_module
+
+
+class AgentLogEntry(BaseModel):
+    """A single normalized log entry from agent execution."""
+    id: str
+    job_id: str
+    sequence: int
+    timestamp: str
+    entry_type: str
+    content: str
+    metadata: dict = Field(default_factory=dict)
+    collapsed: bool = False
+    highlight: bool = False
+
+
+class JobExecutionSummary(BaseModel):
+    """Summary of a job's execution for display."""
+    job_id: str
+    job_kind: str
+    job_status: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    entry_count: int = 0
+    entries: list[AgentLogEntry] = Field(default_factory=list)
+
+
+class TicketAgentLogsResponse(BaseModel):
+    """Response containing all agent execution logs for a ticket."""
+    ticket_id: str
+    ticket_title: str
+    total_entries: int
+    total_jobs: int
+    executions: list[JobExecutionSummary] = Field(default_factory=list)
+
+
+def parse_agent_output(content: str, job_id: str, timestamp: str) -> list[AgentLogEntry]:
+    """
+    Parse agent stdout content into structured log entries.
+    
+    Supports two formats:
+    1. cursor-agent JSON streaming (lines starting with {"type":...)
+    2. Claude-style output with <thinking> blocks
+    
+    Extracts:
+    - Thinking blocks
+    - Assistant messages
+    - Tool calls
+    - System messages
+    """
+    entries: list[AgentLogEntry] = []
+    seq = 0
+    
+    if not content or not content.strip():
+        return entries
+    
+    # Check if this is cursor-agent JSON streaming format
+    lines = content.strip().split('\n')
+    first_line = lines[0].strip() if lines else ""
+    
+    if first_line.startswith('{"type":'):
+        # Parse cursor-agent JSON streaming format
+        return parse_cursor_json_output(content, job_id, timestamp)
+    
+    # Fall back to Claude-style parsing
+    # Check for thinking blocks (Claude style)
+    thinking_pattern = re.compile(r'<thinking>(.*?)</thinking>', re.DOTALL)
+    thinking_matches = thinking_pattern.findall(content)
+    
+    for thinking in thinking_matches:
+        if thinking.strip():
+            entries.append(AgentLogEntry(
+                id=str(uuid_module.uuid4()),
+                job_id=job_id,
+                sequence=seq,
+                timestamp=timestamp,
+                entry_type="thinking",
+                content=thinking.strip(),
+                metadata={"collapsed": True},
+                collapsed=True,
+                highlight=False,
+            ))
+            seq += 1
+    
+    # Remove thinking blocks from content for further parsing
+    content_without_thinking = thinking_pattern.sub('', content)
+    
+    # Check for todo lists (look for patterns like "- [ ]" or numbered items with checkmarks)
+    todo_pattern = re.compile(r'(?:^|\n)(?:[-*]\s*\[[ xX✓✗]\].*?(?:\n|$))+', re.MULTILINE)
+    todo_match = todo_pattern.search(content_without_thinking)
+    
+    if todo_match:
+        todos_text = todo_match.group(0).strip()
+        entries.append(AgentLogEntry(
+            id=str(uuid_module.uuid4()),
+            job_id=job_id,
+            sequence=seq,
+            timestamp=timestamp,
+            entry_type="todo_list",
+            content=todos_text,
+            metadata={"todos": parse_todos_from_text(todos_text)},
+            collapsed=False,
+            highlight=False,
+        ))
+        seq += 1
+    
+    # The main content is the assistant's response
+    # Clean up the content and treat it as the main message
+    main_content = content_without_thinking.strip()
+    
+    if main_content:
+        entries.append(AgentLogEntry(
+            id=str(uuid_module.uuid4()),
+            job_id=job_id,
+            sequence=seq,
+            timestamp=timestamp,
+            entry_type="assistant_message",
+            content=main_content,
+            metadata={},
+            collapsed=False,
+            highlight=False,
+        ))
+        seq += 1
+    
+    return entries
+
+
+def parse_cursor_json_output(content: str, job_id: str, timestamp: str) -> list[AgentLogEntry]:
+    """
+    Parse cursor-agent JSON streaming output into structured log entries.
+    
+    Handles JSON lines with types: system, user, assistant, thinking, tool_call, result
+    """
+    import json
+    
+    entries: list[AgentLogEntry] = []
+    seq = 0
+    
+    # Coalescing state for streaming messages
+    current_thinking = ""
+    current_assistant = ""
+    
+    for line in content.strip().split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            # Non-JSON line - skip or treat as system message
+            if line and not line.startswith('{'):
+                entries.append(AgentLogEntry(
+                    id=str(uuid_module.uuid4()),
+                    job_id=job_id,
+                    sequence=seq,
+                    timestamp=timestamp,
+                    entry_type="system_message",
+                    content=line,
+                    metadata={},
+                    collapsed=False,
+                    highlight=False,
+                ))
+                seq += 1
+            continue
+        
+        msg_type = data.get("type", "")
+        
+        if msg_type == "system":
+            model = data.get("model")
+            if model:
+                entries.append(AgentLogEntry(
+                    id=str(uuid_module.uuid4()),
+                    job_id=job_id,
+                    sequence=seq,
+                    timestamp=timestamp,
+                    entry_type="system_message",
+                    content=f"🤖 Model: {model}",
+                    metadata={"model": model},
+                    collapsed=False,
+                    highlight=False,
+                ))
+                seq += 1
+        
+        elif msg_type == "thinking":
+            subtype = data.get("subtype", "")
+            if subtype == "delta":
+                text = data.get("text", "")
+                current_thinking += text
+            elif subtype == "completed":
+                if current_thinking:
+                    entries.append(AgentLogEntry(
+                        id=str(uuid_module.uuid4()),
+                        job_id=job_id,
+                        sequence=seq,
+                        timestamp=timestamp,
+                        entry_type="thinking",
+                        content=current_thinking,
+                        metadata={"collapsed": True},
+                        collapsed=True,
+                        highlight=False,
+                    ))
+                    seq += 1
+                    current_thinking = ""
+        
+        elif msg_type == "assistant":
+            message = data.get("message", {})
+            content_parts = message.get("content", [])
+            text = ""
+            for part in content_parts:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text += part.get("text", "")
+                elif isinstance(part, str):
+                    text += part
+            
+            if text:
+                current_assistant += text
+        
+        elif msg_type == "tool_call":
+            subtype = data.get("subtype", "")
+            tool_call = data.get("tool_call", {})
+            
+            # Parse tool type and content
+            tool_name, content_text = _parse_cursor_tool_call(tool_call)
+            
+            if subtype == "started":
+                entries.append(AgentLogEntry(
+                    id=str(uuid_module.uuid4()),
+                    job_id=job_id,
+                    sequence=seq,
+                    timestamp=timestamp,
+                    entry_type="tool_call",
+                    content=content_text,
+                    metadata={"tool_name": tool_name, "status": "started"},
+                    collapsed=False,
+                    highlight=False,
+                ))
+                seq += 1
+            elif subtype == "completed":
+                result_text = _extract_cursor_tool_result(tool_call)
+                entries.append(AgentLogEntry(
+                    id=str(uuid_module.uuid4()),
+                    job_id=job_id,
+                    sequence=seq,
+                    timestamp=timestamp,
+                    entry_type="tool_call",
+                    content=f"{content_text}\n→ {result_text}" if result_text else content_text,
+                    metadata={"tool_name": tool_name, "status": "completed"},
+                    collapsed=False,
+                    highlight=False,
+                ))
+                seq += 1
+    
+    # Flush any remaining assistant content
+    if current_assistant:
+        entries.append(AgentLogEntry(
+            id=str(uuid_module.uuid4()),
+            job_id=job_id,
+            sequence=seq,
+            timestamp=timestamp,
+            entry_type="assistant_message",
+            content=current_assistant,
+            metadata={},
+            collapsed=False,
+            highlight=False,
+        ))
+        seq += 1
+    
+    # Flush any remaining thinking content
+    if current_thinking:
+        entries.append(AgentLogEntry(
+            id=str(uuid_module.uuid4()),
+            job_id=job_id,
+            sequence=seq,
+            timestamp=timestamp,
+            entry_type="thinking",
+            content=current_thinking,
+            metadata={"collapsed": True},
+            collapsed=True,
+            highlight=False,
+        ))
+        seq += 1
+    
+    return entries
+
+
+def _parse_cursor_tool_call(tool_call: dict) -> tuple[str, str]:
+    """Parse cursor-agent tool call to extract name and display content."""
+    if "readToolCall" in tool_call:
+        args = tool_call["readToolCall"].get("args", {})
+        path = args.get("path", "unknown")
+        # Strip common worktree prefixes for cleaner display
+        if "/.smartkanban/worktrees/" in path:
+            path = path.split("/.smartkanban/worktrees/")[1]
+            if "/" in path:
+                path = path.split("/", 1)[1]  # Remove UUID prefix
+        return "read_file", f"📖 Read: {path}"
+    
+    if "editToolCall" in tool_call:
+        args = tool_call["editToolCall"].get("args", {})
+        path = args.get("path", "unknown")
+        if "/.smartkanban/worktrees/" in path:
+            path = path.split("/.smartkanban/worktrees/")[1]
+            if "/" in path:
+                path = path.split("/", 1)[1]
+        return "edit_file", f"✏️ Edit: {path}"
+    
+    if "lsToolCall" in tool_call:
+        args = tool_call["lsToolCall"].get("args", {})
+        path = args.get("path", ".")
+        return "list_dir", f"📁 List: {path}"
+    
+    if "globToolCall" in tool_call:
+        args = tool_call["globToolCall"].get("args", {})
+        pattern = args.get("globPattern", "*")
+        return "glob", f"🔍 Glob: {pattern}"
+    
+    if "grepToolCall" in tool_call:
+        args = tool_call["grepToolCall"].get("args", {})
+        pattern = args.get("pattern", "")
+        return "grep", f"🔍 Grep: {pattern}"
+    
+    if "shellToolCall" in tool_call:
+        args = tool_call["shellToolCall"].get("args", {})
+        command = args.get("command", "")
+        return "shell", f"💻 Shell: {command}"
+    
+    return "unknown", f"🔧 Tool call"
+
+
+def _extract_cursor_tool_result(tool_call: dict) -> str:
+    """Extract a summary of cursor-agent tool result."""
+    for key in ["readToolCall", "editToolCall", "lsToolCall", "globToolCall", "grepToolCall", "shellToolCall"]:
+        if key in tool_call:
+            result = tool_call[key].get("result", {})
+            if "success" in result:
+                success = result["success"]
+                if key == "editToolCall":
+                    lines_added = success.get("linesAdded", 0)
+                    lines_removed = success.get("linesRemoved", 0)
+                    return f"+{lines_added} -{lines_removed} lines"
+                elif key == "shellToolCall":
+                    exit_code = success.get("exitCode", 0)
+                    return f"exit code: {exit_code}"
+                elif key == "globToolCall":
+                    total = success.get("totalFiles", 0)
+                    return f"{total} files"
+                elif key == "readToolCall":
+                    total_lines = success.get("totalLines", 0)
+                    return f"{total_lines} lines" if total_lines else "read"
+            elif "error" in result:
+                return f"❌ {str(result['error'])[:50]}"
+    return ""
+
+
+def parse_todos_from_text(text: str) -> list[dict]:
+    """Parse todo items from text into structured format."""
+    todos = []
+    lines = text.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Match "- [ ] task" or "- [x] task" patterns
+        match = re.match(r'^[-*]\s*\[([xX✓ ])\]\s*(.+)$', line)
+        if match:
+            checked = match.group(1).lower() in ('x', '✓')
+            content = match.group(2).strip()
+            todos.append({
+                "content": content,
+                "completed": checked,
+            })
+    
+    return todos
+
+
+@router.get(
+    "/{ticket_id}/agent-logs",
+    response_model=TicketAgentLogsResponse,
+    summary="Get all agent execution logs for a ticket",
+)
+async def get_ticket_agent_logs(
+    ticket_id: str,
+    include_entries: bool = True,
+    db: AsyncSession = Depends(get_db),
+) -> TicketAgentLogsResponse:
+    """
+    Get all agent execution logs for a ticket across all jobs.
+    
+    This provides a complete view of the agent's chain of thought, tool calls,
+    file edits, and other actions taken during ticket execution.
+    
+    Like vibe-kanban's execution_process_logs, this allows users to:
+    - Review the agent's reasoning process
+    - See what tools were used and why
+    - Debug issues with ticket execution
+    - Understand how the agent approached the task
+    
+    Reads from Evidence stdout files (actual agent output) rather than
+    orchestrator logs.
+    
+    Args:
+        ticket_id: The ticket ID
+        include_entries: If True (default), include full log entries. 
+                        If False, only return summary info.
+    
+    Returns:
+        All agent conversation/output grouped by job execution.
+    """
+    from sqlalchemy.orm import selectinload
+    from app.models.board import Board
+    import os
+    
+    # Verify ticket exists and get title
+    service = TicketService(db)
+    ticket = await service.get_ticket_by_id(ticket_id)
+    
+    # Get repo root from the ticket's board (authoritative source)
+    repo_root = None
+    if ticket.board_id:
+        board_result = await db.execute(
+            select(Board).where(Board.id == ticket.board_id)
+        )
+        board = board_result.scalar_one_or_none()
+        if board and board.repo_root:
+            repo_root = Path(board.repo_root)
+    
+    # Fallback to environment or cwd
+    if repo_root is None or not repo_root.exists():
+        git_repo_path = os.environ.get("GIT_REPO_PATH")
+        if git_repo_path:
+            repo_root = Path(git_repo_path)
+        else:
+            repo_root = Path.cwd()
+    
+    # Get all jobs for this ticket with their evidence
+    result = await db.execute(
+        select(Job)
+        .where(Job.ticket_id == ticket_id)
+        .options(selectinload(Job.evidence))
+        .order_by(Job.created_at.desc())
+    )
+    jobs = list(result.scalars().all())
+    
+    executions: list[JobExecutionSummary] = []
+    total_entries = 0
+    
+    for job in jobs:
+        # Calculate duration if job is finished
+        duration = None
+        if job.started_at and job.finished_at:
+            duration = (job.finished_at - job.started_at).total_seconds()
+        
+        timestamp = job.started_at.isoformat() if job.started_at else job.created_at.isoformat()
+        
+        # Build entries from Evidence stdout files
+        entries: list[AgentLogEntry] = []
+        
+        if include_entries:
+            # Get executor evidence (the actual agent output)
+            executor_evidence = [
+                ev for ev in job.evidence 
+                if ev.kind == EvidenceKind.EXECUTOR_STDOUT.value
+            ]
+            
+            for ev in executor_evidence:
+                if ev.stdout_path:
+                    try:
+                        # Resolve the stdout path - try multiple locations
+                        stdout_path = repo_root / ev.stdout_path
+                        
+                        # If not found at repo root, try relative to cwd
+                        if not stdout_path.exists():
+                            stdout_path = Path.cwd() / ev.stdout_path
+                        
+                        # If still not found, try absolute path
+                        if not stdout_path.exists() and ev.stdout_path.startswith('/'):
+                            stdout_path = Path(ev.stdout_path)
+                        
+                        if stdout_path.exists():
+                            content = stdout_path.read_text()
+                            if content.strip():
+                                # Parse the agent output into structured entries
+                                parsed = parse_agent_output(content, job.id, timestamp)
+                                entries.extend(parsed)
+                        else:
+                            # File not found - add info entry
+                            entries.append(AgentLogEntry(
+                                id=str(uuid_module.uuid4()),
+                                job_id=job.id,
+                                sequence=0,
+                                timestamp=timestamp,
+                                entry_type="system_message",
+                                content=f"Agent output file not found: {ev.stdout_path}",
+                                metadata={"repo_root": str(repo_root)},
+                                collapsed=False,
+                                highlight=False,
+                            ))
+                    except Exception as e:
+                        # If we can't read the file, add an error entry
+                        entries.append(AgentLogEntry(
+                            id=str(uuid_module.uuid4()),
+                            job_id=job.id,
+                            sequence=0,
+                            timestamp=timestamp,
+                            entry_type="error",
+                            content=f"Could not read agent output: {str(e)}",
+                            metadata={},
+                            collapsed=False,
+                            highlight=True,
+                        ))
+            
+            # If no executor evidence, try to get from normalized logs as fallback
+            if not entries:
+                # Fallback to normalized_logs table
+                logs_result = await db.execute(
+                    select(NormalizedLogEntry)
+                    .where(NormalizedLogEntry.job_id == job.id)
+                    .order_by(NormalizedLogEntry.sequence)
+                )
+                logs = list(logs_result.scalars().all())
+                
+                for log in logs:
+                    entries.append(AgentLogEntry(
+                        id=log.id,
+                        job_id=log.job_id,
+                        sequence=log.sequence,
+                        timestamp=log.timestamp.isoformat() if log.timestamp else "",
+                        entry_type=log.entry_type.value if log.entry_type else "",
+                        content=log.content,
+                        metadata=log.entry_metadata or {},
+                        collapsed=log.collapsed or False,
+                        highlight=log.highlight or False,
+                    ))
+        
+        total_entries += len(entries)
+        
+        executions.append(JobExecutionSummary(
+            job_id=job.id,
+            job_kind=job.kind,
+            job_status=job.status,
+            started_at=job.started_at.isoformat() if job.started_at else None,
+            finished_at=job.finished_at.isoformat() if job.finished_at else None,
+            duration_seconds=duration,
+            entry_count=len(entries),
+            entries=entries,
+        ))
+    
+    return TicketAgentLogsResponse(
+        ticket_id=ticket_id,
+        ticket_title=ticket.title,
+        total_entries=total_entries,
+        total_jobs=len(jobs),
+        executions=executions,
     )

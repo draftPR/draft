@@ -4,6 +4,7 @@ import json
 import subprocess
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,13 +24,18 @@ from app.models.job import Job, JobStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.services.config_service import ConfigService, YoloStatus
-from app.services.executor_service import ExecutorService, ExecutorMode, PromptBundleBuilder
+from app.services.executor_service import ExecutorService, ExecutorMode, ExecutorType, PromptBundleBuilder
+from app.services.log_stream_service import LogLevel, log_stream_publisher
+from app.services.cursor_log_normalizer import CursorLogNormalizer, NormalizedEntry
 from app.services.workspace_service import WorkspaceService
 from app.services.worktree_validator import WorktreeValidator
 from app.state_machine import ActorType, EventType, TicketState
 
 # Fallback logs directory (used when worktree is not available)
 FALLBACK_LOGS_DIR = Path(__file__).parent.parent / "logs"
+
+# Track current job_id for streaming (set per-task)
+_current_job_id: str | None = None
 
 
 def ensure_fallback_logs_dir() -> None:
@@ -42,12 +48,40 @@ def get_fallback_log_path(job_id: str) -> Path:
     return FALLBACK_LOGS_DIR / f"{job_id}.log"
 
 
-def write_log(log_path: Path, message: str) -> None:
-    """Write a timestamped message to the log file."""
+def write_log(log_path: Path, message: str, job_id: str | None = None) -> None:
+    """Write a timestamped message to the log file AND stream via Redis.
+    
+    Args:
+        log_path: Path to the log file
+        message: The log message
+        job_id: Optional job ID for real-time streaming (uses global if not set)
+    """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).isoformat()
     with open(log_path, "a") as f:
         f.write(f"[{timestamp}] {message}\n")
+    
+    # Also stream to Redis for real-time SSE
+    stream_job_id = job_id or _current_job_id
+    if stream_job_id:
+        try:
+            log_stream_publisher.push_info(stream_job_id, message)
+        except Exception:
+            pass  # Don't fail job if streaming fails
+
+
+def set_current_job(job_id: str | None) -> None:
+    """Set the current job ID for log streaming."""
+    global _current_job_id
+    _current_job_id = job_id
+
+
+def stream_finished(job_id: str) -> None:
+    """Signal that job has finished streaming."""
+    try:
+        log_stream_publisher.push_finished(job_id)
+    except Exception:
+        pass
 
 
 def get_job_with_ticket(job_id: str) -> tuple[Job, Ticket] | None:
@@ -555,8 +589,9 @@ def _enqueue_verify_job_sync(ticket_id: str) -> str | None:
         db.flush()
         job_id = job.id
 
-        # Enqueue the Celery task
-        task = verify_ticket_task.delay(job_id)
+        # Enqueue the Celery task using send_task (safer for forked processes)
+        from app.celery_app import celery_app
+        task = celery_app.send_task("verify_ticket", args=[job_id])
 
         # Store the Celery task ID
         job.celery_task_id = task.id
@@ -572,9 +607,11 @@ def run_executor_cli(
     evidence_id: str,
     repo_root: Path,
     timeout: int = 600,
+    job_id: str | None = None,
+    normalize_logs: bool = False,
 ) -> tuple[int, str, str]:
     """
-    Run the executor CLI and capture output.
+    Run the executor CLI and capture output with real-time streaming.
 
     Args:
         command: The CLI command to run as a list of arguments
@@ -583,30 +620,109 @@ def run_executor_cli(
         evidence_id: UUID for naming evidence files
         repo_root: Path to repo root (for computing relative paths)
         timeout: Command timeout in seconds
+        job_id: Optional job ID for real-time log streaming
+        normalize_logs: If True, parse cursor-agent JSON and stream normalized entries
 
     Returns:
         Tuple of (exit_code, stdout_relpath, stderr_relpath) - paths are relative to repo_root
     """
+    import json as json_module
+    import threading
+    
     stdout_path = evidence_dir / f"{evidence_id}.stdout"
     stderr_path = evidence_dir / f"{evidence_id}.stderr"
+    
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    
+    # Create normalizer if needed
+    normalizer = CursorLogNormalizer(str(cwd)) if normalize_logs else None
 
     try:
-        result = subprocess.run(
+        # Use Popen for real-time streaming instead of blocking run()
+        process = subprocess.Popen(
             command,
             cwd=cwd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            bufsize=1,  # Line buffered
         )
-
-        # Write stdout/stderr to files
-        stdout_path.write_text(result.stdout or "")
-        stderr_path.write_text(result.stderr or "")
+        
+        def stream_output(pipe, lines_list, is_stderr=False):
+            """Read and stream output line by line."""
+            try:
+                for line in iter(pipe.readline, ''):
+                    if not line:
+                        break
+                    line = line.rstrip('\n')
+                    lines_list.append(line)
+                    
+                    # Stream to Redis for real-time SSE
+                    if job_id:
+                        try:
+                            if is_stderr:
+                                log_stream_publisher.push_stderr(job_id, line)
+                            elif normalizer:
+                                # Parse and stream normalized entries
+                                entries = normalizer.process_line(line)
+                                for entry in entries:
+                                    # Serialize normalized entry as JSON
+                                    entry_data = {
+                                        "entry_type": entry.entry_type.value,
+                                        "content": entry.content,
+                                        "sequence": entry.sequence,
+                                        "tool_name": entry.tool_name,
+                                        "action_type": entry.action_type.value if entry.action_type else None,
+                                        "tool_status": entry.tool_status.value if entry.tool_status else None,
+                                        "metadata": entry.metadata,
+                                    }
+                                    log_stream_publisher.push(
+                                        job_id, 
+                                        LogLevel.NORMALIZED, 
+                                        json_module.dumps(entry_data)
+                                    )
+                            else:
+                                log_stream_publisher.push_stdout(job_id, line)
+                        except Exception:
+                            pass  # Don't fail execution if streaming fails
+            finally:
+                pipe.close()
+        
+        # Stream stdout and stderr in parallel threads
+        stdout_thread = threading.Thread(
+            target=stream_output, 
+            args=(process.stdout, stdout_lines, False)
+        )
+        stderr_thread = threading.Thread(
+            target=stream_output,
+            args=(process.stderr, stderr_lines, True)
+        )
+        
+        stdout_thread.start()
+        stderr_thread.start()
+        
+        # Wait for process with timeout
+        try:
+            exit_code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            stdout_lines.append(f"\n[TIMEOUT] Process killed after {timeout} seconds")
+            exit_code = -1
+        
+        # Wait for output threads to finish
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+        
+        # Write captured output to files
+        stdout_path.write_text('\n'.join(stdout_lines))
+        stderr_path.write_text('\n'.join(stderr_lines))
 
         # Return relative paths for secure DB storage
         stdout_rel = str(stdout_path.relative_to(repo_root))
         stderr_rel = str(stderr_path.relative_to(repo_root))
-        return result.returncode, stdout_rel, stderr_rel
+        return exit_code, stdout_rel, stderr_rel
 
     except subprocess.TimeoutExpired as e:
         # Write partial output if available
@@ -640,6 +756,10 @@ def capture_git_diff(
     """
     Capture git diff output for changes made in the worktree.
 
+    This function captures both:
+    1. Changes to tracked files (via git diff)
+    2. New untracked files (via git status --porcelain)
+
     Args:
         cwd: Working directory (worktree path)
         evidence_dir: Directory to store diff files
@@ -648,7 +768,7 @@ def capture_git_diff(
 
     Returns:
         Tuple of (exit_code, diff_stat_relpath, diff_patch_relpath, diff_stat_text, has_changes)
-        has_changes is True if there are uncommitted changes in the worktree.
+        has_changes is True if there are uncommitted changes OR new untracked files.
         Paths are relative to repo_root.
     """
     diff_stat_path = evidence_dir / f"{evidence_id}.diff_stat"
@@ -657,9 +777,12 @@ def capture_git_diff(
 
     diff_stat = ""
     has_changes = False
+    has_tracked_changes = False
+    has_untracked_files = False
+    untracked_files: list[str] = []
 
     try:
-        # First get the diff stat for summary
+        # First get the diff stat for tracked file changes
         stat_result = subprocess.run(
             ["git", "diff", "--stat"],
             cwd=cwd,
@@ -668,9 +791,8 @@ def capture_git_diff(
             timeout=60,
         )
         diff_stat = stat_result.stdout.strip() if stat_result.stdout else ""
-        diff_stat_path.write_text(diff_stat or "(no changes)")
 
-        # Then get the full patch
+        # Then get the full patch for tracked files
         patch_result = subprocess.run(
             ["git", "diff"],
             cwd=cwd,
@@ -679,23 +801,79 @@ def capture_git_diff(
             timeout=60,
         )
         diff_patch = patch_result.stdout.strip() if patch_result.stdout else ""
-        diff_patch_path.write_text(diff_patch or "(no changes)")
+        has_tracked_changes = bool(diff_patch)
 
-        # Determine if there are actual changes
-        has_changes = bool(diff_patch)
+        # Also check for untracked files (new files created by executor)
+        # These won't show up in git diff but represent real work done
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if status_result.stdout:
+            for line in status_result.stdout.strip().split("\n"):
+                if line.startswith("??"):
+                    # Untracked file - extract path (skip "?? " prefix)
+                    file_path = line[3:].strip()
+                    # Skip .smartkanban directory (internal files)
+                    if not file_path.startswith(".smartkanban"):
+                        untracked_files.append(file_path)
+            has_untracked_files = len(untracked_files) > 0
 
-        # Combine stderr from both commands
+        # Determine if there are actual changes (tracked OR untracked)
+        has_changes = has_tracked_changes or has_untracked_files
+
+        # Build comprehensive diff stat that includes untracked files
+        stat_parts = []
+        if diff_stat:
+            stat_parts.append(diff_stat)
+        if untracked_files:
+            stat_parts.append(f"\nNew files (untracked):")
+            for f in untracked_files[:20]:  # Limit to 20 files in summary
+                stat_parts.append(f"  + {f}")
+            if len(untracked_files) > 20:
+                stat_parts.append(f"  ... and {len(untracked_files) - 20} more")
+
+        final_diff_stat = "\n".join(stat_parts) if stat_parts else "(no changes)"
+        diff_stat_path.write_text(final_diff_stat)
+
+        # For patch, also include untracked file contents if any
+        patch_parts = []
+        if diff_patch:
+            patch_parts.append(diff_patch)
+        if untracked_files:
+            patch_parts.append("\n\n# === New untracked files ===\n")
+            for f in untracked_files[:10]:  # Limit to 10 files to avoid huge patches
+                file_full_path = cwd / f
+                if file_full_path.is_file():
+                    try:
+                        content = file_full_path.read_text()
+                        # Truncate large files
+                        if len(content) > 5000:
+                            content = content[:5000] + "\n... (truncated)"
+                        patch_parts.append(f"\n# +++ {f}\n{content}")
+                    except Exception:
+                        patch_parts.append(f"\n# +++ {f} (could not read)")
+
+        final_patch = "\n".join(patch_parts) if patch_parts else "(no changes)"
+        diff_patch_path.write_text(final_patch)
+
+        # Combine stderr from commands
         combined_stderr = ""
         if stat_result.stderr:
             combined_stderr += f"git diff --stat stderr:\n{stat_result.stderr}\n"
         if patch_result.stderr:
             combined_stderr += f"git diff stderr:\n{patch_result.stderr}\n"
+        if status_result.stderr:
+            combined_stderr += f"git status stderr:\n{status_result.stderr}\n"
         stderr_path.write_text(combined_stderr)
 
         # Return relative paths for secure DB storage
         diff_stat_rel = str(diff_stat_path.relative_to(repo_root))
         diff_patch_rel = str(diff_patch_path.relative_to(repo_root))
-        return 0, diff_stat_rel, diff_patch_rel, diff_stat or "(no changes)", has_changes
+        return 0, diff_stat_rel, diff_patch_rel, final_diff_stat, has_changes
 
     except subprocess.TimeoutExpired:
         diff_stat_path.write_text("Git diff timed out")
@@ -712,6 +890,230 @@ def capture_git_diff(
         diff_stat_rel = str(diff_stat_path.relative_to(repo_root))
         diff_patch_rel = str(diff_patch_path.relative_to(repo_root))
         return -1, diff_stat_rel, diff_patch_rel, "(error)", False
+
+
+# =============================================================================
+# NO-CHANGES ANALYSIS (LLM-powered)
+# =============================================================================
+
+@dataclass
+class NoChangesAnalysis:
+    """Result of analyzing why no code changes were produced."""
+    
+    reason: str  # Human-readable explanation
+    needs_code_changes: bool  # True if code changes are actually needed
+    requires_manual_work: bool  # True if manual human intervention is required
+    manual_work_description: str | None  # Description of manual work needed (if any)
+
+
+def analyze_no_changes_reason(
+    ticket_title: str,
+    ticket_description: str | None,
+    executor_stdout: str,
+    planner_config: "PlannerConfig",
+) -> NoChangesAnalysis:
+    """
+    Analyze executor output to determine why no code changes were produced.
+    
+    Uses LLM to understand the executor's reasoning and categorize the result:
+    1. No changes needed - the task doesn't require code modifications
+    2. Manual work required - needs human intervention (config, external tools, etc.)
+    3. Unclear/error - couldn't determine, needs investigation
+    
+    Args:
+        ticket_title: Title of the ticket being executed
+        ticket_description: Description of the ticket
+        executor_stdout: The stdout output from the executor
+        planner_config: Planner configuration for LLM settings
+        
+    Returns:
+        NoChangesAnalysis with categorized result
+    """
+    from app.services.llm_service import LLMService
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # Truncate executor output to avoid token limits
+    max_output_chars = 8000
+    truncated_stdout = executor_stdout[:max_output_chars]
+    if len(executor_stdout) > max_output_chars:
+        truncated_stdout += "\n... (output truncated)"
+    
+    system_prompt = """You are a technical analyst reviewing why a coding agent completed a task without making any code changes.
+
+Analyze the executor output and categorize the result into ONE of these categories:
+
+1. NO_CHANGES_NEEDED - The task genuinely doesn't require code changes. Examples:
+   - The requested functionality already exists
+   - The code is already correct as-is
+   - The task was a review/analysis that doesn't need modifications
+   
+2. MANUAL_WORK_REQUIRED - The task requires human intervention that the agent cannot do. Examples:
+   - Configuration changes in external systems
+   - Running commands that require special permissions
+   - Setting up environment variables or secrets
+   - Installing system packages
+   - Deploying or running external services
+   - Manual testing or verification steps
+   
+3. NEEDS_INVESTIGATION - Unable to determine clearly, needs human review
+
+Your response MUST be valid JSON with this exact structure:
+{
+  "category": "NO_CHANGES_NEEDED" | "MANUAL_WORK_REQUIRED" | "NEEDS_INVESTIGATION",
+  "reason": "Brief explanation of why no code changes were made",
+  "manual_work_description": "If MANUAL_WORK_REQUIRED, describe exactly what needs to be done manually. Otherwise null."
+}"""
+
+    user_prompt = f"""A coding agent was asked to work on this ticket but produced no code changes.
+
+TICKET TITLE: {ticket_title}
+
+TICKET DESCRIPTION:
+{ticket_description or "(no description)"}
+
+EXECUTOR OUTPUT:
+{truncated_stdout}
+
+Analyze why no code changes were produced and categorize the result."""
+
+    try:
+        llm_service = LLMService(planner_config)
+        response = llm_service.call_completion(
+            messages=[{"role": "user", "content": user_prompt}],
+            max_tokens=500,
+            system_prompt=system_prompt,
+            timeout=30,
+        )
+        data = llm_service.safe_parse_json(response.content, {})
+        
+        category = data.get("category", "NEEDS_INVESTIGATION")
+        reason = data.get("reason", "Unable to determine why no changes were produced")
+        manual_work_desc = data.get("manual_work_description")
+        
+        return NoChangesAnalysis(
+            reason=reason,
+            needs_code_changes=(category == "NEEDS_INVESTIGATION"),
+            requires_manual_work=(category == "MANUAL_WORK_REQUIRED"),
+            manual_work_description=manual_work_desc if category == "MANUAL_WORK_REQUIRED" else None,
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to analyze no-changes reason: {e}")
+        # Fallback: treat as needs investigation
+        return NoChangesAnalysis(
+            reason=f"Analysis failed: {str(e)}",
+            needs_code_changes=True,
+            requires_manual_work=False,
+            manual_work_description=None,
+        )
+
+
+def create_manual_work_followup_sync(
+    parent_ticket_id: str,
+    parent_ticket_title: str,
+    manual_work_description: str,
+    goal_id: str,
+    board_id: str | None = None,
+) -> str | None:
+    """
+    Create a follow-up ticket for manual work that the agent cannot perform.
+    
+    The ticket is created in PROPOSED state with a [Manual Work] prefix.
+    
+    Args:
+        parent_ticket_id: ID of the blocked ticket
+        parent_ticket_title: Title of the blocked ticket
+        manual_work_description: Description of the manual work needed
+        goal_id: Goal ID to link the follow-up ticket to
+        board_id: Optional board ID for permission scoping
+        
+    Returns:
+        The ID of the created follow-up ticket, or None if creation failed
+    """
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        with get_sync_db() as db:
+            # Get the parent ticket for priority inheritance
+            parent_ticket = db.query(Ticket).filter(Ticket.id == parent_ticket_id).first()
+            priority = parent_ticket.priority if parent_ticket else None
+            
+            # Create follow-up ticket with [Manual Work] prefix
+            followup_title = f"[Manual Work] {parent_ticket_title}"
+            # Truncate if too long (max 255 chars)
+            if len(followup_title) > 255:
+                followup_title = followup_title[:252] + "..."
+            
+            followup_description = f"""This ticket requires manual human intervention that the automated agent cannot perform.
+
+**Original Ticket:** {parent_ticket_title}
+
+**Manual Work Required:**
+{manual_work_description}
+
+**Instructions:**
+1. Review the manual work description above
+2. Perform the required actions manually
+3. Mark this ticket as done when complete
+"""
+            
+            followup_ticket = Ticket(
+                goal_id=goal_id,
+                board_id=board_id,
+                title=followup_title,
+                description=followup_description,
+                state=TicketState.PROPOSED.value,
+                priority=priority,
+            )
+            db.add(followup_ticket)
+            db.flush()
+            followup_id = followup_ticket.id
+            
+            # Create creation event for follow-up ticket
+            creation_event = TicketEvent(
+                ticket_id=followup_id,
+                event_type=EventType.CREATED.value,
+                from_state=None,
+                to_state=TicketState.PROPOSED.value,
+                actor_type=ActorType.EXECUTOR.value,
+                actor_id="execute_worker",
+                reason=f"Manual work follow-up for blocked ticket: {parent_ticket_title}",
+                payload_json=json.dumps({
+                    "parent_ticket_id": parent_ticket_id,
+                    "manual_work": True,
+                    "auto_generated": True,
+                }),
+            )
+            db.add(creation_event)
+            
+            # Create link event on the parent ticket
+            link_event = TicketEvent(
+                ticket_id=parent_ticket_id,
+                event_type=EventType.COMMENT.value,
+                from_state=TicketState.BLOCKED.value,
+                to_state=TicketState.BLOCKED.value,
+                actor_type=ActorType.EXECUTOR.value,
+                actor_id="execute_worker",
+                reason=f"Created manual work follow-up ticket: {followup_title}",
+                payload_json=json.dumps({
+                    "followup_ticket_id": followup_id,
+                    "manual_work_followup": True,
+                }),
+            )
+            db.add(link_event)
+            
+            db.commit()
+            
+            logger.info(f"Created manual work follow-up ticket {followup_id} for blocked ticket {parent_ticket_id}")
+            return followup_id
+            
+    except Exception as e:
+        logger.error(f"Failed to create manual work follow-up ticket: {e}")
+        return None
 
 
 @celery_app.task(bind=True, name="execute_ticket")
@@ -734,6 +1136,19 @@ def execute_ticket_task(self, job_id: str) -> dict:
         Claude CLI runs with --dangerously-skip-permissions. Otherwise it runs
         in permissioned mode (may require user approval for certain operations).
     """
+    # Enable real-time log streaming for this job
+    set_current_job(job_id)
+    
+    try:
+        return _execute_ticket_task_impl(job_id)
+    finally:
+        # Signal streaming finished and clean up
+        stream_finished(job_id)
+        set_current_job(None)
+
+
+def _execute_ticket_task_impl(job_id: str) -> dict:
+    """Implementation of execute_ticket_task (separated for streaming wrapper)."""
     # Get job and ticket info
     result = get_job_with_ticket(job_id)
     if not result:
@@ -742,6 +1157,21 @@ def execute_ticket_task(self, job_id: str) -> dict:
     job, ticket = result
     goal_id = ticket.goal_id
     ticket_id = ticket.id
+
+    # Check if ticket is already in a terminal/blocked state - skip execution if so
+    # This prevents re-execution of jobs for already-blocked tickets
+    if ticket.state in [TicketState.BLOCKED.value, TicketState.DONE.value, TicketState.ABANDONED.value]:
+        import logging
+        logging.getLogger(__name__).info(
+            f"Skipping execution for job {job_id}: ticket {ticket_id} is already in {ticket.state} state"
+        )
+        update_job_finished(job_id, JobStatus.FAILED, exit_code=0)
+        return {
+            "job_id": job_id,
+            "status": "skipped",
+            "reason": f"Ticket already in {ticket.state} state",
+            "ticket_id": ticket_id,
+        }
 
     # Ensure workspace exists
     worktree_path, workspace_error = ensure_workspace_for_ticket(ticket_id, goal_id)
@@ -925,6 +1355,14 @@ def execute_ticket_task(self, job_id: str) -> dict:
     else:
         write_log(log_path, "No previous revision feedback found (fresh execution)")
 
+    # Check for queued follow-up prompt (from instant follow-up queue)
+    from app.services.queued_message_service import queued_message_service
+    followup_prompt = queued_message_service.get_followup_prompt(ticket_id)
+    additional_context = None
+    if followup_prompt:
+        write_log(log_path, f"Found queued follow-up: {followup_prompt[:100]}...")
+        additional_context = f"\n\n--- FOLLOW-UP REQUEST ---\n{followup_prompt}\n\nPlease address the above follow-up request while continuing work on this ticket."
+
     # Build prompt bundle
     write_log(log_path, "Building prompt bundle...")
     prompt_builder = PromptBundleBuilder(worktree_path, job_id)
@@ -932,6 +1370,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
         ticket_title=ticket.title,
         ticket_description=ticket.description,
         feedback_bundle=feedback_bundle,
+        additional_context=additional_context,
     )
     write_log(log_path, f"Prompt bundle created at: {prompt_file}")
 
@@ -988,12 +1427,26 @@ def execute_ticket_task(self, job_id: str) -> dict:
     write_log(log_path, f"Running headless executor: {executor_info.executor_type.value}...")
     executor_evidence_id = str(uuid.uuid4())
 
+    # Check for existing session to continue (session continuity)
+    from app.services.agent_session_service import get_session_service
+    session_service = get_session_service(worktree_path)
+    existing_session = session_service.get_session(ticket_id)
+    session_flag = None
+    if existing_session:
+        session_flag = session_service.get_continue_flag(ticket_id, executor_info.executor_type.value)
+        if session_flag:
+            write_log(log_path, f"Continuing from session: {existing_session.session_id} (execution #{existing_session.execution_count + 1})")
+
     # Get the command with YOLO mode if allowed
     executor_command = executor_info.get_apply_command(
         prompt_file,
         worktree_path,
         yolo_mode=yolo_enabled,
     )
+    
+    # Add session continuation flag if available
+    if session_flag:
+        executor_command = executor_command + session_flag.split()
 
     # Log command (without full prompt content)
     if yolo_enabled:
@@ -1005,6 +1458,9 @@ def execute_ticket_task(self, job_id: str) -> dict:
     # Track execution timing for metadata
     executor_start_time = time.time()
 
+    # Enable log normalization for cursor-agent (outputs JSON streaming format)
+    should_normalize = executor_info.executor_type == ExecutorType.CURSOR_AGENT
+    
     executor_exit_code, executor_stdout_path, executor_stderr_path = run_executor_cli(
         command=executor_command,
         cwd=worktree_path,
@@ -1012,6 +1468,8 @@ def execute_ticket_task(self, job_id: str) -> dict:
         evidence_id=executor_evidence_id,
         repo_root=main_repo_path,
         timeout=execute_config.timeout,
+        job_id=job_id,  # Enable real-time streaming
+        normalize_logs=should_normalize,  # Parse cursor-agent JSON for nice display
     )
 
     # Calculate execution duration
@@ -1056,6 +1514,20 @@ def execute_ticket_task(self, job_id: str) -> dict:
         kind=EvidenceKind.EXECUTOR_STDOUT,
     )
     evidence_records.append(executor_evidence_id)
+
+    # Extract and save session ID for continuity
+    try:
+        stdout_content = (main_repo_path / executor_stdout_path).read_text()
+        new_session_id = session_service.extract_session_id_from_output(stdout_content)
+        if new_session_id:
+            session_service.save_session(
+                session_id=new_session_id,
+                ticket_id=ticket_id,
+                agent_type=executor_info.executor_type.value,
+            )
+            write_log(log_path, f"Saved session ID for future continuity: {new_session_id[:16]}...")
+    except Exception as e:
+        logger.debug(f"Could not extract session ID: {e}")
 
     write_log(log_path, f"Executor completed in {executor_duration_ms}ms")
     if executor_exit_code == 0:
@@ -1150,29 +1622,114 @@ def execute_ticket_task(self, job_id: str) -> dict:
     # Case 2: Executor succeeded but NO CHANGES produced
     if not has_changes:
         write_log(log_path, "Execution completed but NO CHANGES were produced.")
-        write_log(log_path, "Transitioning ticket to 'blocked' (reason: no diff)")
-        transition_ticket_sync(
-            ticket_id,
-            TicketState.BLOCKED,
-            reason="Execution completed but no code changes were produced",
-            payload={
+        write_log(log_path, "Analyzing why no code changes were made...")
+        
+        # Read executor stdout for analysis
+        try:
+            executor_stdout_content = (main_repo_path / executor_stdout_path).read_text()
+        except Exception as e:
+            write_log(log_path, f"Warning: Could not read executor output: {e}")
+            executor_stdout_content = ""
+        
+        # Analyze why no changes were produced using LLM
+        analysis = analyze_no_changes_reason(
+            ticket_title=ticket.title,
+            ticket_description=ticket.description,
+            executor_stdout=executor_stdout_content,
+            planner_config=planner_config,
+        )
+        
+        write_log(log_path, f"Analysis result: {analysis.reason}")
+        write_log(log_path, f"  - Needs code changes: {analysis.needs_code_changes}")
+        write_log(log_path, f"  - Requires manual work: {analysis.requires_manual_work}")
+        
+        followup_ticket_id = None
+        
+        # Handle based on analysis result
+        if analysis.requires_manual_work and analysis.manual_work_description:
+            # Create a [Manual Work] follow-up ticket
+            write_log(log_path, "Creating [Manual Work] follow-up ticket...")
+            followup_ticket_id = create_manual_work_followup_sync(
+                parent_ticket_id=ticket_id,
+                parent_ticket_title=ticket.title,
+                manual_work_description=analysis.manual_work_description,
+                goal_id=goal_id,
+                board_id=ticket.board_id,
+            )
+            if followup_ticket_id:
+                write_log(log_path, f"Created follow-up ticket: {followup_ticket_id}")
+            else:
+                write_log(log_path, "Warning: Failed to create follow-up ticket")
+            
+            # Block the original ticket with reference to manual work
+            reason = f"Requires manual work: {analysis.reason}"
+            payload = {
                 "executor": executor_info.executor_type.value,
                 "evidence_ids": evidence_records,
                 "diff_summary": diff_stat,
                 "no_changes": True,
                 "yolo_mode": yolo_enabled,
-            },
+                "requires_manual_work": True,
+                "manual_work_followup_id": followup_ticket_id,
+                "analysis_reason": analysis.reason,
+            }
+            
+        elif not analysis.needs_code_changes:
+            # No changes needed - mark as blocked with skip_followup flag
+            write_log(log_path, "No code changes needed. Blocking without follow-up.")
+            reason = f"No changes required: {analysis.reason}"
+            payload = {
+                "executor": executor_info.executor_type.value,
+                "evidence_ids": evidence_records,
+                "diff_summary": diff_stat,
+                "no_changes": True,
+                "yolo_mode": yolo_enabled,
+                "no_changes_needed": True,
+                "skip_followup": True,  # Signal to planner to not create follow-ups
+                "analysis_reason": analysis.reason,
+            }
+            
+        else:
+            # Needs investigation - use original behavior (planner may create follow-up)
+            write_log(log_path, "Needs investigation. Blocking for review.")
+            reason = f"Execution completed but no code changes were produced: {analysis.reason}"
+            payload = {
+                "executor": executor_info.executor_type.value,
+                "evidence_ids": evidence_records,
+                "diff_summary": diff_stat,
+                "no_changes": True,
+                "yolo_mode": yolo_enabled,
+                "needs_investigation": True,
+                "analysis_reason": analysis.reason,
+            }
+        
+        write_log(log_path, f"Transitioning ticket to 'blocked' (reason: {reason[:100]}...)")
+        transition_ticket_sync(
+            ticket_id,
+            TicketState.BLOCKED,
+            reason=reason,
+            payload=payload,
             actor_id="execute_worker",
         )
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
-        return {
+        
+        result_payload = {
             "job_id": job_id,
             "status": "no_changes",
             "worktree": str(worktree_path),
             "executor": executor_info.executor_type.value,
             "evidence_ids": evidence_records,
             "diff_summary": diff_stat,
+            "analysis": {
+                "reason": analysis.reason,
+                "needs_code_changes": analysis.needs_code_changes,
+                "requires_manual_work": analysis.requires_manual_work,
+            },
         }
+        if followup_ticket_id:
+            result_payload["manual_work_followup_id"] = followup_ticket_id
+            
+        return result_payload
 
     # Case 3: Executor succeeded with changes → verifying
     write_log(log_path, "Execution completed successfully with changes!")
@@ -1238,6 +1795,20 @@ def verify_ticket_task(self, job_id: str) -> dict:
     goal_id = ticket.goal_id
     ticket_id = ticket.id
 
+    # Check if ticket is already in a terminal/blocked state - skip verification if so
+    if ticket.state in [TicketState.BLOCKED.value, TicketState.DONE.value, TicketState.ABANDONED.value]:
+        import logging
+        logging.getLogger(__name__).info(
+            f"Skipping verification for job {job_id}: ticket {ticket_id} is already in {ticket.state} state"
+        )
+        update_job_finished(job_id, JobStatus.FAILED, exit_code=0)
+        return {
+            "job_id": job_id,
+            "status": "skipped",
+            "reason": f"Ticket already in {ticket.state} state",
+            "ticket_id": ticket_id,
+        }
+
     # Ensure workspace exists
     worktree_path, workspace_error = ensure_workspace_for_ticket(ticket_id, goal_id)
 
@@ -1268,23 +1839,18 @@ def verify_ticket_task(self, job_id: str) -> dict:
     config = config_service.load_config(use_cache=False)
     verify_config = config.verify_config
     verify_commands = verify_config.commands
-    on_success_state = verify_config.on_success  # "needs_human" or "done"
 
     # Get repo root for relative path computation
     repo_root = config_service.get_repo_root()
 
     write_log(log_path, f"Loaded {len(verify_commands)} verification command(s)")
-    write_log(log_path, f"On success: transition to '{on_success_state}'")
+    write_log(log_path, "On success: transition to 'needs_human' (requires user approval to move to done)")
 
     if not verify_commands:
         write_log(log_path, "No verification commands configured, skipping verification.")
-        # No commands = success, transition based on policy
-        if on_success_state == "done":
-            write_log(log_path, "Transitioning ticket to 'done'")
-            transition_ticket_sync(ticket_id, TicketState.DONE, reason="Verification passed (no commands configured)")
-        else:
-            write_log(log_path, "Transitioning ticket to 'needs_human' for review")
-            transition_ticket_sync(ticket_id, TicketState.NEEDS_HUMAN, reason="Verification passed (no commands configured)")
+        # No commands = success, always transition to needs_human for review
+        write_log(log_path, "Transitioning ticket to 'needs_human' for review")
+        transition_ticket_sync(ticket_id, TicketState.NEEDS_HUMAN, reason="Verification passed (no commands configured), awaiting human approval")
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
         return {"job_id": job_id, "status": "succeeded", "worktree": str(worktree_path) if worktree_path else None}
 
@@ -1368,7 +1934,6 @@ def verify_ticket_task(self, job_id: str) -> dict:
         "commands_run": len(command_results),
         "all_succeeded": all_succeeded,
         "results": command_results,
-        "on_success_configured": on_success_state,
     }
     verify_meta_path = evidence_dir / f"{verify_meta_id}.meta.json"
     verify_meta_path.write_text(json.dumps(verify_meta, indent=2))
@@ -1391,22 +1956,14 @@ def verify_ticket_task(self, job_id: str) -> dict:
     # Transition ticket based on outcome
     if all_succeeded:
         write_log(log_path, "All verification commands passed!")
-        if on_success_state == "done":
-            write_log(log_path, "Transitioning ticket to 'done'")
-            transition_ticket_sync(
-                ticket_id,
-                TicketState.DONE,
-                reason=f"Verification passed: {len(verify_commands)} command(s) succeeded",
-                payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms},
-            )
-        else:
-            write_log(log_path, "Transitioning ticket to 'needs_human' for review")
-            transition_ticket_sync(
-                ticket_id,
-                TicketState.NEEDS_HUMAN,
-                reason=f"Verification passed: {len(verify_commands)} command(s) succeeded, awaiting human review",
-                payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms},
-            )
+        # Always transition to needs_human for review - user must explicitly approve to move to done
+        write_log(log_path, "Transitioning ticket to 'needs_human' for review")
+        transition_ticket_sync(
+            ticket_id,
+            TicketState.NEEDS_HUMAN,
+            reason=f"Verification passed: {len(verify_commands)} command(s) succeeded, awaiting human approval",
+            payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms},
+        )
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
         return {
             "job_id": job_id,
@@ -1482,40 +2039,19 @@ def planner_tick_task(self) -> dict:
     This ensures tickets automatically flow through the queue without
     requiring the /planner/start HTTP request to stay connected.
     """
-    import asyncio
-
-    async def run_tick():
-        """Run the planner tick with an async database session."""
-        from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-        from app.database import DATABASE_URL
-        from app.services.planner_service import PlannerService, PlannerLockError
-
-        # Create a dedicated async engine for this task
-        engine = create_async_engine(DATABASE_URL, echo=False)
-        async_session = async_sessionmaker(
-            engine,
-            class_=AsyncSession,
-            expire_on_commit=False,
-        )
-
-        try:
-            async with async_session() as db:
-                service = PlannerService(db)
-                try:
-                    result = await service.tick()
-                    return {
-                        "status": "success",
-                        "actions_count": len(result.actions),
-                        "summary": result.summary,
-                    }
-                except PlannerLockError:
-                    # Lock conflict - another tick is running, this is fine
-                    return {"status": "skipped", "reason": "Another tick in progress"}
-        finally:
-            await engine.dispose()
+    from app.services.planner_tick_sync import run_planner_tick_sync, PlannerLockError
 
     try:
-        return asyncio.run(run_tick())
+        result = run_planner_tick_sync()
+        return {
+            "status": "success",
+            "executed": result.get("executed", 0),
+            "followups_created": result.get("followups_created", 0),
+            "reflections_added": result.get("reflections_added", 0),
+        }
+    except PlannerLockError:
+        # Lock conflict - another tick is running, this is fine
+        return {"status": "skipped", "reason": "Another tick in progress"}
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Planner tick failed: {e}")
@@ -1673,3 +2209,111 @@ def resume_ticket_task(self, job_id: str) -> dict:
         "evidence_ids": evidence_records,
         "diff_summary": diff_stat,
     }
+
+
+@celery_app.task(name="poll_pr_statuses")
+def poll_pr_statuses():
+    """
+    Periodic task to poll GitHub PR statuses for tickets.
+    
+    This task runs every 5 minutes and:
+    1. Finds tickets with open PRs
+    2. Checks PR status on GitHub
+    3. Auto-transitions tickets if PR is merged
+    """
+    from pathlib import Path
+    from datetime import datetime
+    from app.models.workspace import Workspace
+    from app.services.github_service import get_github_service
+    from app.state_machine import TicketState
+    import asyncio
+    
+    with get_sync_db() as db:
+        # Find tickets with open PRs
+        tickets_with_prs = (
+            db.query(Ticket)
+            .filter(
+                Ticket.pr_number.isnot(None),
+                Ticket.pr_state.in_(["OPEN", "CLOSED"]),
+            )
+            .all()
+        )
+        
+        if not tickets_with_prs:
+            return {"message": "No PRs to poll", "checked": 0}
+        
+        github_service = get_github_service()
+        
+        # Check if GitHub CLI is available
+        if not github_service.is_available():
+            return {
+                "message": "GitHub CLI not available, skipping poll",
+                "checked": 0,
+            }
+        
+        updated_count = 0
+        merged_count = 0
+        
+        for ticket in tickets_with_prs:
+            try:
+                # Get workspace for repo path
+                workspace = (
+                    db.query(Workspace)
+                    .filter(Workspace.ticket_id == ticket.id)
+                    .first()
+                )
+                
+                if not workspace or not workspace.worktree_path:
+                    continue
+                
+                repo_path = Path(workspace.worktree_path)
+                
+                if not repo_path.exists():
+                    continue
+                
+                # Run async function in sync context
+                async def check_pr():
+                    return await github_service.get_pr_details(
+                        repo_path, ticket.pr_number
+                    )
+                
+                pr_details = asyncio.run(check_pr())
+                
+                # Update ticket
+                old_state = ticket.pr_state
+                ticket.pr_state = pr_details["state"]
+                
+                if pr_details.get("merged") and not ticket.pr_merged_at:
+                    ticket.pr_merged_at = datetime.now()
+                    merged_count += 1
+                
+                # Auto-transition ticket if PR was merged
+                if pr_details.get("merged") and old_state != "MERGED":
+                    ticket.state = TicketState.DONE.value
+                    ticket.pr_state = "MERGED"
+                    
+                    # Create event
+                    event = TicketEvent(
+                        ticket_id=ticket.id,
+                        event_type=EventType.TRANSITION.value,
+                        actor=ActorType.SYSTEM.value,
+                        from_state=old_state or "REVIEW",
+                        to_state=TicketState.DONE.value,
+                        notes=f"PR #{ticket.pr_number} was merged",
+                    )
+                    db.add(event)
+                
+                updated_count += 1
+                db.commit()
+                
+            except Exception as e:
+                # Log error but continue with other tickets
+                print(f"Error polling PR for ticket {ticket.id}: {e}")
+                continue
+        
+        return {
+            "message": "PR polling completed",
+            "checked": len(tickets_with_prs),
+            "updated": updated_count,
+            "merged": merged_count,
+        }

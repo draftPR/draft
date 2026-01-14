@@ -344,9 +344,11 @@ async def planner_start(
     tickets_failed = 0
 
     # Initial tick to queue all planned tickets
+    # force_execute=True ensures tickets are queued even if auto_execute is disabled in config
+    # This allows users to keep auto_execute=false but still manually trigger autopilot
     service = PlannerService(db)
     try:
-        initial_result = await service.tick()
+        initial_result = await service.tick(force_execute=True)
         all_actions.extend(initial_result.actions)
     except PlannerLockError as e:
         raise HTTPException(

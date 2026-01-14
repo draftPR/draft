@@ -12,6 +12,7 @@ from app.models.base import Base
 from app.state_machine import TicketState
 
 if TYPE_CHECKING:
+    from app.models.agent_session import AgentSession
     from app.models.board import Board
     from app.models.evidence import Evidence
     from app.models.goal import Goal
@@ -26,6 +27,11 @@ class Ticket(Base):
     
     IMPORTANT: Tickets are scoped by board_id for permission enforcement.
     The board_id should match the goal's board_id.
+    
+    BLOCKING/DEPENDENCIES:
+    - blocked_by_ticket_id: If set, this ticket is blocked by another ticket
+    - A ticket cannot be queued for execution until its blocker is DONE
+    - When generating tickets, the agent can specify dependencies
     """
 
     __tablename__ = "tickets"
@@ -59,6 +65,13 @@ class Ticket(Base):
     verification_commands_json: Mapped[str | None] = mapped_column(
         Text, nullable=True, doc="JSON array of verification commands"
     )
+    # Blocking/dependency: If set, this ticket cannot be executed until the blocker is DONE
+    blocked_by_ticket_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("tickets.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         server_default=func.now(),
@@ -70,6 +83,15 @@ class Ticket(Base):
         onupdate=func.now(),
         nullable=False,
     )
+    
+    # GitHub Pull Request fields
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    pr_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    pr_state: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 'OPEN', 'CLOSED', 'MERGED'
+    pr_created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    pr_merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    pr_head_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pr_base_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships
     board: Mapped["Board | None"] = relationship("Board", back_populates="tickets")
@@ -104,11 +126,49 @@ class Ticket(Base):
         cascade="all, delete-orphan",
         order_by="Revision.number.desc()",
     )
+    agent_sessions: Mapped[list["AgentSession"]] = relationship(
+        "AgentSession",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        order_by="AgentSession.created_at.desc()",
+    )
+    
+    # Blocking relationship (self-referential)
+    blocked_by: Mapped["Ticket | None"] = relationship(
+        "Ticket",
+        foreign_keys=[blocked_by_ticket_id],
+        remote_side="Ticket.id",
+        uselist=False,
+    )
+    # Tickets that this ticket is blocking
+    blocking: Mapped[list["Ticket"]] = relationship(
+        "Ticket",
+        foreign_keys="Ticket.blocked_by_ticket_id",
+        back_populates="blocked_by",
+    )
 
     @property
     def state_enum(self) -> TicketState:
         """Get the state as a TicketState enum."""
         return TicketState(self.state)
+
+    @property
+    def is_blocked_by_dependency(self) -> bool:
+        """Check if this ticket is blocked by an incomplete dependency.
+        
+        Returns True if:
+        - blocked_by_ticket_id is set, AND
+        - The blocking ticket's state is NOT 'done'
+        
+        Note: This requires the blocked_by relationship to be loaded.
+        Use selectinload(Ticket.blocked_by) when querying.
+        """
+        if not self.blocked_by_ticket_id:
+            return False
+        if self.blocked_by is None:
+            # Relationship not loaded - assume blocked for safety
+            return True
+        return self.blocked_by.state != TicketState.DONE.value
 
     @property
     def verification_commands(self) -> list[str]:

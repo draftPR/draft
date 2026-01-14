@@ -31,6 +31,9 @@ from app.routers import (
     revisions_router,
     tickets_router,
 )
+from app.routers.agents import router as agents_router
+from app.routers.dashboard import router as dashboard_router
+from app.routers.pull_requests import router as pull_requests_router
 
 load_dotenv()
 
@@ -171,6 +174,9 @@ app.include_router(revisions_router)
 app.include_router(merge_router)
 app.include_router(maintenance_router)
 app.include_router(debug_router)
+app.include_router(agents_router)  # AI agent management
+app.include_router(dashboard_router)  # Sprint dashboard and metrics
+app.include_router(pull_requests_router)  # GitHub PR integration
 
 
 @app.get("/health")

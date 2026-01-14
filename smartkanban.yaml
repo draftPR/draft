@@ -70,8 +70,9 @@ execute_config:
 # Settings for the verify job that validates ticket implementations.
 #
 # State Transitions:
-#   - All commands pass → on_success state ("done" or "needs_human")
-#   - Any command fails → on_failure state ("blocked")
+#   - All commands pass → needs_human (awaiting user review/approval)
+#   - Any command fails → blocked
+#   - User approves revision → done
 
 verify_config:
   # Commands to run during ticket verification
@@ -86,11 +87,9 @@ verify_config:
     # - "cd backend && python -m pytest -q"
     # - "cd frontend && npm run lint"
 
-  # Target state when all verification commands succeed
-  # Options:
-  #   - "needs_human": Require human review before marking done (MVP default)
-  #   - "done": Automatically mark as done (use carefully)
-  on_success: "needs_human"
+  # Note: After verification passes, tickets always go to 'needs_human' for review.
+  # Only when the user explicitly approves the revision does it move to 'done'.
+  # This ensures human oversight of all code changes before completion.
 
   # Target state when verification fails (currently only "blocked" supported)
   on_failure: "blocked"
@@ -178,7 +177,9 @@ planner_config:
   # Enable/disable specific planner features
   features:
     # Automatically pick and execute highest priority PLANNED ticket
-    auto_execute: true
+    # When false, tickets stay in "planned" until you click "Start Autopilot"
+    # When true, the periodic planner tick will automatically start executing planned tickets
+    auto_execute: false
     # Generate follow-up ticket proposals for BLOCKED tickets
     propose_followups: true
     # Generate reflection summaries for DONE tickets

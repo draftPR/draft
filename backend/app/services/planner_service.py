@@ -145,13 +145,17 @@ class PlannerService:
 
         self.llm_service = llm_service
 
-    async def tick(self) -> PlannerTickResponse:
+    async def tick(self, force_execute: bool = False) -> PlannerTickResponse:
         """Run one decision cycle of the planner.
 
         Evaluates the current board state and takes appropriate actions:
         1. Pick and execute next planned ticket (if no active execution)
         2. Generate follow-ups for blocked tickets (with caps)
         3. Generate reflections for done tickets
+
+        Args:
+            force_execute: If True, queue planned tickets regardless of config.
+                           Used by /planner/start to explicitly trigger execution.
 
         Thread safety:
             Acquires a database lock before processing. If another tick
@@ -179,8 +183,26 @@ class PlannerService:
         add_orchestrator_log("INFO", "Planner tick started", {"owner": self._lock_owner_id})
 
         try:
-            # 1. Queue all planned tickets for execution (deterministic, priority-ordered)
-            if self.config.features.auto_execute:
+            # 1. Queue planned tickets for execution
+            # force_execute bypasses config AND queues ALL planned tickets (used by /planner/start)
+            # Normal auto_execute only queues one at a time
+            if force_execute:
+                # Queue ALL planned tickets when user explicitly starts autopilot
+                add_orchestrator_log("INFO", "Force execute: queueing all planned tickets")
+                execute_results = await self._queue_all_planned_tickets()
+                for action, job_id in execute_results:
+                    actions.append(action)
+                    if job_id:
+                        jobs_to_enqueue.append(job_id)
+                        add_orchestrator_log(
+                            "INFO",
+                            f"Queued ticket for execution: {action.ticket_title}",
+                            {"ticket_id": action.ticket_id, "job_id": job_id},
+                        )
+                if not execute_results:
+                    add_orchestrator_log("INFO", "No planned tickets to queue")
+            elif self.config.features.auto_execute:
+                # Normal periodic tick: queue one at a time
                 if not await self._has_active_execution():
                     add_orchestrator_log("INFO", "No active execution, checking for planned tickets")
                     execute_results = await self._pick_and_execute_next()
@@ -215,12 +237,16 @@ class PlannerService:
                         )
                     )
 
-            # 2. Handle blocked tickets (LLM-powered, with caps)
+            # 2. Unblock tickets whose blockers are now done
+            unblock_actions = await self._unblock_ready_tickets()
+            actions.extend(unblock_actions)
+
+            # 3. Handle blocked tickets (LLM-powered, with caps)
             if self.config.features.propose_followups:
                 followup_actions = await self._handle_blocked_tickets()
                 actions.extend(followup_actions)
 
-            # 3. Generate reflections (LLM-powered)
+            # 4. Generate reflections (LLM-powered)
             if self.config.features.generate_reflections:
                 reflection_actions = await self._generate_reflections()
                 actions.extend(reflection_actions)
@@ -399,6 +425,7 @@ class PlannerService:
         - Only one ticket can be actively executing at a time (enforced by _has_active_execution)
         - Only ONE ticket is queued at a time - no new jobs if any QUEUED execute jobs exist
         - This ensures Celery always executes highest priority tickets first
+        - Tickets blocked by incomplete dependencies are moved to BLOCKED state
 
         NOTE: This only creates job rows. Celery enqueueing happens AFTER commit.
 
@@ -421,28 +448,76 @@ class PlannerService:
             logger.debug("Execute job already queued or running, not queuing new tickets")
             return results
 
-        # Find the SINGLE highest-priority planned ticket
-        # Order by priority (highest first), then by created_at (oldest first)
+        # Find planned tickets ordered by priority
+        # We need to check multiple in case the first ones are blocked
         planned_result = await self.db.execute(
             select(Ticket)
             .where(Ticket.state == TicketState.PLANNED.value)
+            .options(selectinload(Ticket.blocked_by))  # Load blocker relationship
             .order_by(
                 Ticket.priority.desc().nulls_last(),
                 Ticket.created_at.asc(),
             )
-            .limit(1)
+            .limit(10)  # Check up to 10 tickets
         )
-        planned_ticket = planned_result.scalar_one_or_none()
+        planned_tickets = list(planned_result.scalars().all())
 
-        if not planned_ticket:
+        if not planned_tickets:
             logger.info("No planned tickets to queue")
+            return results
+
+        # Find the first ticket that is NOT blocked by an incomplete dependency
+        selected_ticket = None
+        for ticket in planned_tickets:
+            if ticket.blocked_by_ticket_id:
+                # Check if the blocker is done
+                if ticket.blocked_by and ticket.blocked_by.state == TicketState.DONE.value:
+                    # Blocker is done, this ticket can be executed
+                    selected_ticket = ticket
+                    logger.info(
+                        f"Ticket {ticket.id} was blocked by {ticket.blocked_by_ticket_id} "
+                        f"but blocker is now DONE, can proceed"
+                    )
+                    break
+                else:
+                    # Blocker is not done, move ticket to BLOCKED state
+                    blocker_title = ticket.blocked_by.title if ticket.blocked_by else "unknown"
+                    logger.info(
+                        f"Ticket {ticket.id} is blocked by incomplete ticket "
+                        f"{ticket.blocked_by_ticket_id} ({blocker_title}), moving to BLOCKED"
+                    )
+                    ticket.state = TicketState.BLOCKED.value
+                    
+                    # Create event for the transition
+                    event = TicketEvent(
+                        ticket_id=ticket.id,
+                        event_type=EventType.TRANSITIONED.value,
+                        from_state=TicketState.PLANNED.value,
+                        to_state=TicketState.BLOCKED.value,
+                        actor_type=ActorType.PLANNER.value,
+                        actor_id="planner",
+                        reason=f"Blocked by incomplete ticket: {blocker_title}",
+                        payload_json=json.dumps({
+                            "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
+                            "blocked_by_title": blocker_title,
+                        }),
+                    )
+                    self.db.add(event)
+                    # Continue to check next ticket
+            else:
+                # No blocker, can be executed
+                selected_ticket = ticket
+                break
+
+        if not selected_ticket:
+            logger.info("All planned tickets are blocked by dependencies")
             return results
 
         # Create execute job (do NOT enqueue Celery yet)
         # Inherit board_id from ticket for permission scoping
         job = Job(
-            ticket_id=planned_ticket.id,
-            board_id=planned_ticket.board_id,
+            ticket_id=selected_ticket.id,
+            board_id=selected_ticket.board_id,
             kind=JobKind.EXECUTE.value,
             status=JobStatus.QUEUED.value,
         )
@@ -452,10 +527,10 @@ class PlannerService:
 
         # Create event for the action
         event = TicketEvent(
-            ticket_id=planned_ticket.id,
+            ticket_id=selected_ticket.id,
             event_type=EventType.COMMENT.value,
-            from_state=planned_ticket.state,
-            to_state=planned_ticket.state,
+            from_state=selected_ticket.state,
+            to_state=selected_ticket.state,
             actor_type=ActorType.PLANNER.value,
             actor_id="planner",
             reason="Planner enqueued execute job (queue position: 1)",
@@ -470,16 +545,16 @@ class PlannerService:
         self.db.add(event)
 
         logger.info(
-            f"Planner created execute job {job.id} for ticket {planned_ticket.id} "
-            f"(priority: {planned_ticket.priority})"
+            f"Planner created execute job {job.id} for ticket {selected_ticket.id} "
+            f"(priority: {selected_ticket.priority})"
         )
 
         results.append(
             (
                 PlannerAction(
                     action_type=PlannerActionType.ENQUEUED_EXECUTE,
-                    ticket_id=planned_ticket.id,
-                    ticket_title=planned_ticket.title,
+                    ticket_id=selected_ticket.id,
+                    ticket_title=selected_ticket.title,
                     details={"job_id": job.id, "queue_position": 1},
                 ),
                 job.id,
@@ -487,6 +562,216 @@ class PlannerService:
         )
 
         return results
+
+    async def _queue_all_planned_tickets(self) -> list[tuple[PlannerAction, str | None]]:
+        """Queue ALL planned tickets for execution in priority order.
+
+        Used by /planner/start to queue the entire backlog at once.
+        Tickets are ordered by priority (highest first), then by created_at (oldest first).
+        Tickets blocked by incomplete dependencies are moved to BLOCKED state.
+
+        NOTE: This only creates job rows. Celery enqueueing happens AFTER commit.
+
+        Returns:
+            List of tuples (PlannerAction, job_id) for each queued ticket.
+        """
+        results: list[tuple[PlannerAction, str | None]] = []
+
+        # Find ALL planned tickets ordered by priority, with blocker relationship loaded
+        planned_result = await self.db.execute(
+            select(Ticket)
+            .where(Ticket.state == TicketState.PLANNED.value)
+            .options(selectinload(Ticket.blocked_by))  # Load blocker relationship
+            .order_by(
+                Ticket.priority.desc().nulls_last(),
+                Ticket.created_at.asc(),
+            )
+        )
+        planned_tickets = list(planned_result.scalars().all())
+
+        if not planned_tickets:
+            logger.info("No planned tickets to queue")
+            return results
+
+        # Check which tickets already have queued jobs to avoid duplicates
+        ticket_ids = [t.id for t in planned_tickets]
+        existing_jobs_result = await self.db.execute(
+            select(Job.ticket_id).where(
+                and_(
+                    Job.ticket_id.in_(ticket_ids),
+                    Job.kind == JobKind.EXECUTE.value,
+                    Job.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
+                )
+            )
+        )
+        already_queued = set(existing_jobs_result.scalars().all())
+
+        # Queue each ticket that doesn't already have a job and is not blocked
+        queue_position = 0
+        blocked_count = 0
+        for ticket in planned_tickets:
+            if ticket.id in already_queued:
+                logger.debug(f"Ticket {ticket.id} already has a queued job, skipping")
+                continue
+
+            # Check if ticket is blocked by an incomplete dependency
+            if ticket.blocked_by_ticket_id:
+                if ticket.blocked_by and ticket.blocked_by.state == TicketState.DONE.value:
+                    # Blocker is done, this ticket can be queued
+                    logger.info(
+                        f"Ticket {ticket.id} was blocked by {ticket.blocked_by_ticket_id} "
+                        f"but blocker is now DONE, can proceed"
+                    )
+                else:
+                    # Blocker is not done, move ticket to BLOCKED state
+                    blocker_title = ticket.blocked_by.title if ticket.blocked_by else "unknown"
+                    logger.info(
+                        f"Ticket {ticket.id} is blocked by incomplete ticket "
+                        f"{ticket.blocked_by_ticket_id} ({blocker_title}), moving to BLOCKED"
+                    )
+                    ticket.state = TicketState.BLOCKED.value
+                    blocked_count += 1
+                    
+                    # Create event for the transition
+                    event = TicketEvent(
+                        ticket_id=ticket.id,
+                        event_type=EventType.TRANSITIONED.value,
+                        from_state=TicketState.PLANNED.value,
+                        to_state=TicketState.BLOCKED.value,
+                        actor_type=ActorType.PLANNER.value,
+                        actor_id="planner",
+                        reason=f"Blocked by incomplete ticket: {blocker_title}",
+                        payload_json=json.dumps({
+                            "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
+                            "blocked_by_title": blocker_title,
+                        }),
+                    )
+                    self.db.add(event)
+                    continue  # Skip to next ticket
+
+            queue_position += 1
+
+            # Create execute job
+            job = Job(
+                ticket_id=ticket.id,
+                board_id=ticket.board_id,
+                kind=JobKind.EXECUTE.value,
+                status=JobStatus.QUEUED.value,
+            )
+            self.db.add(job)
+            await self.db.flush()
+            await self.db.refresh(job)
+
+            # Create event
+            event = TicketEvent(
+                ticket_id=ticket.id,
+                event_type=EventType.COMMENT.value,
+                from_state=ticket.state,
+                to_state=ticket.state,
+                actor_type=ActorType.PLANNER.value,
+                actor_id="planner",
+                reason=f"Planner enqueued execute job (queue position: {queue_position})",
+                payload_json=json.dumps(
+                    {
+                        "action": "enqueued_execute",
+                        "job_id": job.id,
+                        "queue_position": queue_position,
+                    }
+                ),
+            )
+            self.db.add(event)
+
+            logger.info(
+                f"Planner created execute job {job.id} for ticket {ticket.id} "
+                f"(priority: {ticket.priority}, queue position: {queue_position})"
+            )
+
+            results.append(
+                (
+                    PlannerAction(
+                        action_type=PlannerActionType.ENQUEUED_EXECUTE,
+                        ticket_id=ticket.id,
+                        ticket_title=ticket.title,
+                        details={"job_id": job.id, "queue_position": queue_position},
+                    ),
+                    job.id,
+                )
+            )
+
+        logger.info(
+            f"Queued {len(results)} planned tickets for execution, "
+            f"{blocked_count} moved to BLOCKED due to dependencies"
+        )
+        return results
+
+    async def _unblock_ready_tickets(self) -> list[PlannerAction]:
+        """Check BLOCKED tickets and unblock those whose blockers are now done.
+
+        This method runs during each tick to automatically transition tickets
+        from BLOCKED back to PLANNED when their blocking dependency is completed.
+
+        Returns:
+            List of PlannerActions for tickets that were unblocked.
+        """
+        actions: list[PlannerAction] = []
+
+        # Find all BLOCKED tickets that have a blocked_by_ticket_id
+        blocked_result = await self.db.execute(
+            select(Ticket)
+            .where(
+                and_(
+                    Ticket.state == TicketState.BLOCKED.value,
+                    Ticket.blocked_by_ticket_id.isnot(None),
+                )
+            )
+            .options(selectinload(Ticket.blocked_by))
+        )
+        blocked_tickets = list(blocked_result.scalars().all())
+
+        for ticket in blocked_tickets:
+            # Check if the blocker is now done
+            if ticket.blocked_by and ticket.blocked_by.state == TicketState.DONE.value:
+                # Unblock: transition from BLOCKED to PLANNED
+                logger.info(
+                    f"Unblocking ticket {ticket.id}: blocker {ticket.blocked_by_ticket_id} "
+                    f"is now DONE"
+                )
+                old_state = ticket.state
+                ticket.state = TicketState.PLANNED.value
+
+                # Create event for the transition
+                event = TicketEvent(
+                    ticket_id=ticket.id,
+                    event_type=EventType.TRANSITIONED.value,
+                    from_state=old_state,
+                    to_state=TicketState.PLANNED.value,
+                    actor_type=ActorType.PLANNER.value,
+                    actor_id="planner",
+                    reason=f"Unblocked: blocking ticket '{ticket.blocked_by.title}' is now done",
+                    payload_json=json.dumps({
+                        "blocker_ticket_id": ticket.blocked_by_ticket_id,
+                        "blocker_title": ticket.blocked_by.title,
+                        "action": "unblocked",
+                    }),
+                )
+                self.db.add(event)
+
+                actions.append(
+                    PlannerAction(
+                        action_type="unblocked",
+                        ticket_id=ticket.id,
+                        ticket_title=ticket.title,
+                        details={
+                            "blocker_ticket_id": ticket.blocked_by_ticket_id,
+                            "blocker_title": ticket.blocked_by.title,
+                        },
+                    )
+                )
+
+        if actions:
+            logger.info(f"Unblocked {len(actions)} tickets")
+
+        return actions
 
     async def _enqueue_celery_job(self, job_id: str) -> None:
         """Enqueue a Celery task for a job (called AFTER commit).
@@ -570,12 +855,34 @@ class PlannerService:
                 )
                 continue
 
-            # Get the blocker reason from the most recent event
+            # Get the blocker reason and payload from the most recent blocking event
             blocker_reason = None
+            blocker_payload = {}
             for event in reversed(ticket.events):
                 if event.to_state == TicketState.BLOCKED.value and event.reason:
                     blocker_reason = event.reason
+                    if event.payload_json:
+                        try:
+                            blocker_payload = json.loads(event.payload_json)
+                        except (json.JSONDecodeError, TypeError):
+                            blocker_payload = {}
                     break
+            
+            # Skip: tickets with skip_followup flag (no changes needed)
+            if blocker_payload.get("skip_followup"):
+                logger.debug(
+                    f"Skipping follow-up for ticket {ticket.id}: "
+                    f"skip_followup flag is set (no changes needed)"
+                )
+                continue
+            
+            # Skip: tickets that already have a manual work follow-up
+            if blocker_payload.get("manual_work_followup_id"):
+                logger.debug(
+                    f"Skipping follow-up for ticket {ticket.id}: "
+                    f"already has manual work follow-up {blocker_payload.get('manual_work_followup_id')}"
+                )
+                continue
 
             # Skip: certain blocker reasons should not trigger follow-ups
             if blocker_reason and self._should_skip_followup(blocker_reason):
