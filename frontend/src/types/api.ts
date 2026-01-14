@@ -493,6 +493,7 @@ export interface ReviewSubmit {
   decision: ReviewDecision;
   summary: string;
   auto_run_fix?: boolean;
+  create_pr?: boolean;
 }
 
 // ==================== Feedback Bundle Types ====================

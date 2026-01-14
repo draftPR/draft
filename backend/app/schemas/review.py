@@ -77,6 +77,10 @@ class ReviewSubmit(BaseModel):
         default=True,
         description="If changes_requested, automatically trigger new agent execution",
     )
+    create_pr: bool = Field(
+        default=False,
+        description="If approved, create a GitHub PR instead of merging directly to main",
+    )
 
 
 class ReviewSummaryResponse(BaseModel):

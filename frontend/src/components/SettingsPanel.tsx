@@ -15,21 +15,12 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Settings,
-  Volume2,
-  VolumeX,
   Code,
   DollarSign,
   Bot,
   Keyboard,
   Save,
 } from "lucide-react";
-import {
-  isSoundEnabled,
-  setSoundEnabled,
-  getVolume,
-  setVolume,
-  playSound,
-} from "@/services/soundNotifications";
 import {
   getPreferredEditor,
   setPreferredEditor,
@@ -74,10 +65,6 @@ function saveBudgetSettings(settings: BudgetSettings): void {
 }
 
 export function SettingsPanel() {
-  // Sound settings
-  const [soundOn, setSoundOn] = useState(isSoundEnabled);
-  const [volumeLevel, setVolumeLevel] = useState(getVolume() * 100);
-  
   // Editor settings
   const [editor, setEditor] = useState<EditorType>(getPreferredEditor());
   
@@ -89,22 +76,6 @@ export function SettingsPanel() {
   
   // Unsaved changes tracking
   const [hasChanges, setHasChanges] = useState(false);
-  
-  const handleSoundToggle = (enabled: boolean) => {
-    setSoundOn(enabled);
-    setSoundEnabled(enabled);
-    if (enabled) {
-      playSound("notification");
-    }
-    setHasChanges(true);
-  };
-  
-  const handleVolumeChange = (values: number[]) => {
-    const vol = values[0];
-    setVolumeLevel(vol);
-    setVolume(vol / 100);
-    setHasChanges(true);
-  };
   
   const handleEditorChange = (value: string) => {
     setEditor(value as EditorType);
@@ -150,70 +121,6 @@ export function SettingsPanel() {
           </Button>
         )}
       </div>
-      
-      {/* Sound Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-            Sound Notifications
-          </CardTitle>
-          <CardDescription>
-            Audio feedback when tasks complete or need attention
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="sound-toggle">Enable Sounds</Label>
-            <Switch
-              id="sound-toggle"
-              checked={soundOn}
-              onCheckedChange={handleSoundToggle}
-            />
-          </div>
-          
-          {soundOn && (
-            <div className="space-y-2">
-              <Label>Volume</Label>
-              <div className="flex items-center gap-4">
-                <Slider
-                  value={[volumeLevel]}
-                  onValueChange={handleVolumeChange}
-                  max={100}
-                  step={5}
-                  className="flex-1"
-                />
-                <span className="text-sm text-muted-foreground w-12">
-                  {volumeLevel}%
-                </span>
-              </div>
-              <div className="flex gap-2 mt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => playSound("success")}
-                >
-                  Test Success
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => playSound("error")}
-                >
-                  Test Error
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => playSound("warning")}
-                >
-                  Test Warning
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
       
       {/* Editor Settings */}
       <Card>

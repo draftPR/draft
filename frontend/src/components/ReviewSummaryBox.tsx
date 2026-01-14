@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
-import { CheckCircle, ChevronDown } from "lucide-react";
+import { CheckCircle, ChevronDown, GitMerge, GitPullRequest } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -11,7 +11,7 @@ import type { ReviewDecision } from "@/types/api";
 
 interface ReviewSummaryBoxProps {
   unresolvedCount: number;
-  onSubmitReview: (decision: ReviewDecision, summary: string, autoRunFix: boolean) => Promise<void>;
+  onSubmitReview: (decision: ReviewDecision, summary: string, autoRunFix: boolean, createPr: boolean) => Promise<void>;
   isSubmitting: boolean;
   hasExistingReview?: boolean;
 }
@@ -25,13 +25,14 @@ export function ReviewSummaryBox({
   const [summary, setSummary] = useState("");
   const [decision, setDecision] = useState<"approved" | "changes_requested">("approved");
   const [autoRunFix, setAutoRunFix] = useState(true);
+  const [createPr, setCreatePr] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   
   const handleSubmit = async () => {
     if (decision === "approved") {
-      await onSubmitReview("approved", summary || "Approved", false);
+      await onSubmitReview("approved", summary || "Approved", false, createPr);
     } else {
-      await onSubmitReview("changes_requested", summary, autoRunFix);
+      await onSubmitReview("changes_requested", summary, autoRunFix, false);
     }
     setIsOpen(false);
   };
@@ -111,6 +112,39 @@ export function ReviewSummaryBox({
               </div>
             </label>
           </div>
+          
+          {/* Merge strategy - only show when approving */}
+          {decision === "approved" && (
+            <div className="mb-4 p-3 bg-muted/30 rounded-md border border-border">
+              <p className="text-xs font-medium text-muted-foreground mb-2">After approval:</p>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer text-sm">
+                  <input
+                    type="radio"
+                    name="merge-strategy"
+                    checked={!createPr}
+                    onChange={() => setCreatePr(false)}
+                    className="text-emerald-600 focus:ring-emerald-500"
+                    disabled={isSubmitting}
+                  />
+                  <GitMerge className="h-4 w-4 text-emerald-600" />
+                  <span className="text-foreground">Merge to main & cleanup</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-sm">
+                  <input
+                    type="radio"
+                    name="merge-strategy"
+                    checked={createPr}
+                    onChange={() => setCreatePr(true)}
+                    className="text-blue-600 focus:ring-blue-500"
+                    disabled={isSubmitting}
+                  />
+                  <GitPullRequest className="h-4 w-4 text-blue-600" />
+                  <span className="text-foreground">Create GitHub PR</span>
+                </label>
+              </div>
+            </div>
+          )}
           
           {/* Auto-run checkbox - only show when requesting changes */}
           {decision === "changes_requested" && (

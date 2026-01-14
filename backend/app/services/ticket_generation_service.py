@@ -129,6 +129,7 @@ class TicketGenerationService:
         goal_id: str,
         repo_root: Path | str | None = None,
         include_readme: bool = False,
+        validate_tickets: bool = True,
     ) -> GenerationResult:
         """Generate tickets from a goal using the agent CLI.
 
@@ -136,6 +137,7 @@ class TicketGenerationService:
             goal_id: ID of the goal to generate tickets for.
             repo_root: Optional path to repository for context.
             include_readme: Whether to include README excerpt.
+            validate_tickets: Whether to validate tickets against codebase before creating.
 
         Returns:
             GenerationResult with created tickets.
@@ -171,6 +173,45 @@ class TicketGenerationService:
         # Parse and validate response
         data = self._parse_agent_json_response(agent_response)
         raw_tickets = data.get("tickets", [])
+
+        # Validate tickets against codebase if enabled
+        if validate_tickets and raw_tickets:
+            logger.info(f"Validating {len(raw_tickets)} generated tickets against codebase")
+            
+            # Gather context for validation
+            context = self.context_gatherer.gather(
+                repo_root=repo_root,
+                include_readme_excerpt=include_readme,
+            )
+            context_summary = context.to_prompt_string()[:3000]  # Limit size for validation
+            
+            validated_tickets = []
+            filtered_count = 0
+            
+            for raw in raw_tickets:
+                validation = self._validate_ticket_against_codebase(
+                    ticket=raw,
+                    goal=goal,
+                    context_summary=context_summary,
+                )
+                
+                # Store validation result in ticket for later use in event payload
+                raw["_validation"] = validation
+                
+                # Only include appropriate tickets
+                if validation.get("is_valid") and validation.get("validation_result") == "appropriate":
+                    validated_tickets.append(raw)
+                else:
+                    filtered_count += 1
+                    logger.warning(
+                        f"Filtered ticket '{raw.get('title')}': "
+                        f"{validation.get('validation_result')} - {validation.get('reasoning')}"
+                    )
+            
+            if filtered_count > 0:
+                logger.info(f"Filtered {filtered_count}/{len(raw_tickets)} tickets during validation")
+            
+            raw_tickets = validated_tickets
 
         # Get existing tickets for dedup
         existing_tickets = await self._get_existing_tickets(goal_id)
@@ -225,6 +266,25 @@ class TicketGenerationService:
             if blocked_by_title:
                 pending_blocked_by.append((ticket.id, blocked_by_title))
 
+            # Build event payload
+            event_payload = {
+                "priority_bucket": bucket.value,
+                "priority_rationale": rationale,
+                "verification": raw.get("verification", []),
+                "notes": raw.get("notes"),
+                "blocked_by_title": blocked_by_title,
+            }
+            
+            # Add validation result if present
+            if "_validation" in raw:
+                validation = raw["_validation"]
+                event_payload["validation"] = {
+                    "validated": True,
+                    "confidence": validation.get("confidence"),
+                    "validation_result": validation.get("validation_result"),
+                    "reasoning": validation.get("reasoning"),
+                }
+
             # Create event
             event = TicketEvent(
                 ticket_id=ticket.id,
@@ -234,13 +294,7 @@ class TicketGenerationService:
                 actor_type=ActorType.PLANNER.value,
                 actor_id="ticket_generation_service",
                 reason=f"Generated from goal: {goal.title}",
-                payload_json=json.dumps({
-                    "priority_bucket": bucket.value,
-                    "priority_rationale": rationale,
-                    "verification": raw.get("verification", []),
-                    "notes": raw.get("notes"),
-                    "blocked_by_title": blocked_by_title,
-                }),
+                payload_json=json.dumps(event_payload),
             )
             self.db.add(event)
 
@@ -787,6 +841,110 @@ Only suggest priority changes when clearly warranted. Don't change priorities ju
 
         parts.append("\nEvaluate these tickets and respond with JSON.")
         return "\n".join(parts)
+
+    def _build_ticket_validation_system_prompt(self) -> str:
+        """Build system prompt for validating generated tickets against codebase."""
+        return """You are a technical code reviewer validating whether a proposed ticket is appropriate for a codebase.
+
+Your response MUST be valid JSON with this exact structure:
+{
+  "is_valid": true|false,
+  "confidence": "high|medium|low",
+  "validation_result": "appropriate|already_implemented|not_relevant|unclear",
+  "reasoning": "Brief explanation of your assessment (max 2 sentences)",
+  "suggested_modification": "Optional: How to modify the ticket to make it valid (or null)"
+}
+
+Validation Results:
+- appropriate: Ticket is valid and should be created
+- already_implemented: Feature/fix already exists in the codebase
+- not_relevant: Ticket doesn't align with goal or codebase structure
+- unclear: Cannot determine validity from available context
+
+Guidelines:
+- Check if similar functionality already exists in the codebase
+- Verify the ticket aligns with the stated goal
+- Consider the current codebase structure and patterns
+- Be conservative - flag anything suspicious as "unclear" with low confidence
+- Only mark as "already_implemented" if you see clear evidence in the code
+- Look for existing files, functions, or features that match the ticket's intent"""
+
+    def _build_ticket_validation_user_prompt(
+        self, ticket: dict, goal_title: str, goal_description: str | None, context_summary: str
+    ) -> str:
+        """Build user prompt for validating a ticket."""
+        parts = [
+            f"Goal: {goal_title}",
+        ]
+        if goal_description:
+            parts.append(f"Goal Description: {goal_description}")
+
+        parts.append(f"\nProposed Ticket:")
+        parts.append(f"Title: {ticket['title']}")
+        parts.append(f"Description: {ticket.get('description', 'N/A')}")
+        parts.append(f"Priority: {ticket.get('priority_bucket', 'N/A')}")
+
+        parts.append(f"\nCodebase Context:\n{context_summary}")
+        parts.append("\nIs this ticket appropriate to create? Provide validation assessment as JSON.")
+
+        return "\n".join(parts)
+
+    # =========================================================================
+    # TICKET VALIDATION
+    # =========================================================================
+
+    def _validate_ticket_against_codebase(
+        self, ticket: dict, goal: Goal, context_summary: str
+    ) -> dict:
+        """Validate a generated ticket against the codebase.
+
+        Args:
+            ticket: Raw ticket dict from generation.
+            goal: The goal the ticket was generated for.
+            context_summary: Summary of repository context.
+
+        Returns:
+            Validation result dict with keys: is_valid, confidence, validation_result, reasoning.
+        """
+        try:
+            system_prompt = self._build_ticket_validation_system_prompt()
+            user_prompt = self._build_ticket_validation_user_prompt(
+                ticket=ticket,
+                goal_title=goal.title,
+                goal_description=goal.description,
+                context_summary=context_summary,
+            )
+
+            response = self.llm.call_completion(
+                messages=[{"role": "user", "content": user_prompt}],
+                max_tokens=300,
+                system_prompt=system_prompt,
+            )
+
+            # Parse JSON response
+            validation = self.llm.safe_parse_json(
+                response.content,
+                {
+                    "is_valid": True,  # Default to valid if parsing fails
+                    "confidence": "low",
+                    "validation_result": "unclear",
+                    "reasoning": "Unable to validate ticket",
+                    "suggested_modification": None,
+                },
+            )
+
+            return validation
+
+        except Exception as e:
+            logger.error(f"Ticket validation failed: {e}")
+            # On error, default to accepting the ticket (fail open)
+            return {
+                "is_valid": True,
+                "confidence": "low",
+                "validation_result": "unclear",
+                "reasoning": f"Validation error: {str(e)[:100]}",
+                "suggested_modification": None,
+            }
 
     # =========================================================================
     # AGENT-BASED TICKET GENERATION

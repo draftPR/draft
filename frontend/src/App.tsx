@@ -15,7 +15,7 @@ import {
   Dialog,
   DialogContent,
 } from "@/components/ui/dialog";
-import { Target, Plus, Activity, Bug, FlaskConical, Loader2, BarChart3, Settings, Keyboard } from "lucide-react";
+import { Target, Plus, Bug, FlaskConical, Loader2, Settings, Keyboard } from "lucide-react";
 import { createGoal, createTicket } from "@/services/api";
 import { toast } from "sonner";
 import { useAppShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -139,25 +139,6 @@ function App() {
               >
                 <Bug className="h-4 w-4 mr-1.5" />
                 Debug
-              </Button>
-              <Button
-                variant={dashboardOpen ? "secondary" : "outline"}
-                size="sm"
-                onClick={() => setDashboardOpen(true)}
-                className="h-8"
-                title="Sprint Dashboard - Metrics & Budget"
-              >
-                <BarChart3 className="h-4 w-4 mr-1.5" />
-                Dashboard
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setQueueStatusOpen(true)}
-                className="h-8"
-              >
-                <Activity className="h-4 w-4 mr-1.5" />
-                Activity
               </Button>
               <Button
                 variant="outline"

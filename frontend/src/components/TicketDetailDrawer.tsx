@@ -49,12 +49,9 @@ import {
   Check,
   X,
   Activity,
-  Brain,
 } from "lucide-react";
-import { LiveAgentLogs } from "@/components/LiveAgentLogs";
 import { CreatePRButton } from "@/components/PullRequest/CreatePRButton";
 import { PRStatusBadge } from "@/components/PullRequest/PRStatusBadge";
-import { NormalizedConversation } from "@/components/NormalizedConversation";
 import { AgentActivityLog } from "@/components/AgentActivityLog";
 
 interface TicketDetailDrawerProps {
@@ -97,7 +94,6 @@ export function TicketDetailDrawer({
   const [mergeLoading, setMergeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRevisionViewer, setShowRevisionViewer] = useState(false);
-  const [logViewMode, setLogViewMode] = useState<"raw" | "normalized">("raw");
 
   const loadEvents = useCallback(async (ticketId: string) => {
     setLoading(true);
@@ -454,95 +450,23 @@ export function TicketDetailDrawer({
             </div>
           )}
 
-          {/* Agent Chain of Thought - Full History */}
+          {/* Agent Activity - shows live streaming and persisted logs */}
           <div className="space-y-4">
             <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
-              <Brain className="h-3.5 w-3.5" />
-              Agent Chain of Thought
+              <Activity className="h-3.5 w-3.5" />
+              Agent Activity
               {jobs.some(j => j.status === JobStatus.RUNNING) && (
-                <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium uppercase tracking-wide ml-1">
+                <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium uppercase tracking-wide">
                   <span className="relative flex h-1.5 w-1.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
                   </span>
-                  LIVE
+                  Live
                 </span>
               )}
             </h3>
             <AgentActivityLog ticketId={ticket.id} />
           </div>
-
-          {/* Jobs Section with Live Logs (for real-time streaming) */}
-          {jobs.length > 0 && jobs.some(j => j.status === JobStatus.RUNNING) && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
-                  <Activity className="h-3.5 w-3.5" />
-                  Live Agent Stream
-                </h3>
-                
-                {/* Log View Toggle */}
-                <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5">
-                  <button
-                    onClick={() => setLogViewMode("raw")}
-                    className={cn(
-                      "px-2 py-1 text-[10px] font-medium rounded transition-colors",
-                      logViewMode === "raw"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Raw
-                  </button>
-                  <button
-                    onClick={() => setLogViewMode("normalized")}
-                    className={cn(
-                      "px-2 py-1 text-[10px] font-medium rounded transition-colors",
-                      logViewMode === "normalized"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Normalized
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {jobs.filter(j => j.status === JobStatus.RUNNING).map((job, index) => (
-                  <div key={job.id} className="space-y-2">
-                    {logViewMode === "raw" ? (
-                      <LiveAgentLogs
-                        jobId={job.id}
-                        jobStatus={job.status}
-                        jobKind={job.kind}
-                        defaultExpanded={true}
-                      />
-                    ) : (
-                      <NormalizedConversation
-                        jobId={job.id}
-                        jobStatus={job.status}
-                        defaultExpanded={true}
-                      />
-                    )}
-                    {(job.status === JobStatus.FAILED || job.status === JobStatus.CANCELED) && (
-                      <div className="flex justify-end">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-3 text-[11px]"
-                          onClick={() => handleRetryJob(job.id)}
-                        >
-                          <RefreshCw className="h-3 w-3 mr-1.5" />
-                          Retry Job
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Verification Evidence Section */}
           <div className="space-y-4">

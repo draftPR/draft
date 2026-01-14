@@ -126,6 +126,7 @@ async def generate_tickets(
             goal_id=goal_id,
             repo_root=repo_root,
             include_readme=request.include_readme,
+            validate_tickets=config.planner.features.validate_tickets,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

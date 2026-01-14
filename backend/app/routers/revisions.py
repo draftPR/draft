@@ -464,25 +464,74 @@ async def submit_review(
                     auto_verify=False,
                 )
             
-            # Auto-merge the worktree into the default branch
-            from app.services.merge_service import MergeService, MergeStrategy
-            merge_service = MergeService(db)
-            try:
-                merge_result = await merge_service.merge_ticket(
-                    ticket_id=revision.ticket_id,
-                    strategy=MergeStrategy.MERGE,
-                    delete_worktree=True,
-                    cleanup_artifacts=True,
-                    actor_id="review_approval",
+            if data.create_pr:
+                # Create a GitHub PR instead of merging directly
+                from app.services.github_service import get_github_service
+                from sqlalchemy import select as sql_select
+                from app.models.workspace import Workspace
+                from pathlib import Path
+                
+                github_service = get_github_service()
+                
+                # Get workspace to find worktree path and branch
+                workspace_result = await db.execute(
+                    sql_select(Workspace).where(Workspace.ticket_id == revision.ticket_id)
                 )
-                if not merge_result.success:
-                    # Log the merge failure but don't fail the review
-                    logger.warning(
-                        f"Auto-merge failed for ticket {revision.ticket_id}: {merge_result.message}"
+                workspace = workspace_result.scalar_one_or_none()
+                
+                if workspace and workspace.worktree_path:
+                    try:
+                        await github_service.ensure_authenticated()
+                        
+                        repo_path = Path(workspace.worktree_path)
+                        head_branch = workspace.branch or f"ticket-{ticket.id[:8]}"
+                        
+                        pr = await github_service.create_pr(
+                            repo_path=repo_path,
+                            title=ticket.title,
+                            body=(
+                                f"Implements: {ticket.title}\n\n"
+                                f"{ticket.description or ''}\n\n"
+                                f"Ticket ID: {ticket.id}"
+                            ),
+                            head_branch=head_branch,
+                            base_branch="main",
+                        )
+                        
+                        # Update ticket with PR information
+                        from datetime import datetime
+                        ticket.pr_number = pr.number
+                        ticket.pr_url = pr.url
+                        ticket.pr_state = pr.state
+                        ticket.pr_created_at = datetime.now()
+                        ticket.pr_head_branch = pr.head_branch
+                        ticket.pr_base_branch = pr.base_branch
+                        
+                        logger.info(f"Created PR #{pr.number} for ticket {ticket.id}: {pr.url}")
+                    except Exception as e:
+                        logger.warning(f"Failed to create PR for ticket {ticket.id}: {e}")
+                else:
+                    logger.warning(f"No workspace found for ticket {ticket.id}, skipping PR creation")
+            else:
+                # Auto-merge the worktree into the default branch (default behavior)
+                from app.services.merge_service import MergeService, MergeStrategy
+                merge_service = MergeService(db)
+                try:
+                    merge_result = await merge_service.merge_ticket(
+                        ticket_id=revision.ticket_id,
+                        strategy=MergeStrategy.MERGE,
+                        delete_worktree=True,
+                        cleanup_artifacts=True,
+                        actor_id="review_approval",
                     )
-            except ValidationError as e:
-                # Merge prerequisites not met (no workspace, etc.) - log and continue
-                logger.info(f"Skipping auto-merge for ticket {revision.ticket_id}: {e.message}")
+                    if not merge_result.success:
+                        # Log the merge failure but don't fail the review
+                        logger.warning(
+                            f"Auto-merge failed for ticket {revision.ticket_id}: {merge_result.message}"
+                        )
+                except ValidationError as e:
+                    # Merge prerequisites not met (no workspace, etc.) - log and continue
+                    logger.info(f"Skipping auto-merge for ticket {revision.ticket_id}: {e.message}")
         elif data.decision.value == ReviewDecision.CHANGES_REQUESTED.value and data.auto_run_fix:
             # Auto-rerun caps to prevent infinite loops:
             # - Max 2 auto-reruns per revision (per source_revision_id)

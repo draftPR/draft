@@ -48,7 +48,6 @@ const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
     name: "Views",
     shortcuts: [
       { key: "b", description: "Toggle sidebar", action: () => {} },
-      { key: "d", description: "Toggle dashboard", action: () => {} },
       { key: "l", description: "Toggle logs panel", action: () => {} },
       { key: "?", description: "Show this help", action: () => {} },
     ],

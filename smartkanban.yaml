@@ -184,3 +184,10 @@ planner_config:
     propose_followups: true
     # Generate reflection summaries for DONE tickets
     generate_reflections: true
+    # Validate generated tickets against codebase before creating them
+    # When true, the LLM checks if tickets are:
+    #   - Appropriate for the goal
+    #   - Not already implemented
+    #   - Relevant to the codebase
+    # Invalid tickets are filtered out and logged
+    validate_tickets: true

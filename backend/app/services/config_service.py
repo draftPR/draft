@@ -222,6 +222,7 @@ class PlannerFeaturesConfig:
     auto_execute: bool = True
     propose_followups: bool = True
     generate_reflections: bool = True
+    validate_tickets: bool = True
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PlannerFeaturesConfig":
@@ -230,6 +231,7 @@ class PlannerFeaturesConfig:
             auto_execute=data.get("auto_execute", True),
             propose_followups=data.get("propose_followups", True),
             generate_reflections=data.get("generate_reflections", True),
+            validate_tickets=data.get("validate_tickets", True),
         )
 
 

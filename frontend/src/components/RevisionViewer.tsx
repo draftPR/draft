@@ -140,7 +140,8 @@ export function RevisionViewer({
   const handleSubmitReview = async (
     decision: ReviewDecision,
     summary: string,
-    autoRunFix: boolean
+    autoRunFix: boolean,
+    createPr: boolean
   ) => {
     if (!selectedRevisionId) return;
     
@@ -150,13 +151,21 @@ export function RevisionViewer({
         decision,
         summary,
         auto_run_fix: autoRunFix,
+        create_pr: createPr,
       });
       
-      toast.success(
-        decision === "approved"
-          ? "Revision approved! Ticket marked as done."
-          : "Changes requested. Agent will re-run to address feedback."
-      );
+      let successMessage: string;
+      if (decision === "approved") {
+        if (createPr) {
+          successMessage = "Revision approved! GitHub PR created.";
+        } else {
+          successMessage = "Revision approved! Changes merged to main.";
+        }
+      } else {
+        successMessage = "Changes requested. Agent will re-run to address feedback.";
+      }
+      
+      toast.success(successMessage);
       
       onRevisionUpdated();
     } catch (error) {
