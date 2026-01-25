@@ -167,7 +167,11 @@ def _acquire_lock_sync(db, owner_id: str) -> None:
 
 
 def _release_lock_sync(db, owner_id: str) -> None:
-    """Release the planner lock synchronously."""
+    """Release the planner lock synchronously.
+    
+    Note: Does NOT commit - the caller's context manager handles the final commit.
+    This avoids double-commit issues when called from within get_sync_db() context.
+    """
     try:
         db.execute(
             delete(PlannerLock).where(
@@ -177,7 +181,9 @@ def _release_lock_sync(db, owner_id: str) -> None:
                 )
             )
         )
-        db.commit()
+        # Don't commit here - let the context manager handle it
+        # This prevents double-commit and ensures atomic behavior
+        db.flush()  # Flush to ensure the delete is staged
         logger.debug(f"Released planner lock (owner={owner_id})")
     except Exception as e:
         logger.warning(f"Failed to release planner lock: {e}")

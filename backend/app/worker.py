@@ -1,15 +1,25 @@
 """Celery worker tasks for Smart Kanban."""
 
+from __future__ import annotations
+
 import json
+import logging
 import subprocess
+import threading
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from celery.exceptions import Ignore
 from sqlalchemy.orm import selectinload
+
+if TYPE_CHECKING:
+    from app.services.config_service import PlannerConfig
+
+logger = logging.getLogger(__name__)
 
 from app.celery_app import celery_app
 from app.database_sync import get_sync_db
@@ -690,13 +700,16 @@ def run_executor_cli(
                 pipe.close()
         
         # Stream stdout and stderr in parallel threads
+        # Use daemon=True so threads don't block process exit if they get stuck
         stdout_thread = threading.Thread(
             target=stream_output, 
-            args=(process.stdout, stdout_lines, False)
+            args=(process.stdout, stdout_lines, False),
+            daemon=True,
         )
         stderr_thread = threading.Thread(
             target=stream_output,
-            args=(process.stderr, stderr_lines, True)
+            args=(process.stderr, stderr_lines, True),
+            daemon=True,
         )
         
         stdout_thread.start()
@@ -710,10 +723,24 @@ def run_executor_cli(
             process.wait()
             stdout_lines.append(f"\n[TIMEOUT] Process killed after {timeout} seconds")
             exit_code = -1
+            # Close pipes to unblock threads waiting on readline()
+            if process.stdout:
+                try:
+                    process.stdout.close()
+                except Exception:
+                    pass
+            if process.stderr:
+                try:
+                    process.stderr.close()
+                except Exception:
+                    pass
         
-        # Wait for output threads to finish
+        # Wait for output threads to finish (with timeout to prevent blocking)
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
+        
+        # If threads are still alive after timeout, they're daemon threads
+        # and will be cleaned up when the process exits
         
         # Write captured output to files
         stdout_path.write_text('\n'.join(stdout_lines))
@@ -1125,15 +1152,16 @@ def _get_related_tickets_context_sync(ticket_id: str) -> dict | None:
         - completed_tickets: list of DONE tickets in the same goal
         - goal_title: title of the goal this ticket belongs to
     """
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session, selectinload
-    from app.database import get_database_url
+    from sqlalchemy.orm import selectinload
+    from app.database_sync import sync_engine
     from app.models.ticket import Ticket
     from app.models.goal import Goal
     from app.state_machine import TicketState
+    from sqlalchemy.orm import Session
     
-    engine = create_engine(get_database_url())
-    with Session(engine) as db:
+    # Use the shared sync_engine instead of creating a new one each time
+    # This prevents connection pool exhaustion
+    with Session(sync_engine) as db:
         # Get the current ticket with its goal and dependencies
         ticket = db.query(Ticket).options(
             selectinload(Ticket.blocked_by),
@@ -2288,7 +2316,10 @@ def poll_pr_statuses():
     from app.models.workspace import Workspace
     from app.services.github_service import get_github_service
     from app.state_machine import TicketState
-    import asyncio
+    import subprocess
+    
+    # First, collect ticket info without holding DB connection during network calls
+    tickets_to_check = []
     
     with get_sync_db() as db:
         # Find tickets with open PRs
@@ -2304,78 +2335,115 @@ def poll_pr_statuses():
         if not tickets_with_prs:
             return {"message": "No PRs to poll", "checked": 0}
         
-        github_service = get_github_service()
-        
-        # Check if GitHub CLI is available
-        if not github_service.is_available():
-            return {
-                "message": "GitHub CLI not available, skipping poll",
-                "checked": 0,
-            }
-        
-        updated_count = 0
-        merged_count = 0
-        
         for ticket in tickets_with_prs:
-            try:
-                # Get workspace for repo path
-                workspace = (
-                    db.query(Workspace)
-                    .filter(Workspace.ticket_id == ticket.id)
-                    .first()
-                )
-                
-                if not workspace or not workspace.worktree_path:
-                    continue
-                
+            # Get workspace for repo path
+            workspace = (
+                db.query(Workspace)
+                .filter(Workspace.ticket_id == ticket.id)
+                .first()
+            )
+            
+            if workspace and workspace.worktree_path:
                 repo_path = Path(workspace.worktree_path)
-                
-                if not repo_path.exists():
+                if repo_path.exists():
+                    tickets_to_check.append({
+                        "ticket_id": ticket.id,
+                        "pr_number": ticket.pr_number,
+                        "pr_state": ticket.pr_state,
+                        "pr_merged_at": ticket.pr_merged_at,
+                        "repo_path": str(repo_path),
+                    })
+    
+    if not tickets_to_check:
+        return {"message": "No valid tickets to poll", "checked": 0}
+    
+    github_service = get_github_service()
+    
+    # Check if GitHub CLI is available
+    if not github_service.is_available():
+        return {
+            "message": "GitHub CLI not available, skipping poll",
+            "checked": 0,
+        }
+    
+    updated_count = 0
+    merged_count = 0
+    errors = []
+    
+    # Poll GitHub outside of DB session to avoid blocking
+    for ticket_info in tickets_to_check:
+        try:
+            repo_path = Path(ticket_info["repo_path"])
+            pr_number = ticket_info["pr_number"]
+            
+            # Use synchronous subprocess call with timeout instead of asyncio.run()
+            result = subprocess.run(
+                ["gh", "pr", "view", str(pr_number), "--json", "state,merged"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30,  # 30 second timeout per PR check
+            )
+            
+            if result.returncode != 0:
+                continue
+            
+            pr_details = json.loads(result.stdout)
+            ticket_info["new_state"] = pr_details.get("state", "OPEN")
+            ticket_info["merged"] = pr_details.get("merged", False)
+            
+        except subprocess.TimeoutExpired:
+            errors.append(f"Timeout checking PR for ticket {ticket_info['ticket_id']}")
+            continue
+        except Exception as e:
+            errors.append(f"Error polling PR for ticket {ticket_info['ticket_id']}: {e}")
+            continue
+    
+    # Now update DB with results (quick operation)
+    with get_sync_db() as db:
+        for ticket_info in tickets_to_check:
+            if "new_state" not in ticket_info:
+                continue  # Skip if we didn't get PR details
+            
+            try:
+                ticket = db.query(Ticket).filter(Ticket.id == ticket_info["ticket_id"]).first()
+                if not ticket:
                     continue
                 
-                # Run async function in sync context
-                async def check_pr():
-                    return await github_service.get_pr_details(
-                        repo_path, ticket.pr_number
-                    )
-                
-                pr_details = asyncio.run(check_pr())
-                
-                # Update ticket
                 old_state = ticket.pr_state
-                ticket.pr_state = pr_details["state"]
+                ticket.pr_state = ticket_info["new_state"]
                 
-                if pr_details.get("merged") and not ticket.pr_merged_at:
+                if ticket_info.get("merged") and not ticket.pr_merged_at:
                     ticket.pr_merged_at = datetime.now()
                     merged_count += 1
                 
                 # Auto-transition ticket if PR was merged
-                if pr_details.get("merged") and old_state != "MERGED":
+                if ticket_info.get("merged") and old_state != "MERGED":
                     ticket.state = TicketState.DONE.value
                     ticket.pr_state = "MERGED"
                     
                     # Create event
                     event = TicketEvent(
                         ticket_id=ticket.id,
-                        event_type=EventType.TRANSITION.value,
-                        actor=ActorType.SYSTEM.value,
+                        event_type=EventType.TRANSITIONED.value,
                         from_state=old_state or "REVIEW",
                         to_state=TicketState.DONE.value,
-                        notes=f"PR #{ticket.pr_number} was merged",
+                        actor_type=ActorType.SYSTEM.value,
+                        actor_id="poll_pr_statuses",
+                        reason=f"PR #{ticket.pr_number} was merged",
                     )
                     db.add(event)
                 
                 updated_count += 1
-                db.commit()
                 
             except Exception as e:
-                # Log error but continue with other tickets
-                print(f"Error polling PR for ticket {ticket.id}: {e}")
+                errors.append(f"Error updating ticket {ticket_info['ticket_id']}: {e}")
                 continue
-        
-        return {
-            "message": "PR polling completed",
-            "checked": len(tickets_with_prs),
-            "updated": updated_count,
-            "merged": merged_count,
-        }
+    
+    return {
+        "message": "PR polling completed",
+        "checked": len(tickets_to_check),
+        "updated": updated_count,
+        "merged": merged_count,
+        "errors": errors[:10] if errors else [],  # Limit error list
+    }

@@ -894,7 +894,7 @@ class PlannerService:
 
             # Generate follow-up proposal using LLM
             try:
-                proposal = self._generate_followup_proposal(
+                proposal = await self._generate_followup_proposal(
                     ticket_title=ticket.title,
                     ticket_description=ticket.description,
                     blocker_reason=blocker_reason,
@@ -974,7 +974,7 @@ class PlannerService:
 
         return actions
 
-    def _generate_followup_proposal(
+    async def _generate_followup_proposal(
         self,
         ticket_title: str,
         ticket_description: str | None,
@@ -982,7 +982,12 @@ class PlannerService:
         goal_title: str | None = None,
         goal_description: str | None = None,
     ) -> FollowUpProposal:
-        """Generate a follow-up ticket proposal for a blocked ticket using LLM."""
+        """Generate a follow-up ticket proposal for a blocked ticket using LLM.
+        
+        Uses asyncio.to_thread() to avoid blocking the event loop during LLM calls.
+        """
+        import asyncio
+        
         context_parts = []
         if goal_title:
             context_parts.append(f"Goal: {goal_title}")
@@ -1017,12 +1022,17 @@ Guidelines:
 
 Generate a follow-up ticket proposal as JSON."""
 
-        try:
-            response = self.llm_service.call_completion(
+        def _blocking_llm_call():
+            """Execute blocking LLM call in thread pool."""
+            return self.llm_service.call_completion(
                 messages=[{"role": "user", "content": user_prompt}],
                 max_tokens=self.config.max_tokens_followup,
                 system_prompt=system_prompt,
             )
+
+        try:
+            # Run blocking LLM call in thread pool to avoid blocking event loop
+            response = await asyncio.to_thread(_blocking_llm_call)
             data = self.llm_service.safe_parse_json(response.content, {})
 
             return FollowUpProposal(
@@ -1091,7 +1101,7 @@ Generate a follow-up ticket proposal as JSON."""
 
             # Generate reflection using LLM
             try:
-                reflection = self._generate_reflection_summary(
+                reflection = await self._generate_reflection_summary(
                     ticket_title=ticket.title,
                     ticket_description=ticket.description,
                     events_summary=events_summary,
@@ -1132,14 +1142,19 @@ Generate a follow-up ticket proposal as JSON."""
 
         return actions
 
-    def _generate_reflection_summary(
+    async def _generate_reflection_summary(
         self,
         ticket_title: str,
         ticket_description: str | None,
         events_summary: str | None = None,
         evidence_summary: str | None = None,
     ) -> ReflectionSummary:
-        """Generate a reflection summary for a completed ticket using LLM."""
+        """Generate a reflection summary for a completed ticket using LLM.
+        
+        Uses asyncio.to_thread() to avoid blocking the event loop during LLM calls.
+        """
+        import asyncio
+        
         context_parts = [f"Ticket: {ticket_title}"]
         if ticket_description:
             context_parts.append(f"Description: {ticket_description}")
@@ -1169,12 +1184,17 @@ Guidelines:
 
 Generate a reflection summary as JSON."""
 
-        try:
-            response = self.llm_service.call_completion(
+        def _blocking_llm_call():
+            """Execute blocking LLM call in thread pool."""
+            return self.llm_service.call_completion(
                 messages=[{"role": "user", "content": user_prompt}],
                 max_tokens=self.config.max_tokens_reflection,
                 system_prompt=system_prompt,
             )
+
+        try:
+            # Run blocking LLM call in thread pool to avoid blocking event loop
+            response = await asyncio.to_thread(_blocking_llm_call)
             data = self.llm_service.safe_parse_json(response.content, {})
 
             return ReflectionSummary(

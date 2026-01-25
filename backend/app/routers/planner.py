@@ -334,6 +334,7 @@ async def planner_start(
     import asyncio
     import time
 
+    from app.database import async_session_maker
     from app.models.job import Job, JobKind, JobStatus
     from app.models.ticket import Ticket
     from app.state_machine import TicketState
@@ -373,6 +374,7 @@ async def planner_start(
         )
 
     # Poll loop - wait for all tickets to complete
+    # IMPORTANT: We release the DB connection between polls to avoid holding it for hours
     while True:
         elapsed = time.time() - start_time
         if elapsed >= request.max_duration_seconds:
@@ -385,51 +387,53 @@ async def planner_start(
                 total_actions=all_actions,
             )
 
-        # Check current state
-        # Count active tickets (executing or verifying)
-        active_result = await db.execute(
-            select(func.count(Ticket.id)).where(
-                Ticket.state.in_([
-                    TicketState.EXECUTING.value,
-                    TicketState.VERIFYING.value,
-                ])
-            )
-        )
-        active_count = active_result.scalar() or 0
-
-        # Count planned tickets (still waiting)
-        planned_result = await db.execute(
-            select(func.count(Ticket.id)).where(
-                Ticket.state == TicketState.PLANNED.value
-            )
-        )
-        planned_count = planned_result.scalar() or 0
-
-        # Count queued/running jobs
-        jobs_result = await db.execute(
-            select(func.count(Job.id)).where(
-                and_(
-                    Job.kind == JobKind.EXECUTE.value,
-                    Job.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
+        # Use a fresh session for each poll to avoid holding connections
+        async with async_session_maker() as poll_db:
+            # Check current state
+            # Count active tickets (executing or verifying)
+            active_result = await poll_db.execute(
+                select(func.count(Ticket.id)).where(
+                    Ticket.state.in_([
+                        TicketState.EXECUTING.value,
+                        TicketState.VERIFYING.value,
+                    ])
                 )
             )
-        )
-        jobs_pending = jobs_result.scalar() or 0
+            active_count = active_result.scalar() or 0
 
-        # Count completed and failed since start
-        done_result = await db.execute(
-            select(func.count(Ticket.id)).where(
-                Ticket.state == TicketState.DONE.value
+            # Count planned tickets (still waiting)
+            planned_result = await poll_db.execute(
+                select(func.count(Ticket.id)).where(
+                    Ticket.state == TicketState.PLANNED.value
+                )
             )
-        )
-        tickets_completed = done_result.scalar() or 0
+            planned_count = planned_result.scalar() or 0
 
-        blocked_result = await db.execute(
-            select(func.count(Ticket.id)).where(
-                Ticket.state == TicketState.BLOCKED.value
+            # Count queued/running jobs
+            jobs_result = await poll_db.execute(
+                select(func.count(Job.id)).where(
+                    and_(
+                        Job.kind == JobKind.EXECUTE.value,
+                        Job.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
+                    )
+                )
             )
-        )
-        tickets_failed = blocked_result.scalar() or 0
+            jobs_pending = jobs_result.scalar() or 0
+
+            # Count completed and failed since start
+            done_result = await poll_db.execute(
+                select(func.count(Ticket.id)).where(
+                    Ticket.state == TicketState.DONE.value
+                )
+            )
+            tickets_completed = done_result.scalar() or 0
+
+            blocked_result = await poll_db.execute(
+                select(func.count(Ticket.id)).where(
+                    Ticket.state == TicketState.BLOCKED.value
+                )
+            )
+            tickets_failed = blocked_result.scalar() or 0
 
         logger.debug(
             f"Autopilot poll: active={active_count}, planned={planned_count}, "
@@ -439,11 +443,13 @@ async def planner_start(
         # If nothing is active and nothing planned, we're done
         if active_count == 0 and planned_count == 0 and jobs_pending == 0:
             # Run one more tick to handle any reflections/followups
-            try:
-                final_result = await service.tick()
-                all_actions.extend(final_result.actions)
-            except PlannerLockError:
-                pass  # Ignore lock errors on final tick
+            async with async_session_maker() as final_db:
+                try:
+                    final_service = PlannerService(final_db)
+                    final_result = await final_service.tick()
+                    all_actions.extend(final_result.actions)
+                except PlannerLockError:
+                    pass  # Ignore lock errors on final tick
 
             return PlannerStartResponse(
                 status="completed",
@@ -456,11 +462,13 @@ async def planner_start(
 
         # If there are still planned tickets but nothing active, run another tick
         if active_count == 0 and jobs_pending == 0 and planned_count > 0:
-            try:
-                tick_result = await service.tick()
-                all_actions.extend(tick_result.actions)
-            except PlannerLockError:
-                pass  # Ignore, another tick is running
+            async with async_session_maker() as tick_db:
+                try:
+                    tick_service = PlannerService(tick_db)
+                    tick_result = await tick_service.tick()
+                    all_actions.extend(tick_result.actions)
+                except PlannerLockError:
+                    pass  # Ignore, another tick is running
 
         # Wait before next poll
         await asyncio.sleep(request.poll_interval_seconds)

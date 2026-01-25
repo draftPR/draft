@@ -187,12 +187,21 @@ class LLMService:
         import os
 
         import boto3
+        from botocore.config import Config
+
+        # Add timeouts to prevent hanging indefinitely if Bedrock is slow/unresponsive
+        boto_config = Config(
+            connect_timeout=30,
+            read_timeout=120,  # LLM responses can be slow
+            retries={"max_attempts": 2, "mode": "standard"},
+        )
 
         client = boto3.client(
             "bedrock-runtime",
             region_name=os.getenv("AWS_REGION_NAME", "us-east-2"),
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            config=boto_config,
         )
 
         inference_profile_arn = self._get_inference_profile_arn()

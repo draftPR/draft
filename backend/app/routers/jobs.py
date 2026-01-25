@@ -56,7 +56,8 @@ async def get_job(
     """
     service = JobService(db)
     job = await service.get_job_by_id(job_id)
-    logs = service.read_job_logs(job.log_path)
+    # Use async version to avoid blocking event loop during file I/O
+    logs = await service.read_job_logs_async(job.log_path)
 
     return JobDetailResponse(
         id=job.id,
@@ -86,7 +87,8 @@ async def get_job_logs(
     """
     service = JobService(db)
     job = await service.get_job_by_id(job_id)
-    logs = service.read_job_logs(job.log_path)
+    # Use async version to avoid blocking event loop during file I/O
+    logs = await service.read_job_logs_async(job.log_path)
 
     if logs is None:
         return PlainTextResponse(content="No logs available yet.", status_code=200)
@@ -323,8 +325,8 @@ async def normalize_logs(
             detail=f"Job {job_id} not found",
         )
 
-    # Get raw logs
-    raw_logs = service.read_job_logs(job.log_path)
+    # Get raw logs (use async version to avoid blocking event loop)
+    raw_logs = await service.read_job_logs_async(job.log_path)
     if not raw_logs:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

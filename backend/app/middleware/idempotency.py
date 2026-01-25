@@ -235,15 +235,36 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         execution_id = _generate_execution_id()
         
         try:
-            # Try to acquire lock atomically with SETNX
+            import asyncio
+            
+            # Try to acquire lock atomically with SETNX - run in thread to avoid blocking
             lock_value = json.dumps({
                 "body_hash": body_hash,
                 "execution_id": execution_id,
                 "started_at": time.time(),
             })
-            acquired = redis_client.set(
-                lock_key, lock_value, nx=True, ex=LOCK_TTL_SECONDS
-            )
+            
+            def _redis_acquire_lock():
+                return redis_client.set(
+                    lock_key, lock_value, nx=True, ex=LOCK_TTL_SECONDS
+                )
+            
+            try:
+                acquired = await asyncio.wait_for(
+                    asyncio.to_thread(_redis_acquire_lock),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"Redis lock acquisition timed out for key {idempotency_key[:8]}...")
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "detail": "Service temporarily unavailable due to lock timeout.",
+                        "error_type": "service_unavailable",
+                        "retry_after_seconds": 5,
+                    },
+                    headers={"Retry-After": "5"},
+                )
             
             if acquired:
                 # We own the lock - execute the request

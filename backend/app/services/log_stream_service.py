@@ -160,7 +160,12 @@ class LogStreamPublisher:
     
     def _get_redis(self) -> redis.Redis:
         if self._redis is None:
-            self._redis = redis.from_url(REDIS_URL, socket_keepalive=True)
+            self._redis = redis.from_url(
+                REDIS_URL,
+                socket_keepalive=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
         return self._redis
     
     def push(
@@ -259,7 +264,11 @@ class LogStreamSubscriber:
     
     def _get_redis(self) -> redis.Redis:
         if self._redis is None:
-            self._redis = redis.from_url(REDIS_URL)
+            self._redis = redis.from_url(
+                REDIS_URL,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
         return self._redis
     
     def get_history(self, job_id: str) -> list[LogMessage]:
@@ -279,12 +288,17 @@ class LogStreamSubscriber:
             logger.warning(f"Failed to get history for job {job_id}: {e}")
             return []
     
-    async def subscribe(self, job_id: str) -> AsyncIterator[LogMessage]:
+    async def subscribe(self, job_id: str, max_wait_seconds: int = 1800) -> AsyncIterator[LogMessage]:
         """Subscribe to log stream with minimal latency.
         
         1. Yield history for catch-up
         2. Try in-memory broadcast first (<1ms latency)
         3. Fall back to Redis pub/sub if needed
+        
+        Args:
+            job_id: The job to subscribe to
+            max_wait_seconds: Maximum time to wait for messages (default 30 minutes).
+                              Prevents infinite loops if FINISHED is never received.
         """
         # First yield history
         for msg in self.get_history(job_id):
@@ -295,6 +309,7 @@ class LogStreamSubscriber:
         # Try in-memory subscription first
         queue = _broadcaster.subscribe(job_id)
         redis_task = None
+        start_time = time.monotonic()
         
         try:
             # Also subscribe to Redis as backup (for cross-process messages)
@@ -303,8 +318,8 @@ class LogStreamSubscriber:
                 self._redis_subscriber(job_id, redis_queue)
             )
             
-            # Multiplex both sources
-            while True:
+            # Multiplex both sources with timeout protection
+            while (time.monotonic() - start_time) < max_wait_seconds:
                 # Check in-memory queue first (faster)
                 try:
                     msg = queue.get_nowait()
@@ -327,6 +342,13 @@ class LogStreamSubscriber:
                 
                 # Neither has data, wait a bit
                 await asyncio.sleep(0.01)  # 10ms poll interval
+            
+            # Timeout reached - yield a timeout message and exit
+            logger.warning(f"Log stream subscription for job {job_id} timed out after {max_wait_seconds}s")
+            yield LogMessage(
+                level=LogLevel.INFO,
+                content=f"[Stream timeout after {max_wait_seconds}s - connection closed]",
+            )
                 
         finally:
             _broadcaster.unsubscribe(job_id, queue)

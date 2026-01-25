@@ -58,9 +58,13 @@ class QueuedMessageService:
         self._redis: redis.Redis | None = None
     
     def _get_redis(self) -> redis.Redis:
-        """Lazy-init Redis connection."""
+        """Lazy-init Redis connection with timeouts to prevent hanging."""
         if self._redis is None:
-            self._redis = redis.from_url(REDIS_URL)
+            self._redis = redis.from_url(
+                REDIS_URL,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
         return self._redis
     
     def _get_key(self, ticket_id: str) -> str:

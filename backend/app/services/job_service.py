@@ -211,7 +211,7 @@ class JobService:
 
     def read_job_logs(self, log_path: str | None) -> str | None:
         """
-        Read the log content for a job.
+        Read the log content for a job (synchronous version).
 
         Security:
             - Only reads files under <repo_root>/.smartkanban/ or backend/logs/
@@ -224,6 +224,9 @@ class JobService:
 
         Returns:
             The log content as a string, or None if no logs available
+            
+        Note:
+            For async endpoints, prefer read_job_logs_async() to avoid blocking.
         """
         if not log_path:
             return None
@@ -239,6 +242,27 @@ class JobService:
         backend_root = Path(__file__).parent.parent.parent
         content = _safe_read_file(backend_root, FALLBACK_LOGS_DIR, log_path)
         return content
+
+    async def read_job_logs_async(self, log_path: str | None) -> str | None:
+        """
+        Read the log content for a job (async version - non-blocking).
+
+        Wraps file I/O in asyncio.to_thread() to avoid blocking the event loop.
+
+        Security:
+            - Only reads files under <repo_root>/.smartkanban/ or backend/logs/
+            - Rejects absolute paths
+            - Validates canonical path is under allowed directory
+            - Caps file size to prevent memory exhaustion
+
+        Args:
+            log_path: The relative path to the log file
+
+        Returns:
+            The log content as a string, or None if no logs available
+        """
+        import asyncio
+        return await asyncio.to_thread(self.read_job_logs, log_path)
 
     async def get_queue_status(self) -> QueueStatusResponse:
         """

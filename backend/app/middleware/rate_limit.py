@@ -229,12 +229,35 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         redis_key = f"{REDIS_KEY_PREFIX}{client_id}:{route_key}"
         
         try:
-            # Clean up expired entries and get current usage
-            pipe = redis_client.pipeline()
-            pipe.zremrangebyscore(redis_key, 0, window_start)
-            pipe.zrange(redis_key, 0, -1, withscores=True)
-            results = pipe.execute()
-            entries = results[1]
+            # Run Redis operations in a thread with timeout to prevent blocking event loop
+            import asyncio
+            
+            def _redis_rate_limit_check():
+                """Execute Redis rate limit check (runs in thread pool)."""
+                # Clean up expired entries and get current usage
+                pipe = redis_client.pipeline()
+                pipe.zremrangebyscore(redis_key, 0, window_start)
+                pipe.zrange(redis_key, 0, -1, withscores=True)
+                results = pipe.execute()
+                return results[1]
+            
+            # Execute with 5 second timeout to prevent hanging
+            try:
+                entries = await asyncio.wait_for(
+                    asyncio.to_thread(_redis_rate_limit_check),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"Redis rate limit check timed out for {client_id}")
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "detail": "Service temporarily unavailable due to rate limit timeout.",
+                        "error_type": "service_unavailable",
+                        "retry_after_seconds": 5,
+                    },
+                    headers={"Retry-After": "5"},
+                )
             
             # Sum current cost
             current_cost = 0
@@ -275,11 +298,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     },
                 )
             
-            # Record ESTIMATED cost immediately (before work)
-            # This reserves budget so concurrent requests see the reservation
-            member = f"{now}:{estimated_cost}"
-            redis_client.zadd(redis_key, {member: now})
-            redis_client.expire(redis_key, self.window_seconds + 10)
+            # Record ESTIMATED cost immediately (before work) - also in thread
+            def _redis_record_cost():
+                member = f"{now}:{estimated_cost}"
+                redis_client.zadd(redis_key, {member: now})
+                redis_client.expire(redis_key, self.window_seconds + 10)
+            
+            await asyncio.to_thread(_redis_record_cost)
             
         except Exception as e:
             logger.error(f"Redis rate limit pre-check failed: {e}")
