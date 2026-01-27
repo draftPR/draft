@@ -44,6 +44,7 @@ ALLOWED_TRANSITIONS: dict[TicketState, list[TicketState]] = {
         TicketState.ABANDONED,
     ],
     TicketState.PLANNED: [
+        TicketState.PROPOSED,
         TicketState.EXECUTING,
         TicketState.BLOCKED,
         TicketState.ABANDONED,
