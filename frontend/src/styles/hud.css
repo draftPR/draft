@@ -1,0 +1,191 @@
+/**
+ * HUD mode styling with glow effects and scanlines.
+ *
+ * Apply this theme for a futuristic monitoring dashboard look.
+ */
+
+/* HUD mode color variables */
+.theme-hud {
+  --glow-color: hsl(180, 100%, 50%);
+  --glow-secondary: hsl(120, 100%, 50%);
+}
+
+/* Glow effect for borders and cards */
+.theme-hud.effect-glow .card,
+.theme-hud.effect-glow [data-panel],
+.theme-hud.effect-glow .border {
+  border-color: var(--glow-color);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+  transition: box-shadow 0.3s ease;
+}
+
+.theme-hud.effect-glow .card:hover,
+.theme-hud.effect-glow [data-panel]:hover {
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.4);
+}
+
+/* Pulsing glow for active elements */
+.theme-hud.effect-glow [data-status='active'],
+.theme-hud.effect-glow [data-status='running'] {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 5px var(--glow-color), 0 0 10px var(--glow-color);
+  }
+  50% {
+    box-shadow: 0 0 20px var(--glow-color), 0 0 30px var(--glow-color);
+  }
+}
+
+/* Text glow for high-priority text */
+.theme-hud.effect-glow h1,
+.theme-hud.effect-glow h2,
+.theme-hud.effect-glow h3,
+.theme-hud.effect-glow [data-highlight] {
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+
+/* Scanlines effect */
+.theme-hud.effect-scanlines::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 255, 255, 0.03),
+    rgba(0, 255, 255, 0.03) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  z-index: 9999;
+  animation: scanlines 8s linear infinite;
+}
+
+@keyframes scanlines {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(4px);
+  }
+}
+
+/* Monospace font for HUD mode */
+.theme-hud {
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.theme-hud code,
+.theme-hud pre,
+.theme-hud [data-mono] {
+  font-family: 'Courier New', Courier, monospace;
+}
+
+/* Terminal-style borders */
+.theme-hud .card,
+.theme-hud [data-panel] {
+  border-width: 2px;
+  border-style: solid;
+}
+
+/* Grid background effect */
+.theme-hud.effect-glow::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: linear-gradient(var(--glow-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--glow-color) 1px, transparent 1px);
+  background-size: 50px 50px;
+  opacity: 0.05;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Button glow in HUD mode */
+.theme-hud.effect-glow button:not(:disabled):hover {
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+}
+
+/* Status indicators with stronger glow */
+.theme-hud.effect-glow [data-status='success'] {
+  color: var(--glow-secondary);
+  text-shadow: 0 0 10px var(--glow-secondary);
+}
+
+.theme-hud.effect-glow [data-status='error'] {
+  color: hsl(0, 100%, 50%);
+  text-shadow: 0 0 10px hsl(0, 100%, 50%);
+}
+
+.theme-hud.effect-glow [data-status='warning'] {
+  color: hsl(60, 100%, 50%);
+  text-shadow: 0 0 10px hsl(60, 100%, 50%);
+}
+
+/* Loading spinners with glow */
+.theme-hud.effect-glow [data-loading],
+.theme-hud.effect-glow .animate-spin {
+  filter: drop-shadow(0 0 5px var(--glow-color));
+}
+
+/* Floating panels in HUD mode */
+.theme-hud .floating-panel {
+  background: rgba(0, 40, 60, 0.9);
+  backdrop-filter: blur(10px);
+  border: 2px solid var(--glow-color);
+}
+
+.theme-hud.effect-glow .floating-panel {
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.3), inset 0 0 20px rgba(0, 255, 255, 0.1);
+}
+
+/* Input fields in HUD mode */
+.theme-hud input,
+.theme-hud textarea,
+.theme-hud select {
+  background: rgba(0, 60, 80, 0.3);
+  border-color: var(--glow-color);
+  color: var(--color-textHigh);
+}
+
+.theme-hud.effect-glow input:focus,
+.theme-hud.effect-glow textarea:focus,
+.theme-hud.effect-glow select:focus {
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+  outline: none;
+}
+
+/* Scrollbar styling for HUD mode */
+.theme-hud ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.theme-hud ::-webkit-scrollbar-track {
+  background: rgba(0, 40, 60, 0.5);
+}
+
+.theme-hud ::-webkit-scrollbar-thumb {
+  background: var(--glow-color);
+  border-radius: 5px;
+}
+
+.theme-hud ::-webkit-scrollbar-thumb:hover {
+  background: var(--glow-secondary);
+}
+
+/* Transitions for theme switching */
+.theme-hud * {
+  transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
