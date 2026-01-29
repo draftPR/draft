@@ -1,12 +1,15 @@
 """Smart Kanban Backend - FastAPI Application."""
 
+import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.database import init_db
 from app.exceptions import (
@@ -17,7 +20,12 @@ from app.exceptions import (
     SmartKanbanError,
     ValidationError,
 )
-from app.middleware import IdempotencyMiddleware, RateLimitMiddleware
+from app.middleware import (
+    IdempotencyMiddleware,
+    RateLimitMiddleware,
+    SecurityHeadersMiddleware,
+    TimeoutMiddleware,
+)
 from app.routers import (
     board_legacy_router,
     boards_router,
@@ -33,12 +41,37 @@ from app.routers import (
 )
 from app.routers.agents import router as agents_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.executors import router as executors_router
 from app.routers.pull_requests import router as pull_requests_router
 
 load_dotenv()
 
 APP_NAME = "Orion Kanban"
 APP_VERSION = "0.1.0"
+
+logger = logging.getLogger(__name__)
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Limit request body size to prevent OOM attacks."""
+
+    def __init__(self, app, max_body_size: int = 10_000_000):  # 10MB default
+        super().__init__(app)
+        self.max_body_size = max_body_size
+
+    async def dispatch(self, request: Request, call_next):
+        """Check content-length header before processing request."""
+        if request.method in ("POST", "PUT", "PATCH"):
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > self.max_body_size:
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "detail": f"Request body too large. Max size: {self.max_body_size / 1_000_000:.1f}MB",
+                        "error_type": "payload_too_large",
+                    },
+                )
+        return await call_next(request)
 
 
 @asynccontextmanager
@@ -47,7 +80,10 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize database tables
     await init_db()
     yield
-    # Shutdown: cleanup if needed
+    # Shutdown: cleanup connections
+    from app.redis_client import close_redis
+    close_redis()
+    logger.info("Application shutdown complete")
 
 
 app = FastAPI(
@@ -56,6 +92,12 @@ app = FastAPI(
     description="A local-first Smart Kanban application with state machine workflow",
     lifespan=lifespan,
 )
+
+# Security headers (add first, applies to all responses)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Request timeout (120s global timeout)
+app.add_middleware(TimeoutMiddleware, timeout_seconds=120)
 
 # CORS configuration for local development
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -66,6 +108,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Request size limits (prevent DoS)
+app.add_middleware(RequestSizeLimitMiddleware, max_body_size=10_000_000)
 
 # Rate limiting for LLM endpoints (10 req/min)
 app.add_middleware(RateLimitMiddleware)
@@ -162,6 +207,147 @@ async def smart_kanban_error_handler(
     )
 
 
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all handler that prevents information leakage (SECURITY).
+
+    In production, sanitizes errors to prevent exposing internal details.
+    In development, includes full traceback for debugging.
+    """
+    # Log full error internally (for debugging/monitoring)
+    logger.error(
+        f"Unhandled exception in {request.method} {request.url.path}",
+        exc_info=exc,
+        extra={
+            "path": request.url.path,
+            "method": request.method,
+            "client": request.client.host if request.client else None,
+        },
+    )
+
+    # Return sanitized error to client
+    if os.getenv("APP_ENV") == "production":
+        # PRODUCTION: Never expose internal details
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Internal server error",
+                "error_type": "internal_error",
+                # NO stack trace or exception details
+            },
+        )
+    else:
+        # DEVELOPMENT: Include details for debugging
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": str(exc),
+                "error_type": type(exc).__name__,
+                "traceback": traceback.format_exc(),
+            },
+        )
+
+
+# Health check endpoints (for monitoring/load balancers)
+@app.get("/health", tags=["monitoring"])
+async def healthcheck() -> JSONResponse:
+    """Health check endpoint for load balancers and monitoring.
+
+    Checks:
+    - Basic service availability
+
+    Returns 200 OK if service is running.
+    """
+    from datetime import UTC, datetime
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "healthy",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": APP_NAME,
+            "version": APP_VERSION,
+        },
+    )
+
+
+@app.get("/health/detailed", tags=["monitoring"])
+async def healthcheck_detailed(request: Request) -> JSONResponse:
+    """Detailed health check with dependency checks.
+
+    Checks:
+    - Database connectivity
+    - Redis connectivity
+    - Disk space
+
+    Returns 200 if all healthy, 503 if any component unhealthy.
+    """
+    from datetime import UTC, datetime
+
+    from app.database import get_db
+
+    checks = {
+        "status": "healthy",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "service": APP_NAME,
+        "version": APP_VERSION,
+        "checks": {},
+    }
+
+    # Check database
+    try:
+        async for db in get_db():
+            from sqlalchemy import select
+
+            await db.execute(select(1))
+            checks["checks"]["database"] = "ok"
+            break
+    except Exception as e:
+        checks["status"] = "unhealthy"
+        checks["checks"]["database"] = f"error: {str(e)}"
+        logger.error(f"Database health check failed: {e}")
+
+    # Check Redis
+    try:
+        from app.redis_client import redis_client
+
+        await redis_client.ping()
+        checks["checks"]["redis"] = "ok"
+    except Exception as e:
+        checks["status"] = "unhealthy"
+        checks["checks"]["redis"] = f"error: {str(e)}"
+        logger.error(f"Redis health check failed: {e}")
+
+    # Check disk space
+    try:
+        import shutil
+
+        stat = shutil.disk_usage("/")
+        free_percent = (stat.free / stat.total) * 100
+        checks["checks"]["disk_space"] = f"{free_percent:.1f}% free"
+        if free_percent < 10:
+            checks["status"] = "degraded"
+            logger.warning(f"Low disk space: {free_percent:.1f}% free")
+    except Exception as e:
+        checks["checks"]["disk_space"] = f"error: {str(e)}"
+        logger.error(f"Disk space check failed: {e}")
+
+    status_code = 200 if checks["status"] == "healthy" else 503
+    return JSONResponse(content=checks, status_code=status_code)
+
+
+@app.get("/readiness", tags=["monitoring"])
+async def readiness() -> JSONResponse:
+    """Readiness check for Kubernetes/container orchestration."""
+    return JSONResponse(status_code=200, content={"status": "ready"})
+
+
+@app.get("/liveness", tags=["monitoring"])
+async def liveness() -> JSONResponse:
+    """Liveness check for Kubernetes/container orchestration."""
+    return JSONResponse(status_code=200, content={"status": "alive"})
+
+
 # Include routers
 app.include_router(goals_router)
 app.include_router(tickets_router)
@@ -176,6 +362,7 @@ app.include_router(maintenance_router)
 app.include_router(debug_router)
 app.include_router(agents_router)  # AI agent management
 app.include_router(dashboard_router)  # Sprint dashboard and metrics
+app.include_router(executors_router)  # Executor plugin management
 app.include_router(pull_requests_router)  # GitHub PR integration
 
 
