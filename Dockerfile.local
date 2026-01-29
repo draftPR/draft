@@ -1,0 +1,70 @@
+# Dockerfile.local - All-in-one container for Smart Kanban local/demo mode
+#
+# This Dockerfile bundles everything needed to run Smart Kanban:
+# - Redis (optional, uses in-memory fallback by default)
+# - Python backend (FastAPI)
+# - Celery worker
+# - Node.js frontend (built and served)
+# - Supervisor to manage all processes
+#
+# Usage: docker compose up
+
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    # Node.js for frontend
+    curl \
+    gnupg \
+    # Redis for caching (optional in local mode)
+    redis-server \
+    # Git for worktree operations
+    git \
+    # Supervisor for process management
+    supervisor \
+    # Build essentials
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20.x
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create workspace
+WORKDIR /workspace
+
+# Copy project files
+COPY backend/ /workspace/backend/
+COPY frontend/ /workspace/frontend/
+COPY demo-repo/ /workspace/demo-repo/
+COPY smartkanban.yaml /workspace/smartkanban.yaml
+COPY supervisord.conf /etc/supervisor/supervisord.conf
+COPY start.sh /workspace/start.sh
+
+# Install backend dependencies
+WORKDIR /workspace/backend
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install frontend dependencies and build
+WORKDIR /workspace/frontend
+RUN npm install && npm run build
+
+# Create log directories
+RUN mkdir -p /var/log/supervisor /workspace/data/logs
+
+# Make start script executable
+RUN chmod +x /workspace/start.sh
+
+# Expose ports
+EXPOSE 3000 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Set working directory
+WORKDIR /workspace
+
+# Start everything
+CMD ["/workspace/start.sh"]

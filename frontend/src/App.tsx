@@ -9,6 +9,7 @@ import { DebugPanel } from "@/components/DebugPanel";
 import { SprintDashboard } from "@/components/SprintDashboard";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { KeyboardShortcutsHelp } from "@/components/KeyboardShortcutsHelp";
+import { WelcomeWalkthrough } from "@/components/WelcomeWalkthrough";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -241,6 +242,9 @@ function App() {
         open={shortcutsHelpOpen}
         onOpenChange={setShortcutsHelpOpen}
       />
+
+      {/* Welcome Walkthrough (auto-opens on first run) */}
+      <WelcomeWalkthrough />
 
       {/* Toast notifications */}
       <Toaster richColors position="bottom-right" />

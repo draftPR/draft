@@ -20,6 +20,7 @@ import {
   Bot,
   Keyboard,
   Save,
+  Rocket,
 } from "lucide-react";
 import {
   getPreferredEditor,
@@ -28,6 +29,8 @@ import {
   type EditorType,
 } from "@/services/editorIntegration";
 import { AgentSelector } from "./AgentSelector";
+import { useWalkthrough } from "@/hooks/useWalkthrough";
+import { playSound } from "@/services/soundNotifications";
 
 interface BudgetSettings {
   daily: number;
@@ -67,15 +70,18 @@ function saveBudgetSettings(settings: BudgetSettings): void {
 export function SettingsPanel() {
   // Editor settings
   const [editor, setEditor] = useState<EditorType>(getPreferredEditor());
-  
+
   // Agent settings
   const [defaultAgent, setDefaultAgent] = useState("claude");
-  
+
   // Budget settings
   const [budget, setBudget] = useState<BudgetSettings>(loadBudgetSettings);
-  
+
   // Unsaved changes tracking
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Walkthrough
+  const { openWalkthrough, resetWalkthrough } = useWalkthrough();
   
   const handleEditorChange = (value: string) => {
     setEditor(value as EditorType);
@@ -286,9 +292,54 @@ export function SettingsPanel() {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Press <Badge variant="outline" className="font-mono mx-1">?</Badge> 
+            Press <Badge variant="outline" className="font-mono mx-1">?</Badge>
             anywhere in the app to view all keyboard shortcuts.
           </p>
+        </CardContent>
+      </Card>
+
+      {/* Welcome Walkthrough */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Rocket className="h-5 w-5" />
+            Welcome Tutorial
+          </CardTitle>
+          <CardDescription>
+            Replay the welcome walkthrough or reset your tutorial progress
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Replay Walkthrough</p>
+              <p className="text-xs text-muted-foreground">
+                View the step-by-step guide again
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={openWalkthrough}>
+              <Rocket className="h-4 w-4 mr-2" />
+              Start Tutorial
+            </Button>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Reset Progress</p>
+              <p className="text-xs text-muted-foreground">
+                Mark walkthrough as not completed (will auto-open on next load)
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                resetWalkthrough();
+                playSound("success");
+              }}
+            >
+              Reset
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
