@@ -21,6 +21,7 @@ from app.models.goal import Goal
 from app.models.evidence import Evidence
 from app.state_machine import TicketState, JobStatus
 from app.services.reliability_wrapper import ReliabilityWrapper, RetryConfig
+from app.services.safe_autopilot import SafeAutopilot, GateAction, create_default_autopilot
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +59,18 @@ class DeliveryPipeline:
     This is the "autopilot" that takes a goal and delivers merge-ready code.
     """
 
-    def __init__(self, db: AsyncSession, retry_config: Optional[RetryConfig] = None):
+    def __init__(
+        self,
+        db: AsyncSession,
+        retry_config: Optional[RetryConfig] = None,
+        autopilot: Optional[SafeAutopilot] = None
+    ):
         self.db = db
         self.reliability_wrapper = ReliabilityWrapper(
             db=db,
             retry_config=retry_config or RetryConfig(max_retries=3)
         )
+        self.autopilot = autopilot or create_default_autopilot(db)
 
     async def run_full_pipeline(
         self,
@@ -97,7 +104,7 @@ class DeliveryPipeline:
             sorted_tickets = self._topological_sort(tickets)
             logger.info(f"Execution order: {[t.id for t in sorted_tickets]}")
 
-            # Stage 3: Execute tickets in order
+            # Stage 3: Execute tickets in order with safety gates
             completed = []
             blocked = []
 
@@ -107,10 +114,44 @@ class DeliveryPipeline:
                     completed.append(ticket.id)
                     continue
 
+                # Execute ticket
                 result = await self._execute_with_retry(ticket, max_retries=2)
 
                 if result["status"] == "success":
                     completed.append(ticket.id)
+
+                    # Check safety gates after successful execution
+                    can_continue, gate_results = await self.autopilot.should_continue(ticket)
+
+                    if not can_continue:
+                        # Find blocking or pausing gates
+                        blocking_gates = [
+                            r for r in gate_results
+                            if not r.passed and r.action in [GateAction.BLOCK, GateAction.PAUSE]
+                        ]
+
+                        reasons = [f"{r.gate_name}: {r.reason}" for r in blocking_gates]
+
+                        logger.warning(
+                            f"Safety gates triggered for ticket {ticket.id}: {', '.join(reasons)}"
+                        )
+
+                        if not auto_approve:
+                            return PipelineResult(
+                                status="blocked",
+                                reason=f"Safety gates failed: {', '.join(reasons)}",
+                                tickets_completed=completed,
+                                tickets_blocked=[ticket.id]
+                            )
+
+                    # Log any alert-level gate failures
+                    alert_gates = [
+                        r for r in gate_results
+                        if not r.passed and r.action == GateAction.ALERT
+                    ]
+                    for alert in alert_gates:
+                        logger.warning(f"Gate alert for ticket {ticket.id}: {alert.reason}")
+
                 else:
                     blocked.append(ticket.id)
                     # If one ticket fails and not auto_approve, stop here
