@@ -8,6 +8,7 @@ from app.models.cost_budget import CostBudget
 from app.models.evidence import Evidence
 from app.models.goal import Goal
 from app.models.job import Job
+from app.models.merge_checklist import MergeChecklist
 from app.models.normalized_log import NormalizedLogEntry
 from app.models.planner_lock import PlannerLock
 from app.models.review_comment import ReviewComment
@@ -27,6 +28,7 @@ __all__ = [
     "Evidence",
     "Goal",
     "Job",
+    "MergeChecklist",
     "NormalizedLogEntry",
     "PlannerLock",
     "ReviewComment",
