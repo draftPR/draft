@@ -20,6 +20,7 @@ from app.models.job import Job
 from app.models.goal import Goal
 from app.models.evidence import Evidence
 from app.state_machine import TicketState, JobStatus
+from app.services.reliability_wrapper import ReliabilityWrapper, RetryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,12 @@ class DeliveryPipeline:
     This is the "autopilot" that takes a goal and delivers merge-ready code.
     """
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, retry_config: Optional[RetryConfig] = None):
         self.db = db
+        self.reliability_wrapper = ReliabilityWrapper(
+            db=db,
+            retry_config=retry_config or RetryConfig(max_retries=3)
+        )
 
     async def run_full_pipeline(
         self,
@@ -211,58 +216,63 @@ class DeliveryPipeline:
         ticket: Ticket,
         max_retries: int = 2
     ) -> Dict[str, Any]:
-        """Execute a ticket with automatic retry on failure.
+        """Execute a ticket with automatic retry, checkpointing, and recovery.
+
+        Uses ReliabilityWrapper for robust execution with:
+        - Exponential backoff retry
+        - Checkpointing for resume capability
+        - Intelligent error classification
 
         Returns:
             Dict with status and reason
         """
         from app.services.job_service import JobService
-        from app.worker import execute_ticket_job
+
+        # Check if ticket is in correct state
+        if ticket.state not in [TicketState.PLANNED.value, TicketState.BLOCKED.value]:
+            return {
+                "status": "skipped",
+                "reason": f"Ticket in state {ticket.state}, not ready for execution"
+            }
 
         job_service = JobService(self.db)
 
-        for attempt in range(max_retries + 1):
-            try:
-                # Check if ticket is in correct state
-                if ticket.state not in [TicketState.PLANNED.value, TicketState.BLOCKED.value]:
-                    return {
-                        "status": "skipped",
-                        "reason": f"Ticket in state {ticket.state}, not ready for execution"
-                    }
+        async def execute_ticket_with_job():
+            """Inner function that creates job and executes ticket."""
+            # Create execution job
+            job = await job_service.create_job(
+                ticket_id=ticket.id,
+                job_type="execute",
+                board_id=ticket.board_id
+            )
 
-                # Create and enqueue execution job
-                job = await job_service.create_job(
-                    ticket_id=ticket.id,
-                    job_type="execute",
-                    board_id=ticket.board_id
-                )
+            logger.info(f"Executing ticket {ticket.id} with job {job.id}")
 
-                # Execute synchronously (for pipeline)
-                # In production, this would be a Celery task we await
-                logger.info(f"Executing ticket {ticket.id} (attempt {attempt + 1}/{max_retries + 1})")
+            # TODO: Actually call the Celery task and wait for completion
+            # For now, just mark as success if job created
 
-                # TODO: Actually call the Celery task and wait for completion
-                # For now, just mark as success if job created
+            return {
+                "status": "success",
+                "job_id": job.id
+            }
 
-                return {
-                    "status": "success",
-                    "job_id": job.id
-                }
+        try:
+            # Execute with reliability wrapper (automatic retry, checkpointing)
+            result = await self.reliability_wrapper.execute_with_reliability(
+                func=execute_ticket_with_job,
+                ticket_id=ticket.id,
+                job_id=None,  # Job created inside function
+                checkpoint_key=f"pipeline:execute:{ticket.id}"
+            )
 
-            except Exception as e:
-                logger.warning(f"Execution attempt {attempt + 1} failed for ticket {ticket.id}: {e}")
-                if attempt == max_retries:
-                    return {
-                        "status": "failed",
-                        "reason": str(e)
-                    }
-                # Wait before retry (exponential backoff)
-                await asyncio.sleep(2 ** attempt)
+            return result
 
-        return {
-            "status": "failed",
-            "reason": "Max retries exceeded"
-        }
+        except Exception as e:
+            logger.error(f"Ticket {ticket.id} execution failed after all retries: {e}")
+            return {
+                "status": "failed",
+                "reason": str(e)
+            }
 
     async def _verify_all(self, tickets: List[Ticket]) -> Dict[str, Any]:
         """Run verification for all tickets and aggregate results.
