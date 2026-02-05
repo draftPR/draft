@@ -1,14 +1,15 @@
 """Service layer for Job operations."""
 
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.celery_app import celery_app
-from app.exceptions import ResourceNotFoundError
+from app.exceptions import ResourceNotFoundError, ValidationError
 from app.models.job import Job, JobKind, JobStatus
 from app.models.ticket import Ticket
 from app.schemas.job import QueuedJobResponse, QueueStatusResponse
@@ -19,6 +20,10 @@ FALLBACK_LOGS_DIR = Path(__file__).parent.parent.parent / "logs"
 
 # Maximum log file size to read (2MB)
 MAX_LOG_BYTES = 2_000_000
+
+# Job rate limiting (prevent spam/runaway tickets)
+MAX_JOBS_PER_TICKET_PER_HOUR = 10
+MAX_EXECUTE_JOBS_PER_TICKET_PER_DAY = 50
 
 
 def _safe_read_file(base_path: Path, allowed_root: Path, relpath: str) -> str | None:
@@ -71,25 +76,68 @@ class JobService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_job(self, ticket_id: str, kind: JobKind) -> Job:
+    async def create_job(self, ticket_id: str, kind: JobKind, variant: str | None = None) -> Job:
         """
         Create a new job and enqueue the corresponding Celery task.
+
+        Includes rate limiting to prevent runaway tickets.
 
         Args:
             ticket_id: The UUID of the ticket
             kind: The kind of job (execute or verify)
+            variant: Optional execution variant (default, plan, qa, review)
 
         Returns:
             The created Job instance with celery_task_id set
 
         Raises:
             ResourceNotFoundError: If the ticket is not found
+            ValidationError: If rate limit exceeded
         """
         # Verify the ticket exists and get its board_id
-        result = await self.db.execute(select(Ticket).where(Ticket.id == ticket_id))
+        # CRITICAL: Use SELECT FOR UPDATE to prevent race conditions in rate limiting
+        # This locks the ticket row until transaction commits, serializing job creation
+        result = await self.db.execute(
+            select(Ticket)
+            .where(Ticket.id == ticket_id)
+            .with_for_update()
+        )
         ticket = result.scalar_one_or_none()
         if ticket is None:
             raise ResourceNotFoundError("Ticket", ticket_id)
+
+        # RATE LIMITING: Check hourly limit (protected by row lock above)
+        one_hour_ago = datetime.now(UTC) - timedelta(hours=1)
+        hourly_result = await self.db.execute(
+            select(func.count(Job.id))
+            .where(Job.ticket_id == ticket_id)
+            .where(Job.kind == kind.value)
+            .where(Job.created_at >= one_hour_ago)
+        )
+        recent_jobs_hour = hourly_result.scalar()
+
+        if recent_jobs_hour >= MAX_JOBS_PER_TICKET_PER_HOUR:
+            raise ValidationError(
+                f"Rate limit exceeded: {recent_jobs_hour} {kind.value} jobs in past hour. "
+                f"Max {MAX_JOBS_PER_TICKET_PER_HOUR} per hour per ticket."
+            )
+
+        # RATE LIMITING: Check daily limit for EXECUTE jobs (expensive)
+        if kind == JobKind.EXECUTE:
+            one_day_ago = datetime.now(UTC) - timedelta(days=1)
+            daily_result = await self.db.execute(
+                select(func.count(Job.id))
+                .where(Job.ticket_id == ticket_id)
+                .where(Job.kind == JobKind.EXECUTE.value)
+                .where(Job.created_at >= one_day_ago)
+            )
+            recent_jobs_day = daily_result.scalar()
+
+            if recent_jobs_day >= MAX_EXECUTE_JOBS_PER_TICKET_PER_DAY:
+                raise ValidationError(
+                    f"Daily execute limit exceeded: {recent_jobs_day} execute jobs in past 24h. "
+                    f"Max {MAX_EXECUTE_JOBS_PER_TICKET_PER_DAY} per day per ticket."
+                )
 
         # Create the job record with board_id from ticket for permission scoping
         job = Job(
@@ -97,10 +145,16 @@ class JobService:
             board_id=ticket.board_id,  # Inherit board_id from ticket
             kind=kind.value,
             status=JobStatus.QUEUED.value,
+            variant=variant or "default",
         )
         self.db.add(job)
         await self.db.flush()
         await self.db.refresh(job)
+
+        # CRITICAL: Commit the job BEFORE enqueuing Celery task
+        # This ensures the Celery worker (sync session) can see the job
+        # Without this, async/sync session isolation causes "Job not found" errors
+        await self.db.commit()
 
         # Enqueue the Celery task using send_task (safer, avoids circular imports)
         from app.celery_app import celery_app
@@ -117,7 +171,9 @@ class JobService:
 
         # Store the Celery task ID for later reference (e.g., cancellation)
         job.celery_task_id = task.id
-        await self.db.flush()
+
+        # Commit again to save the celery_task_id
+        await self.db.commit()
         await self.db.refresh(job)
 
         return job
@@ -172,11 +228,12 @@ class JobService:
 
     async def cancel_job(self, job_id: str) -> Job:
         """
-        Cancel a job (best-effort).
+        Cancel a job (actively kills running subprocesses).
 
         This will:
         1. Mark the job as canceled in the database
-        2. Attempt to revoke the Celery task
+        2. Kill any running subprocess for this job
+        3. Attempt to revoke the Celery task
 
         Args:
             job_id: The UUID of the job
@@ -187,6 +244,10 @@ class JobService:
         Raises:
             ResourceNotFoundError: If the job is not found
         """
+        import asyncio
+        import logging
+
+        logger = logging.getLogger(__name__)
         job = await self.get_job_by_id(job_id)
 
         # Only cancel if not already in a terminal state
@@ -197,16 +258,30 @@ class JobService:
         ]:
             return job
 
-        # Mark as canceled in database
+        # Mark as canceled in database FIRST (so worker polls see it)
         job.status = JobStatus.CANCELED.value
+        await self.db.flush()
+
+        # Kill any running subprocess
+        try:
+            from app.worker import kill_job_process
+
+            killed = await asyncio.to_thread(kill_job_process, job_id)
+            if killed:
+                logger.info(f"Successfully killed subprocess for job {job_id}")
+            else:
+                logger.warning(f"No active subprocess found for job {job_id}")
+        except Exception as e:
+            logger.error(f"Failed to kill subprocess for job {job_id}: {e}")
 
         # Attempt to revoke the Celery task (best-effort)
         if job.celery_task_id:
-            celery_app.control.revoke(job.celery_task_id, terminate=True)
+            try:
+                celery_app.control.revoke(job.celery_task_id, terminate=True)
+            except Exception as e:
+                logger.warning(f"Failed to revoke Celery task {job.celery_task_id}: {e}")
 
-        await self.db.flush()
         await self.db.refresh(job)
-
         return job
 
     def read_job_logs(self, log_path: str | None) -> str | None:
