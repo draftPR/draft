@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import select
 import subprocess
 import threading
 import time
@@ -44,8 +45,12 @@ from app.state_machine import ActorType, EventType, TicketState
 # Fallback logs directory (used when worktree is not available)
 FALLBACK_LOGS_DIR = Path(__file__).parent.parent / "logs"
 
-# Track current job_id for streaming (set per-task)
-_current_job_id: str | None = None
+# Thread-local storage for job context (THREAD-SAFE)
+_job_context = threading.local()
+
+# Track active subprocesses for cancellation (THREAD-SAFE with lock)
+_active_processes: dict[str, subprocess.Popen] = {}
+_active_processes_lock = threading.Lock()
 
 
 def ensure_fallback_logs_dir() -> None:
@@ -58,21 +63,26 @@ def get_fallback_log_path(job_id: str) -> Path:
     return FALLBACK_LOGS_DIR / f"{job_id}.log"
 
 
+def get_current_job() -> str | None:
+    """Get the current job ID for this thread."""
+    return getattr(_job_context, 'job_id', None)
+
+
 def write_log(log_path: Path, message: str, job_id: str | None = None) -> None:
     """Write a timestamped message to the log file AND stream via Redis.
-    
+
     Args:
         log_path: Path to the log file
         message: The log message
-        job_id: Optional job ID for real-time streaming (uses global if not set)
+        job_id: Optional job ID for real-time streaming (uses thread-local if not set)
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).isoformat()
     with open(log_path, "a") as f:
         f.write(f"[{timestamp}] {message}\n")
-    
-    # Also stream to Redis for real-time SSE
-    stream_job_id = job_id or _current_job_id
+
+    # Also stream to Redis for real-time SSE (THREAD-SAFE)
+    stream_job_id = job_id or get_current_job()
     if stream_job_id:
         try:
             log_stream_publisher.push_info(stream_job_id, message)
@@ -81,9 +91,40 @@ def write_log(log_path: Path, message: str, job_id: str | None = None) -> None:
 
 
 def set_current_job(job_id: str | None) -> None:
-    """Set the current job ID for log streaming."""
-    global _current_job_id
-    _current_job_id = job_id
+    """Set the current job ID for this thread (THREAD-SAFE)."""
+    _job_context.job_id = job_id
+
+
+def register_active_process(job_id: str, process: subprocess.Popen) -> None:
+    """Register an active subprocess for potential cancellation."""
+    with _active_processes_lock:
+        _active_processes[job_id] = process
+
+
+def unregister_active_process(job_id: str) -> None:
+    """Unregister an active subprocess."""
+    with _active_processes_lock:
+        _active_processes.pop(job_id, None)
+
+
+def kill_job_process(job_id: str) -> bool:
+    """Kill the subprocess for a job (for cancellation).
+
+    Returns:
+        True if process was found and killed, False otherwise
+    """
+    with _active_processes_lock:
+        process = _active_processes.get(job_id)
+        if process and process.poll() is None:  # Still running
+            logger.info(f"Killing process {process.pid} for job {job_id}")
+            try:
+                process.kill()
+                process.wait(timeout=5)
+                return True
+            except Exception as e:
+                logger.error(f"Failed to kill process for job {job_id}: {e}")
+                return False
+    return False
 
 
 def stream_finished(job_id: str) -> None:
@@ -258,10 +299,13 @@ def run_verification_command(
     timeout: int = 300,
 ) -> tuple[int, str, str]:
     """
-    Run a verification command and capture output.
+    Run a verification command and capture output (SECURE - no shell injection).
+
+    SECURITY: Uses shlex.split() to safely parse commands without shell=True.
+    Only allows commands from a predefined allowlist to prevent arbitrary execution.
 
     Args:
-        command: The shell command to run
+        command: The command string to parse and execute
         cwd: Working directory for the command
         evidence_dir: Directory to store stdout/stderr files
         evidence_id: UUID for naming evidence files
@@ -270,14 +314,42 @@ def run_verification_command(
 
     Returns:
         Tuple of (exit_code, stdout_relpath, stderr_relpath) - paths are relative to repo_root
+
+    Raises:
+        ValueError: If command is not in allowlist
     """
+    import shlex
+
     stdout_path = evidence_dir / f"{evidence_id}.stdout"
     stderr_path = evidence_dir / f"{evidence_id}.stderr"
 
+    # Allowlist of permitted commands (prevents arbitrary code execution)
+    ALLOWED_COMMANDS = {
+        "pytest", "python", "python3", "ruff", "mypy", "black", "isort",
+        "npm", "yarn", "pnpm", "node", "cargo", "rustc", "go", "make",
+        "eslint", "tsc", "jest", "vitest", "flake8", "pylint",
+    }
+
     try:
+        # SECURE: Parse command string into argv array (prevents injection)
+        # shlex.split() handles quotes and escaping properly
+        cmd_argv = shlex.split(command)
+
+        if not cmd_argv:
+            raise ValueError("Empty command")
+
+        # SECURITY CHECK: Validate first argument is in allowlist
+        base_command = Path(cmd_argv[0]).name  # Strip path, get command name
+        if base_command not in ALLOWED_COMMANDS:
+            raise ValueError(
+                f"Command '{base_command}' not in allowlist. "
+                f"Allowed: {', '.join(sorted(ALLOWED_COMMANDS))}"
+            )
+
+        # Run WITHOUT shell=True (SECURE - no command injection possible)
         result = subprocess.run(
-            command,
-            shell=True,
+            cmd_argv,  # List, not string
+            shell=False,  # CRITICAL: No shell metacharacter interpretation
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -298,7 +370,22 @@ def run_verification_command(
         # Write partial output if available
         stdout_path.write_text(e.stdout.decode() if e.stdout else "Command timed out")
         stderr_path.write_text(e.stderr.decode() if e.stderr else "")
+        stdout_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
+        return -1, stdout_rel, stderr_rel
 
+    except ValueError as e:
+        # Command validation failed (not in allowlist or empty)
+        stdout_path.write_text("")
+        stderr_path.write_text(f"Command validation failed: {str(e)}")
+        stdout_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
+        return -1, stdout_rel, stderr_rel
+
+    except FileNotFoundError as e:
+        # Command not found in PATH
+        stdout_path.write_text("")
+        stderr_path.write_text(f"Command not found: {cmd_argv[0]}")
         stdout_rel = str(stdout_path.relative_to(repo_root))
         stderr_rel = str(stderr_path.relative_to(repo_root))
         return -1, stdout_rel, stderr_rel
@@ -659,10 +746,14 @@ def run_executor_cli(
             bufsize=1,  # Line buffered
         )
         
-        def stream_output(pipe, lines_list, is_stderr=False):
-            """Read and stream output line by line."""
+        def stream_output(pipe, lines_list, is_stderr=False, stop_event=None):
+            """Read and stream output line by line with stop event support."""
             try:
                 for line in iter(pipe.readline, ''):
+                    # Check if we should stop
+                    if stop_event and stop_event.is_set():
+                        logger.debug(f"Stream thread stopping due to stop_event ({'stderr' if is_stderr else 'stdout'})")
+                        break
                     if not line:
                         break
                     line = line.rstrip('\n')
@@ -699,30 +790,74 @@ def run_executor_cli(
             finally:
                 pipe.close()
         
+        # Create stop events for graceful thread termination
+        stdout_stop_event = threading.Event()
+        stderr_stop_event = threading.Event()
+
         # Stream stdout and stderr in parallel threads
         # Use daemon=True so threads don't block process exit if they get stuck
         stdout_thread = threading.Thread(
-            target=stream_output, 
-            args=(process.stdout, stdout_lines, False),
+            target=stream_output,
+            args=(process.stdout, stdout_lines, False, stdout_stop_event),
             daemon=True,
+            name=f"stdout-{job_id[:8] if job_id else 'unknown'}",
         )
         stderr_thread = threading.Thread(
             target=stream_output,
-            args=(process.stderr, stderr_lines, True),
+            args=(process.stderr, stderr_lines, True, stderr_stop_event),
             daemon=True,
+            name=f"stderr-{job_id[:8] if job_id else 'unknown'}",
         )
-        
+
         stdout_thread.start()
         stderr_thread.start()
-        
-        # Wait for process with timeout
+
+        # Register process for cancellation support
+        if job_id:
+            register_active_process(job_id, process)
+
+        # Wait for process with timeout AND poll for cancellation
         try:
-            exit_code = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-            stdout_lines.append(f"\n[TIMEOUT] Process killed after {timeout} seconds")
-            exit_code = -1
+            start_time = time.time()
+            while True:
+                # Check if process finished
+                exit_code = process.poll()
+                if exit_code is not None:
+                    break
+
+                # Check if job was canceled
+                if job_id and check_canceled(job_id):
+                    logger.info(f"Job {job_id} canceled, killing process {process.pid}")
+                    process.kill()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()  # Force kill if still alive
+                        process.wait()
+                    stdout_lines.append(f"\n[CANCELED] Job canceled by user")
+                    exit_code = -2  # Special exit code for cancellation
+                    break
+
+                # Check timeout
+                if time.time() - start_time > timeout:
+                    process.kill()
+                    process.wait()
+                    stdout_lines.append(f"\n[TIMEOUT] Process killed after {timeout} seconds")
+                    exit_code = -1
+                    break
+
+                # Poll every second
+                time.sleep(1)
+
+        finally:
+            # Unregister process
+            if job_id:
+                unregister_active_process(job_id)
+
+            # Signal threads to stop gracefully
+            stdout_stop_event.set()
+            stderr_stop_event.set()
+
             # Close pipes to unblock threads waiting on readline()
             if process.stdout:
                 try:
@@ -734,13 +869,20 @@ def run_executor_cli(
                     process.stderr.close()
                 except Exception:
                     pass
-        
+
         # Wait for output threads to finish (with timeout to prevent blocking)
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
-        
-        # If threads are still alive after timeout, they're daemon threads
-        # and will be cleaned up when the process exits
+
+        # CRITICAL: Warn if threads didn't stop (indicates resource leak)
+        if stdout_thread.is_alive():
+            logger.warning(
+                f"stdout thread for job {job_id[:8] if job_id else 'unknown'} did not stop after 5s timeout - potential resource leak"
+            )
+        if stderr_thread.is_alive():
+            logger.warning(
+                f"stderr thread for job {job_id[:8] if job_id else 'unknown'} did not stop after 5s timeout - potential resource leak"
+            )
         
         # Write captured output to files
         stdout_path.write_text('\n'.join(stdout_lines))
@@ -1333,9 +1475,24 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         raise Ignore()
 
     # Load configuration from the worktree (where smartkanban.yaml should be)
+    # Apply board-level overrides if present
     # Disable cache to ensure we get the latest config
     config_service = ConfigService(worktree_path)
-    config = config_service.load_config(use_cache=False)
+
+    # Get board config for overrides
+    board_config = None
+    if ticket.board_id:
+        with get_sync_db() as db:
+            from app.models.board import Board
+            board = db.query(Board).filter(Board.id == ticket.board_id).first()
+            if board and board.config:
+                board_config = board.config
+
+    # Load config with board overrides applied
+    config = config_service.load_config_with_board_overrides(
+        board_config=board_config,
+        use_cache=False
+    )
     execute_config = config.execute_config
     planner_config = config.planner_config
 
@@ -1383,7 +1540,8 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         str(worktree_path.resolve()),
         repo_root=str(main_repo_path),
     )
-    write_log(log_path, f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}")
+    model_info = f", model={execute_config.executor_model}" if execute_config.executor_model else ""
+    write_log(log_path, f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}{model_info}")
 
     if yolo_status == YoloStatus.REFUSED:
         refusal_reason = execute_config.get_yolo_refusal_reason(repo_root=str(main_repo_path))
@@ -1454,6 +1612,17 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 
     # Build prompt bundle
     write_log(log_path, "Building prompt bundle...")
+    from app.executors.spec import ExecutorVariant
+
+    # Get variant from job (default to DEFAULT if not set)
+    job_variant = ExecutorVariant.DEFAULT
+    if job.variant:
+        try:
+            job_variant = ExecutorVariant(job.variant)
+            write_log(log_path, f"Using execution variant: {job_variant.value}")
+        except ValueError:
+            write_log(log_path, f"WARNING: Invalid variant '{job.variant}', using default")
+
     prompt_builder = PromptBundleBuilder(worktree_path, job_id)
     prompt_file = prompt_builder.build_prompt(
         ticket_title=ticket.title,
@@ -1461,6 +1630,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         feedback_bundle=feedback_bundle,
         additional_context=additional_context,
         related_tickets_context=related_tickets_context,
+        variant=job_variant,
     )
     write_log(log_path, f"Prompt bundle created at: {prompt_file}")
 
@@ -1527,11 +1697,12 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         if session_flag:
             write_log(log_path, f"Continuing from session: {existing_session.session_id} (execution #{existing_session.execution_count + 1})")
 
-    # Get the command with YOLO mode if allowed
+    # Get the command with YOLO mode and model selection
     executor_command = executor_info.get_apply_command(
         prompt_file,
         worktree_path,
         yolo_mode=yolo_enabled,
+        model=execute_config.executor_model,
     )
     
     # Add session continuation flag if available
@@ -1924,9 +2095,24 @@ def verify_ticket_task(self, job_id: str) -> dict:
         raise Ignore()
 
     # Load configuration from the worktree (where smartkanban.yaml should be)
+    # Apply board-level overrides if present
     # Disable cache to ensure we get the latest config
     config_service = ConfigService(worktree_path)
-    config = config_service.load_config(use_cache=False)
+
+    # Get board config for overrides
+    board_config = None
+    if ticket.board_id:
+        with get_sync_db() as db:
+            from app.models.board import Board
+            board = db.query(Board).filter(Board.id == ticket.board_id).first()
+            if board and board.config:
+                board_config = board.config
+
+    # Load config with board overrides applied
+    config = config_service.load_config_with_board_overrides(
+        board_config=board_config,
+        use_cache=False
+    )
     verify_config = config.verify_config
     verify_commands = verify_config.commands
 

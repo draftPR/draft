@@ -436,6 +436,11 @@ async def submit_review(
     review_service = ReviewService(db)
     revision_service = RevisionService(db)
 
+    # Initialize merge status (will be populated if merge is attempted)
+    merge_attempted = False
+    merge_success = None
+    merge_message = None
+
     try:
         # Get revision to find ticket_id
         revision = await revision_service.get_revision_by_id(revision_id)
@@ -453,17 +458,11 @@ async def submit_review(
         if data.decision.value == ReviewDecision.APPROVED.value:
             # Get ticket to check current state
             ticket = await ticket_service.get_ticket_by_id(revision.ticket_id)
-            
-            # Only transition if not already in done state
-            if ticket.state != TicketState.DONE.value:
-                await ticket_service.transition_ticket(
-                    ticket_id=revision.ticket_id,
-                    to_state=TicketState.DONE,
-                    actor_type=TicketActorType.HUMAN,
-                    reason="Revision approved by reviewer",
-                    auto_verify=False,
-                )
-            
+
+            # CRITICAL: Do NOT transition to DONE yet - it triggers worktree cleanup!
+            # We need the worktree to exist for PR creation or merge.
+            # Transition happens AFTER merge/PR creation.
+
             if data.create_pr:
                 # Create a GitHub PR instead of merging directly
                 from app.services.github_service import get_github_service
@@ -512,26 +511,125 @@ async def submit_review(
                         logger.warning(f"Failed to create PR for ticket {ticket.id}: {e}")
                 else:
                     logger.warning(f"No workspace found for ticket {ticket.id}, skipping PR creation")
-            else:
-                # Auto-merge the worktree into the default branch (default behavior)
-                from app.services.merge_service import MergeService, MergeStrategy
-                merge_service = MergeService(db)
-                try:
-                    merge_result = await merge_service.merge_ticket(
+
+                # Transition to DONE after PR creation (worktree will be kept for PR)
+                if ticket.state != TicketState.DONE.value:
+                    await ticket_service.transition_ticket(
                         ticket_id=revision.ticket_id,
-                        strategy=MergeStrategy.MERGE,
-                        delete_worktree=True,
-                        cleanup_artifacts=True,
-                        actor_id="review_approval",
+                        to_state=TicketState.DONE,
+                        actor_type=TicketActorType.HUMAN,
+                        reason="Revision approved by reviewer",
+                        auto_verify=False,
                     )
-                    if not merge_result.success:
-                        # Log the merge failure but don't fail the review
-                        logger.warning(
-                            f"Auto-merge failed for ticket {revision.ticket_id}: {merge_result.message}"
-                        )
-                except ValidationError as e:
-                    # Merge prerequisites not met (no workspace, etc.) - log and continue
-                    logger.info(f"Skipping auto-merge for ticket {revision.ticket_id}: {e.message}")
+            else:
+                # Auto-merge using simple git operations (no state coupling)
+                from app.services.git_merge_simple import (
+                    git_merge_worktree_branch,
+                    cleanup_worktree,
+                    GitMergeError,
+                )
+                from app.services.workspace_service import WorkspaceService
+                from sqlalchemy import select as sql_select
+                from app.models.workspace import Workspace
+                from pathlib import Path
+                from datetime import UTC, datetime
+
+                # Track merge status to return to frontend
+                merge_attempted = True
+                merge_success = False
+                merge_message = None
+
+                try:
+                    # Get workspace info
+                    workspace_result = await db.execute(
+                        sql_select(Workspace).where(Workspace.ticket_id == revision.ticket_id)
+                    )
+                    workspace = workspace_result.scalar_one_or_none()
+
+                    if not workspace or not workspace.is_active:
+                        merge_message = "No active workspace found for ticket"
+                        logger.info(f"Skipping merge for ticket {revision.ticket_id}: {merge_message}")
+                    else:
+                        worktree_path = Path(workspace.worktree_path)
+                        branch_name = workspace.branch_name
+
+                        # Get repo path
+                        workspace_service = WorkspaceService(db)
+                        repo_path = workspace_service.get_repo_path()
+
+                        # Ensure worktree exists
+                        if not worktree_path.exists():
+                            merge_message = f"Worktree does not exist: {worktree_path}"
+                            logger.warning(f"Cannot merge ticket {revision.ticket_id}: {merge_message}")
+                        else:
+                            # Simple git merge (runs in thread pool to avoid blocking)
+                            # Read merge configuration with board-level overrides
+                            from app.services.config_service import ConfigService
+                            config_service = ConfigService()
+
+                            # Get board config for overrides
+                            board_config = None
+                            if ticket.board_id:
+                                from sqlalchemy import select as sql_select_board
+                                from app.models.board import Board
+                                board_result = await db.execute(
+                                    sql_select_board(Board).where(Board.id == ticket.board_id)
+                                )
+                                board = board_result.scalar_one_or_none()
+                                if board and board.config:
+                                    board_config = board.config
+
+                            # Load config with board overrides applied
+                            config = config_service.load_config_with_board_overrides(
+                                board_config=board_config,
+                                use_cache=False
+                            )
+                            merge_config = config.merge_config
+
+                            import asyncio
+                            merge_result = await asyncio.to_thread(
+                                git_merge_worktree_branch,
+                                repo_path=repo_path,
+                                branch_name=branch_name,
+                                target_branch="main",
+                                delete_branch_after=merge_config.delete_branch_after_merge,
+                                push_to_remote=merge_config.push_after_merge,
+                                squash=merge_config.squash_merge,  # From config (default: true)
+                                check_divergence=merge_config.check_divergence,  # From config (default: true)
+                            )
+
+                            merge_success = merge_result.success
+                            merge_message = merge_result.message
+                            logger.info(f"Merge result for ticket {revision.ticket_id}: {merge_message}")
+
+                            # Cleanup worktree
+                            if merge_success:
+                                cleanup_success = await asyncio.to_thread(
+                                    cleanup_worktree,
+                                    repo_path=repo_path,
+                                    worktree_path=worktree_path,
+                                )
+                                if cleanup_success:
+                                    # Mark workspace as cleaned up
+                                    workspace.cleaned_up_at = datetime.now(UTC)
+                                    logger.info(f"Cleaned up worktree for ticket {revision.ticket_id}")
+
+                except GitMergeError as e:
+                    merge_message = f"Git merge failed: {str(e)}"
+                    logger.error(f"Merge error for ticket {revision.ticket_id}: {merge_message}")
+                except Exception as e:
+                    merge_message = f"Unexpected merge error: {str(e)}"
+                    logger.error(f"Unexpected error during merge for ticket {revision.ticket_id}: {e}", exc_info=True)
+
+                # Transition to DONE after merge attempt (even if merge failed - review was approved)
+                if ticket.state != TicketState.DONE.value:
+                    await ticket_service.transition_ticket(
+                        ticket_id=revision.ticket_id,
+                        to_state=TicketState.DONE,
+                        actor_type=TicketActorType.HUMAN,
+                        reason="Revision approved by reviewer",
+                        auto_verify=False,
+                    )
         elif data.decision.value == ReviewDecision.CHANGES_REQUESTED.value and data.auto_run_fix:
             # Auto-rerun caps to prevent infinite loops:
             # - Max 2 auto-reruns per revision (per source_revision_id)
@@ -602,6 +700,9 @@ async def submit_review(
         decision=review_summary.decision_enum,
         body=review_summary.body,
         created_at=review_summary.created_at,
+        merge_attempted=merge_attempted,
+        merge_success=merge_success,
+        merge_message=merge_message,
     )
 
 
