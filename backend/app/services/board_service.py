@@ -22,11 +22,31 @@ class BoardService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def get_default_board_config() -> dict:
+        """Get sensible default configuration for new boards.
+
+        These defaults prevent common pitfalls:
+        - sonnet-4.5 instead of auto (which defaults to expensive opus-thinking)
+        - 300s timeout (5 minutes, reasonable for most tasks)
+
+        Users can override these via BoardSettingsDialog UI or API.
+        """
+        return {
+            "execute_config": {
+                "executor_model": "sonnet-4.5",
+                "timeout": 300,
+            }
+        }
+
     async def create_board(self, data: BoardCreate) -> Board:
-        """Create a new board.
-        
+        """Create a new board with sensible default configuration.
+
         CRITICAL: repo_root becomes the authoritative path for all
         filesystem operations on this board.
+
+        The board is initialized with default config to prevent falling back
+        to YAML config which may have non-optimal defaults (e.g., "auto" model).
         """
         # Validate repo_root exists and is a git repo
         repo_path = Path(data.repo_root).resolve()
@@ -43,6 +63,7 @@ class BoardService:
             description=data.description,
             repo_root=str(repo_path),  # Store resolved absolute path
             default_branch=data.default_branch,
+            config=self.get_default_board_config(),  # Initialize with defaults
         )
         self.db.add(board)
         await self.db.commit()
@@ -81,6 +102,49 @@ class BoardService:
         board = await self.get_board_by_id(board_id)
         await self.db.delete(board)
         await self.db.commit()
+
+    async def initialize_board_config(self, board_id: str) -> Board:
+        """Initialize config for a board that has config=null.
+
+        This is useful for migrating existing boards that were created
+        before auto-initialization was implemented.
+
+        If board already has config, this is a no-op.
+        """
+        board = await self.get_board_by_id(board_id)
+
+        if board.config is None:
+            board.config = self.get_default_board_config()
+            await self.db.commit()
+            await self.db.refresh(board)
+
+        return board
+
+    async def initialize_all_board_configs(self) -> dict:
+        """Initialize config for all boards that have config=null.
+
+        Returns a summary of boards that were updated.
+        """
+        boards = await self.get_boards()
+        updated = []
+        skipped = []
+
+        for board in boards:
+            if board.config is None:
+                board.config = self.get_default_board_config()
+                updated.append(board.id)
+            else:
+                skipped.append(board.id)
+
+        if updated:
+            await self.db.commit()
+
+        return {
+            "total": len(boards),
+            "updated": len(updated),
+            "skipped": len(skipped),
+            "updated_board_ids": updated,
+        }
 
     async def get_repo_root(self, board_id: str) -> Path:
         """Get the repo_root path for a board.
