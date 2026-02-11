@@ -236,6 +236,51 @@ class PlannerFeaturesConfig:
 
 
 @dataclass
+class UDARConfig:
+    """Configuration for UDAR (Understand-Decide-Act-Validate-Review) agent.
+
+    UDAR is a lean agent architecture for adaptive ticket generation with
+    minimal LLM usage (1-2 calls per goal).
+
+    Phase 5 adds production hardening: error handling, timeouts, fallback behavior.
+    """
+
+    enabled: bool = False
+    enable_incremental_replanning: bool = False
+    max_self_correction_iterations: int = 1
+    enable_llm_validation: bool = False
+
+    # Incremental replanning settings (Phase 3)
+    replan_batch_size: int = 5
+    replan_significance_threshold: int = 10
+    replan_max_frequency_minutes: int = 30
+
+    # Production hardening settings (Phase 5)
+    fallback_to_legacy: bool = True  # Fallback to legacy on UDAR errors
+    timeout_seconds: int = 120  # Timeout for UDAR agent execution
+    enable_cost_tracking: bool = True  # Track LLM costs in AgentSession
+    max_retries_on_error: int = 0  # Retry UDAR on transient errors (0 = no retry)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "UDARConfig":
+        """Create a config instance from a dictionary."""
+        return cls(
+            enabled=data.get("enabled", False),
+            enable_incremental_replanning=data.get("enable_incremental_replanning", False),
+            max_self_correction_iterations=data.get("max_self_correction_iterations", 1),
+            enable_llm_validation=data.get("enable_llm_validation", False),
+            replan_batch_size=data.get("replan_batch_size", 5),
+            replan_significance_threshold=data.get("replan_significance_threshold", 10),
+            replan_max_frequency_minutes=data.get("replan_max_frequency_minutes", 30),
+            # Phase 5 settings
+            fallback_to_legacy=data.get("fallback_to_legacy", True),
+            timeout_seconds=data.get("timeout_seconds", 120),
+            enable_cost_tracking=data.get("enable_cost_tracking", True),
+            max_retries_on_error=data.get("max_retries_on_error", 0),
+        )
+
+
+@dataclass
 class PlannerConfig:
     """Configuration for the AI planner.
 
@@ -256,6 +301,7 @@ class PlannerConfig:
     max_tokens_followup: int = 500
     timeout: int = 30
     features: PlannerFeaturesConfig = field(default_factory=PlannerFeaturesConfig)
+    udar: UDARConfig = field(default_factory=UDARConfig)
 
     # Agent path for ticket generation (cursor-agent or claude CLI)
     # Supports ~ for home directory expansion
@@ -283,6 +329,9 @@ class PlannerConfig:
         features_data = data.get("features", {})
         features = PlannerFeaturesConfig.from_dict(features_data) if features_data else PlannerFeaturesConfig()
 
+        udar_data = data.get("udar", {})
+        udar = UDARConfig.from_dict(udar_data) if udar_data else UDARConfig()
+
         default_skip_reasons = ["no changes produced", "no changes", "empty diff"]
 
         return cls(
@@ -291,6 +340,7 @@ class PlannerConfig:
             max_tokens_followup=data.get("max_tokens_followup", 500),
             timeout=data.get("timeout", 30),
             features=features,
+            udar=udar,
             agent_path=data.get("agent_path", "~/.local/bin/cursor-agent"),
             max_followups_per_ticket=data.get("max_followups_per_ticket", 2),
             max_followups_per_tick=data.get("max_followups_per_tick", 3),

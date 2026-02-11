@@ -251,6 +251,18 @@ class PlannerService:
                 reflection_actions = await self._generate_reflections()
                 actions.extend(reflection_actions)
 
+            # 5. UDAR incremental replanning (Phase 3)
+            if self.config.udar.enabled and self.config.udar.enable_incremental_replanning:
+                add_orchestrator_log("INFO", "UDAR incremental replanning enabled, checking for completed tickets")
+                replan_actions = await self._udar_incremental_replan()
+                actions.extend(replan_actions)
+                if replan_actions:
+                    add_orchestrator_log(
+                        "INFO",
+                        f"UDAR generated {len(replan_actions)} follow-up proposals",
+                        {"count": len(replan_actions)},
+                    )
+
             # Commit all DB changes BEFORE enqueueing Celery jobs
             await self.db.commit()
             add_orchestrator_log("DEBUG", "DB changes committed")
@@ -1139,6 +1151,101 @@ Generate a follow-up ticket proposal as JSON."""
                     details={"summary": reflection.summary},
                 )
             )
+
+        return actions
+
+    async def _udar_incremental_replan(self) -> list[PlannerAction]:
+        """UDAR incremental replanning: analyze completed tickets and generate follow-ups.
+
+        COST OPTIMIZATION:
+        - Batches tickets (waits for 5 tickets before analyzing)
+        - Only calls LLM if changes significant (>10 files OR verification failed)
+        - Target: 1 LLM call per 5 completed tickets (or 0 if minor changes)
+
+        Returns:
+            List of PlannerActions for follow-ups generated.
+        """
+        from app.services.udar_planner_service import UDARPlannerService
+        from datetime import datetime, timedelta
+
+        actions: list[PlannerAction] = []
+
+        # Find recently completed tickets (last 30 minutes, not yet analyzed)
+        # Note: We track analyzed status in ticket metadata
+        recent_cutoff = datetime.utcnow() - timedelta(minutes=30)
+        done_result = await self.db.execute(
+            select(Ticket)
+            .where(
+                Ticket.state == TicketState.DONE.value,
+                Ticket.updated_at >= recent_cutoff,
+            )
+        )
+        recent_done = done_result.scalars().all()
+
+        # Filter to only unanalyzed tickets
+        unanalyzed = [
+            t for t in recent_done
+            if not (t.metadata_ and t.metadata_.get("udar_analyzed_at"))
+        ]
+
+        if not unanalyzed:
+            logger.debug("No unanalyzed completed tickets for UDAR replanning")
+            return actions
+
+        # Check if batch size reached (from config)
+        # This prevents frequent small LLM calls
+        batch_size = self.config.udar.replan_batch_size
+        if len(unanalyzed) < batch_size:
+            logger.debug(
+                f"UDAR replanning: Only {len(unanalyzed)} tickets, waiting for batch of {batch_size}"
+            )
+            return actions
+
+        # Take up to batch_size tickets for analysis
+        tickets_to_analyze = unanalyzed[:batch_size]
+        ticket_ids = [t.id for t in tickets_to_analyze]
+
+        logger.info(
+            f"UDAR replanning: Analyzing batch of {len(ticket_ids)} completed tickets"
+        )
+
+        # Call UDAR agent for batched replanning
+        udar_service = UDARPlannerService(self.db)
+        try:
+            result = await udar_service.replan_after_completion(ticket_ids)
+
+            logger.info(
+                f"UDAR replanning: {result['summary']} "
+                f"(LLM calls: {result['llm_calls_made']})"
+            )
+
+            # Mark tickets as analyzed to avoid duplicate analysis
+            for ticket in tickets_to_analyze:
+                if not ticket.metadata_:
+                    ticket.metadata_ = {}
+                ticket.metadata_["udar_analyzed_at"] = datetime.utcnow().isoformat()
+                ticket.metadata_["udar_batch_id"] = ticket_ids[0]  # Track batch
+
+            # Create PlannerActions for created follow-ups
+            if result["follow_ups_created"] > 0:
+                actions.append(
+                    PlannerAction(
+                        action_type=PlannerActionType.PROPOSED_FOLLOWUP,
+                        ticket_id=ticket_ids[0],  # Reference first ticket in batch
+                        ticket_title=f"Batch of {len(ticket_ids)} tickets",
+                        details={
+                            "follow_ups_created": result["follow_ups_created"],
+                            "tickets_analyzed": result["tickets_analyzed"],
+                            "significant_tickets": result["significant_tickets"],
+                            "llm_calls": result["llm_calls_made"],
+                            "batch_size": len(ticket_ids),
+                        },
+                    )
+                )
+
+        except Exception as e:
+            logger.error(f"UDAR replanning failed: {e}")
+            # Don't fail the entire tick, just log the error
 
         return actions
 

@@ -10,8 +10,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.agent_conversation_history import AgentConversationHistory
     from app.models.board import Board
     from app.models.cost_budget import CostBudget
+    from app.models.merge_checklist import MergeChecklist
     from app.models.ticket import Ticket
 
 
@@ -59,6 +61,17 @@ class Goal(Base):
         "CostBudget",
         back_populates="goal",
         uselist=False,
+        cascade="all, delete-orphan",
+    )
+    merge_checklist: Mapped["MergeChecklist | None"] = relationship(
+        "MergeChecklist",
+        back_populates="goal",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    agent_conversation_history: Mapped[list["AgentConversationHistory"]] = relationship(
+        "AgentConversationHistory",
+        back_populates="goal",
         cascade="all, delete-orphan",
     )
 

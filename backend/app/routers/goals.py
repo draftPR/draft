@@ -16,6 +16,7 @@ from app.schemas.planner import (
 from app.services.config_service import ConfigService
 from app.services.goal_service import GoalService
 from app.services.ticket_generation_service import TicketGenerationService
+from app.services.udar_planner_service import UDARPlannerService
 from app.utils.ignored_fields import check_ignored_fields, add_ignored_fields_header
 
 router = APIRouter(prefix="/goals", tags=["goals"])
@@ -120,16 +121,38 @@ async def generate_tickets(
             detail=f"Configured repo_root does not exist: {repo_root}",
         )
 
-    service = TicketGenerationService(db)
-    try:
-        result = await service.generate_from_goal(
-            goal_id=goal_id,
-            repo_root=repo_root,
-            include_readme=request.include_readme,
-            validate_tickets=config.planner.features.validate_tickets,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    # Check if UDAR agent is enabled (Phase 2 feature flag)
+    if config.planner_config.udar.enabled:
+        # Use UDAR agent for adaptive ticket generation
+        udar_service = UDARPlannerService(db)
+        try:
+            udar_result = await udar_service.generate_from_goal(goal_id=goal_id)
+            # Convert UDAR result to expected format
+            result_tickets = [
+                {
+                    "id": t.get("id"),
+                    "title": t.get("title"),
+                    "description": t.get("description"),
+                    "priority": t.get("priority", 50),
+                    "state": "proposed",
+                }
+                for t in udar_result.get("tickets", [])
+            ]
+            result = type('obj', (object,), {'tickets': result_tickets})()
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+    else:
+        # Use legacy ticket generation service
+        service = TicketGenerationService(db)
+        try:
+            result = await service.generate_from_goal(
+                goal_id=goal_id,
+                repo_root=repo_root,
+                include_readme=request.include_readme,
+                validate_tickets=config.planner_config.features.validate_tickets,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
 
     response_data = GenerateTicketsResponse(
         tickets=result.tickets,

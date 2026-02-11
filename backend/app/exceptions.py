@@ -148,3 +148,31 @@ class LLMAPIError(PlannerError):
         if status_code:
             full_message = f"{full_message} (status: {status_code})"
         super().__init__(full_message)
+
+
+class LLMTimeoutError(LLMAPIError):
+    """Raised when an LLM API call times out."""
+
+    def __init__(self, provider: str, timeout_seconds: int):
+        self.timeout_seconds = timeout_seconds
+        message = f"LLM API call timed out after {timeout_seconds} seconds"
+        super().__init__(message, provider)
+
+
+class UDARAgentError(PlannerError):
+    """Base exception for UDAR agent errors."""
+
+    def __init__(self, message: str, phase: str | None = None):
+        self.phase = phase
+        full_message = message
+        if phase:
+            full_message = f"[{phase} phase] {message}"
+        super().__init__(full_message)
+
+
+class ToolExecutionError(UDARAgentError):
+    """Raised when a UDAR tool execution fails."""
+
+    def __init__(self, tool_name: str, message: str, phase: str | None = None):
+        self.tool_name = tool_name
+        super().__init__(f"Tool '{tool_name}' failed: {message}", phase)

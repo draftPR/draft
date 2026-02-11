@@ -3,12 +3,13 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.board_repo import BoardRepo
     from app.models.goal import Goal
     from app.models.job import Job
     from app.models.ticket import Ticket
@@ -38,7 +39,11 @@ class Board(Base):
     
     # Optional: default branch for this repo
     default_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    
+
+    # Board-level configuration overrides (JSON)
+    # Overrides settings from smartkanban.yaml
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -58,6 +63,9 @@ class Board(Base):
     )
     workspaces: Mapped[list["Workspace"]] = relationship(
         "Workspace", back_populates="board", cascade="all, delete-orphan"
+    )
+    board_repos: Mapped[list["BoardRepo"]] = relationship(
+        "BoardRepo", back_populates="board", cascade="all, delete-orphan"
     )
 
 

@@ -25,6 +25,12 @@ class LogEntryType(str, enum.Enum):
     LOADING = "loading"
     TODO_LIST = "todo_list"  # Agent's todo/task list
 
+    # UDAR agent entry types
+    AGENT_UNDERSTANDING = "agent_understanding"  # Context gathered in Understand phase
+    AGENT_DECISION = "agent_decision"  # LLM reasoning in Decide phase
+    AGENT_VALIDATION = "agent_validation"  # Validation results in Validate phase
+    AGENT_TOOL_CALL = "agent_tool_call"  # Tool invocations (deterministic)
+
 
 class NormalizedLogEntry(Base):
     """Structured, semantic log entry parsed from raw agent output."""

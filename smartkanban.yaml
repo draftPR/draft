@@ -191,3 +191,67 @@ planner_config:
     #   - Relevant to the codebase
     # Invalid tickets are filtered out and logged
     validate_tickets: true
+
+  # ---------------------------------------------------------------------------
+  # UDAR AGENT CONFIGURATION (Experimental)
+  # ---------------------------------------------------------------------------
+  # UDAR (Understand-Decide-Act-Validate-Review) is a lean agent architecture
+  # for adaptive ticket generation. When enabled, it replaces the legacy
+  # single-shot ticket generator with a structured workflow that:
+  #   - Gathers codebase context deterministically (0 LLM calls)
+  #   - Generates tickets in batched LLM call (1 LLM call)
+  #   - Validates proposals deterministically (0 LLM calls)
+  #   - Can optionally re-plan after ticket completion (incremental)
+  #
+  # COST: 1-2 LLM calls per goal (vs legacy 1 call), but with better reasoning
+  udar:
+    # Enable UDAR agent for ticket generation (default: false for Phase 2 testing)
+    enabled: false
+
+    # Enable incremental replanning after ticket completion (default: false)
+    # When true, agent analyzes completed tickets and generates follow-ups
+    # Cost: ~1 LLM call per 5 completed tickets (batched)
+    enable_incremental_replanning: false
+
+    # Max self-correction iterations if validation fails (default: 1 to save quota)
+    max_self_correction_iterations: 1
+
+    # Enable optional LLM validation in Validate phase (default: false)
+    # When false, only deterministic validation is used (exact duplicate check, etc.)
+    # When true, adds LLM-based validation (+1 LLM call)
+    enable_llm_validation: false
+
+    # Incremental replanning settings (Phase 3)
+    # Batch size: Wait for this many completed tickets before analyzing (default: 5)
+    # Higher = fewer LLM calls but less responsive follow-ups
+    replan_batch_size: 5
+
+    # Significance threshold: Only call LLM if files changed exceeds this (default: 10)
+    # Changes below this threshold are considered "minor" and skip LLM analysis
+    replan_significance_threshold: 10
+
+    # Max frequency: Minimum minutes between replanning batches (default: 30)
+    # Prevents too-frequent LLM calls even if batch size reached
+    replan_max_frequency_minutes: 30
+
+    # ---------------------------------------------------------------------------
+    # Production Hardening (Phase 5)
+    # ---------------------------------------------------------------------------
+    # Error handling, timeouts, and fallback behavior for production deployments
+
+    # Fallback to legacy ticket generation if UDAR fails (default: true)
+    # When true, errors in UDAR automatically fall back to legacy mode
+    # When false, UDAR errors propagate to the caller
+    fallback_to_legacy: true
+
+    # Timeout for UDAR agent execution in seconds (default: 120 = 2 minutes)
+    # Prevents runaway LLM calls from blocking indefinitely
+    timeout_seconds: 120
+
+    # Enable cost tracking in AgentSession table (default: true)
+    # Tracks input/output tokens and estimated USD cost per goal
+    enable_cost_tracking: true
+
+    # Max retries on transient errors (default: 0 = no retry)
+    # For network errors, rate limits, etc. NOT for validation failures.
+    max_retries_on_error: 0

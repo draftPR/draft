@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TicketDAGView } from "@/components/TicketDAGView";
 import {
   fetchSystemStatus,
   fetchOrchestratorLogs,
@@ -36,6 +37,7 @@ import {
   Check,
   ListOrdered,
   Pause,
+  GitBranch,
 } from "lucide-react";
 
 interface DebugPanelProps {
@@ -43,7 +45,7 @@ interface DebugPanelProps {
   onClose: () => void;
 }
 
-type TabType = "status" | "queue" | "orchestrator" | "agent" | "events";
+type TabType = "status" | "queue" | "dag" | "orchestrator" | "agent" | "events";
 
 function formatTime(timestamp: string): string {
   try {
@@ -259,6 +261,7 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: "status", label: "Status", icon: <Activity className="h-3.5 w-3.5" /> },
     { id: "queue", label: "Queue", icon: <ListOrdered className="h-3.5 w-3.5" /> },
+    { id: "dag", label: "DAG", icon: <GitBranch className="h-3.5 w-3.5" /> },
     { id: "orchestrator", label: "Orchestrator", icon: <Zap className="h-3.5 w-3.5" /> },
     { id: "agent", label: "Agent", icon: <Terminal className="h-3.5 w-3.5" /> },
     { id: "events", label: "Events", icon: <ScrollText className="h-3.5 w-3.5" /> },
@@ -450,6 +453,13 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               )}
+            </div>
+          )}
+
+          {/* DAG Tab */}
+          {activeTab === "dag" && (
+            <div className="h-full">
+              <TicketDAGView />
             </div>
           )}
 

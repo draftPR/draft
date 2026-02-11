@@ -37,6 +37,8 @@ RATE_LIMITED_ENDPOINTS = {
     "/board/analyze-codebase",  # Legacy
     "/planner/tick",
     "/planner/start",
+    "/udar/{goal_id}/generate",  # UDAR agent initial generation
+    "/udar/{goal_id}/replan",    # UDAR agent incremental replanning
 }
 
 # Cost-based rate limit configuration
@@ -51,6 +53,8 @@ COST_ANALYZE_CODEBASE = 10  # Heavy operation
 COST_GENERATE_TICKETS = 5
 COST_REFLECT = 5
 COST_PLANNER_TICK = 3
+COST_UDAR_GENERATE = 8  # UDAR initial generation (1-2 LLM calls)
+COST_UDAR_REPLAN = 3    # UDAR replanning (0-1 LLM calls)
 
 # Redis key prefix
 REDIS_KEY_PREFIX = "ratelimit:"
@@ -104,12 +108,12 @@ def _get_route_key(path: str) -> str:
 
 def _estimate_request_cost(body: bytes, matched_pattern: str | None) -> int:
     """Estimate cost BEFORE request executes based on request intent.
-    
+
     This is the gating cost - we reject requests that would exceed budget
     BEFORE doing any expensive work.
     """
     cost = BASE_COST
-    
+
     # Add operation-specific base cost
     if matched_pattern:
         if "analyze-codebase" in matched_pattern:
@@ -120,6 +124,11 @@ def _estimate_request_cost(body: bytes, matched_pattern: str | None) -> int:
             cost += COST_REFLECT
         elif "planner" in matched_pattern:
             cost += COST_PLANNER_TICK
+        elif "/udar/" in matched_pattern:
+            if "/generate" in matched_pattern:
+                cost += COST_UDAR_GENERATE
+            elif "/replan" in matched_pattern:
+                cost += COST_UDAR_REPLAN
     
     # Parse body to estimate additional cost
     try:

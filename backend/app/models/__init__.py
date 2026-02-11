@@ -1,5 +1,6 @@
 """SQLAlchemy models for Smart Kanban."""
 
+from app.models.agent_conversation_history import AgentConversationHistory
 from app.models.agent_session import AgentMessage, AgentSession
 from app.models.analysis_cache import AnalysisCache
 from app.models.base import Base
@@ -19,6 +20,7 @@ from app.models.ticket_event import TicketEvent
 from app.models.workspace import Workspace
 
 __all__ = [
+    "AgentConversationHistory",
     "AgentMessage",
     "AgentSession",
     "AnalysisCache",

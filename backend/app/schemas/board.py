@@ -29,7 +29,8 @@ class BoardUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     default_branch: str | None = None
-    
+    config: dict | None = Field(None, description="Board-level configuration overrides")
+
     class Config:
         extra = "ignore"
 
@@ -54,5 +55,31 @@ class BoardListResponse(BaseModel):
 
     boards: list[BoardResponse]
     total: int
+
+
+class BoardConfigUpdate(BaseModel):
+    """Schema for updating board-level configuration overrides."""
+
+    config: dict | None = Field(
+        None,
+        description="Board-level configuration that overrides smartkanban.yaml settings"
+    )
+
+    class Config:
+        extra = "ignore"
+
+
+class BoardConfigResponse(BaseModel):
+    """Schema for board configuration response."""
+
+    board_id: str
+    config: dict | None = Field(
+        None,
+        description="Board-level configuration JSON"
+    )
+    has_overrides: bool = Field(
+        default=False,
+        description="Whether the board has custom configuration overrides"
+    )
 
 

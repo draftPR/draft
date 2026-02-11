@@ -10,7 +10,7 @@ import { useKeyboardNavigation, type KeyboardShortcut } from '../hooks/useKeyboa
 
 interface KeyboardShortcutsHelpProps {
   /** List of shortcuts to display */
-  shortcuts: KeyboardShortcut[];
+  shortcuts?: KeyboardShortcut[];
 }
 
 /**
@@ -30,7 +30,7 @@ interface KeyboardShortcutsHelpProps {
  * <KeyboardShortcutsHelp shortcuts={shortcuts} />
  * ```
  */
-export function KeyboardShortcutsHelp({ shortcuts }: KeyboardShortcutsHelpProps) {
+export function KeyboardShortcutsHelp({ shortcuts = [] }: KeyboardShortcutsHelpProps) {
   const [open, setOpen] = useState(false);
 
   // Register `?` to open help
