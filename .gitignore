@@ -60,3 +60,9 @@ htmlcov/
 # Smart Kanban workspaces (git worktrees)
 .smartkanban/
 
+# Session/summary markdown files (generated during development)
+/*.md
+!CLAUDE.md
+!AGENTS.md
+!README.md
+

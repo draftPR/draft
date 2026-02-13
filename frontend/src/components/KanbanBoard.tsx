@@ -6,7 +6,7 @@ import {
 } from "@hello-pangea/dnd";
 import { TicketCard } from "@/components/TicketCard";
 import { TicketDetailDrawer } from "@/components/TicketDetailDrawer";
-import { fetchBoard, transitionTicket, runPlannerStart, fetchPlannerStatus, executeTicket } from "@/services/api";
+import { fetchBoard, transitionTicket, runPlannerStart, fetchPlannerStatus, executeTicket, fetchTicket } from "@/services/api";
 import {
   type Ticket,
   type BoardResponse,
@@ -18,9 +18,10 @@ import {
   STATE_DISPLAY_NAMES,
   PlannerActionType,
 } from "@/types/api";
+import { useBoard } from "@/contexts/BoardContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Loader2, AlertCircle, RefreshCw, Zap, Check, X, Info } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, Zap, Check, X, Info, Target, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -30,6 +31,7 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
+  const { currentBoard } = useBoard();
   const [board, setBoard] = useState<BoardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +53,20 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
       });
   }, []);
 
-  const loadBoard = useCallback(async (silent = false) => {
+  // Load board data - not memoized to avoid dependency issues
+  const loadBoard = async (silent = false) => {
+    if (!currentBoard) {
+      setLoading(false);
+      setBoard(null);
+      return;
+    }
+
     if (!silent) {
       setLoading(true);
     }
     setError(null);
     try {
-      const data = await fetchBoard();
+      const data = await fetchBoard(currentBoard.id);
       setBoard(data);
       setLastRefreshTime(new Date());
     } catch (err) {
@@ -71,22 +80,25 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
         setLoading(false);
       }
     }
-  }, []);
+  };
 
+  // Load board when currentBoard changes or refresh is triggered
   useEffect(() => {
     loadBoard();
-  }, [loadBoard, refreshTrigger]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentBoard?.id, refreshTrigger]);
 
-  // Auto-refresh interval
+  // Auto-refresh interval - only run when a board is selected
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || !currentBoard) return;
 
     const intervalId = setInterval(() => {
       loadBoard(true); // Silent refresh
     }, 3000); // Refresh every 3 seconds
 
     return () => clearInterval(intervalId);
-  }, [autoRefresh, loadBoard]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh, currentBoard?.id]); // Only recreate when autoRefresh or board changes
 
   const handleAutopilotStart = useCallback(async () => {
     setAutopilotLoading(true);
@@ -148,6 +160,17 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
     setSelectedTicket(ticket);
     setDrawerOpen(true);
   };
+
+  const handleNavigateToBlocker = useCallback(async (ticketId: string) => {
+    try {
+      const blockerTicket = await fetchTicket(ticketId);
+      setSelectedTicket(blockerTicket);
+      setDrawerOpen(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load blocker ticket";
+      toast.error(message);
+    }
+  }, []);
 
   const handleExecuteTicket = useCallback(async (ticket: Ticket) => {
     // Optimistic update: Move ticket to Executing column immediately
@@ -261,6 +284,23 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
     const column = board?.columns.find((col) => col.state === state);
     return column?.tickets || [];
   };
+
+  // Show message when no board is selected
+  if (!currentBoard) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-200px)]">
+        <div className="flex flex-col items-center gap-4 text-center max-w-md">
+          <Target className="h-12 w-12 text-muted-foreground" />
+          <div>
+            <p className="font-medium text-foreground">No Project Selected</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Select a project from the dropdown above or add a new project to get started.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading && !board) {
     return (
@@ -544,11 +584,27 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
           {/* Column Headers Row */}
           <div className="flex gap-3 mb-2 px-1 sticky top-0 bg-background z-10">
             {COLUMN_ORDER.map((state) => {
+              const tickets = getColumnTickets(state);
+              const blockedCount = state === TicketState.PLANNED
+                ? tickets.filter(t => t.blocked_by_ticket_id !== null).length
+                : 0;
+              const readyCount = state === TicketState.PLANNED
+                ? tickets.filter(t => t.blocked_by_ticket_id === null).length
+                : 0;
+
               return (
                 <div key={state} className="flex-shrink-0 w-[180px]">
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <span className="text-muted-foreground">●</span>
-                    <span className="font-medium">{STATE_DISPLAY_NAMES[state]}</span>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <span className="text-muted-foreground">●</span>
+                      <span className="font-medium">{STATE_DISPLAY_NAMES[state]}</span>
+                    </div>
+                    {state === TicketState.PLANNED && blockedCount > 0 && (
+                      <div className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+                        <Lock className="h-2.5 w-2.5" />
+                        <span>{blockedCount} blocked, {readyCount} ready</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -583,6 +639,8 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
                               index={index}
                               onClick={handleTicketClick}
                               onExecute={handleExecuteTicket}
+                              onDelete={() => loadBoard(true)}
+                              onNavigateToBlocker={handleNavigateToBlocker}
                             />
                           ))}
                           {provided.placeholder}

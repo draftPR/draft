@@ -23,11 +23,22 @@ export function ReviewSummaryBox({
   hasExistingReview = false,
 }: ReviewSummaryBoxProps) {
   const [summary, setSummary] = useState("");
-  const [decision, setDecision] = useState<"approved" | "changes_requested">("approved");
+  // Default to "changes_requested" if there are unresolved comments
+  const [decision, setDecision] = useState<"approved" | "changes_requested">(
+    unresolvedCount > 0 ? "changes_requested" : "approved"
+  );
   const [autoRunFix, setAutoRunFix] = useState(true);
   const [createPr, setCreatePr] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
-  
+
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    // Reset decision when popover opens based on current unresolvedCount
+    if (open) {
+      setDecision(unresolvedCount > 0 ? "changes_requested" : "approved");
+    }
+  };
+
   const handleSubmit = async () => {
     if (decision === "approved") {
       await onSubmitReview("approved", summary || "Approved", false, createPr);
@@ -47,7 +58,7 @@ export function ReviewSummaryBox({
   }
   
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
+    <Popover open={isOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
           Review changes

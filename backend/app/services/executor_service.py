@@ -57,9 +57,14 @@ class ExecutorInfo:
         prompt_file: Path,
         worktree_path: Path,
         yolo_mode: bool = False,
-    ) -> list[str]:
+        **kwargs,
+    ) -> tuple[list[str], str | None]:
         """
         Get the command to run for applying changes.
+
+        Returns a tuple of (command_args, stdin_input). The prompt content is
+        passed via stdin instead of as a CLI argument to avoid exceeding
+        ARG_MAX (~130KB on most systems) with large prompts.
 
         Args:
             prompt_file: Path to the prompt bundle file.
@@ -68,35 +73,35 @@ class ExecutorInfo:
                       Only use when execution is isolated and you accept the risk.
 
         Returns:
-            List of command arguments.
+            Tuple of (command args list, stdin content or None).
         """
         if self.executor_type == ExecutorType.CLAUDE:
             # Claude Code CLI with non-interactive mode:
             # - --print: Non-interactive mode that prints response and exits
             # - --dangerously-skip-permissions: ONLY if yolo_mode is enabled
+            # Prompt is piped via stdin to avoid ARG_MAX limits
             prompt_content = prompt_file.read_text()
             cmd = [self.command, "--print"]
             if yolo_mode:
                 cmd.append("--dangerously-skip-permissions")
-            cmd.append(prompt_content)
-            return cmd
+            return cmd, prompt_content
         elif self.executor_type == ExecutorType.CURSOR_AGENT:
             # Cursor Agent CLI with non-interactive mode:
             # - --print: Non-interactive mode that prints response and exits
             # - --output-format=stream-json: Stream JSON output line-by-line for real-time logs
             # - --force: Allow all commands without prompting (like YOLO mode)
             # - --workspace: Set the working directory
+            # Prompt is piped via stdin to avoid ARG_MAX limits
             prompt_content = prompt_file.read_text()
             cmd = [self.command, "--print", "--output-format=stream-json", "--workspace", str(worktree_path)]
             if yolo_mode:
                 cmd.append("--force")
-            cmd.append(prompt_content)
-            return cmd
+            return cmd, prompt_content
         elif self.executor_type == ExecutorType.CURSOR:
             # Cursor CLI is INTERACTIVE ONLY
             # It opens the editor with the worktree. User must complete changes manually.
             # The worker will immediately transition to needs_human.
-            return [self.command, str(worktree_path)]
+            return [self.command, str(worktree_path)], None
         else:
             raise ValueError(f"Unknown executor type: {self.executor_type}")
 

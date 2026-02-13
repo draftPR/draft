@@ -259,6 +259,20 @@ class WorkspaceService:
 
         # Remove existing worktree directory if it exists (from a previous failed attempt)
         if worktree_dir.exists():
+            # Security: reject symlinks to prevent directory traversal attacks
+            if worktree_dir.is_symlink():
+                raise WorktreeCreationError(
+                    f"Worktree path is a symlink (potential security issue): {worktree_dir}",
+                    git_error="symlink_detected",
+                )
+            # Security: ensure resolved path stays within the repo boundary
+            resolved = worktree_dir.resolve()
+            repo_resolved = repo_path.resolve()
+            if not str(resolved).startswith(str(repo_resolved) + os.sep):
+                raise WorktreeCreationError(
+                    f"Worktree path escapes repo boundary: {resolved}",
+                    git_error="path_traversal_detected",
+                )
             shutil.rmtree(worktree_dir)
 
         # Check if branch already exists (e.g., from previous execution before cleanup)

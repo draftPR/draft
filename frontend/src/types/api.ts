@@ -2,6 +2,8 @@
  * TypeScript types matching backend API schemas
  */
 
+import type { NormalizedLogEntry } from "@/types/logs";
+
 // State values matching backend state_machine.py (using const objects for erasableSyntaxOnly)
 export const TicketState = {
   PROPOSED: "proposed",
@@ -71,6 +73,12 @@ export interface Ticket {
   priority: number | null;
   created_at: string;
   updated_at: string;
+
+  // Dependency fields
+  blocked_by_ticket_id: string | null;
+  blocked_by_ticket_title?: string | null;
+  is_blocked?: boolean;
+
   // GitHub PR fields
   pr_number?: number | null;
   pr_url?: string | null;
@@ -86,6 +94,7 @@ export interface TicketCreate {
   title: string;
   description?: string | null;
   priority?: number | null;
+  blocked_by_ticket_id?: string | null;
   actor_type?: ActorType;
   actor_id?: string | null;
 }
@@ -143,6 +152,50 @@ export interface EvidenceListResponse {
 }
 
 // Board types
+export interface Board {
+  id: string;
+  name: string;
+  description: string | null;
+  repo_root: string;
+  default_branch: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BoardListResponse {
+  boards: Board[];
+  total: number;
+}
+
+export interface BoardCreate {
+  name: string;
+  description?: string | null;
+  repo_root: string;
+  default_branch?: string | null;
+}
+
+// Repo discovery types
+export interface DiscoveredRepo {
+  path: string;
+  name: string;
+  display_name: string;
+  default_branch: string | null;
+  remote_url: string | null;
+  is_valid: boolean;
+  error_message: string | null;
+}
+
+export interface DiscoverReposRequest {
+  search_paths: string[];
+  max_depth?: number;
+  exclude_patterns?: string[];
+}
+
+export interface DiscoverReposResponse {
+  discovered: DiscoveredRepo[];
+  total: number;
+}
+
 export interface TicketsByState {
   state: TicketState;
   tickets: Ticket[];
@@ -657,4 +710,212 @@ export interface QueuedMessageStatus {
   status: "empty" | "queued";
   message: string | null;
   queued_at: string | null;
+}
+
+// ==================== Debug Types ====================
+
+export interface OrchestratorLogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  data: Record<string, unknown>;
+}
+
+export interface OrchestratorLogsResponse {
+  logs: OrchestratorLogEntry[];
+  total: number;
+}
+
+export interface AgentLogEntry {
+  timestamp: string;
+  job_id: string;
+  ticket_id: string;
+  ticket_title: string;
+  kind: string;
+  content: string;
+}
+
+export interface AgentLogsResponse {
+  logs: AgentLogEntry[];
+  job_id: string | null;
+  ticket_title: string | null;
+}
+
+export interface RunningJobInfo {
+  job_id: string;
+  ticket_id: string;
+  ticket_title: string;
+  kind: string;
+  started_at: string | null;
+  log_preview: string | null;
+}
+
+export interface SystemStatusResponse {
+  timestamp: string;
+  running_jobs: RunningJobInfo[];
+  queued_count: number;
+  tickets_by_state: Record<string, number>;
+  recent_events_count: number;
+}
+
+export interface RecentEvent {
+  id: string;
+  ticket_id: string;
+  ticket_title: string | null;
+  event_type: string;
+  actor_type: string;
+  actor_id: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
+// ==================== Streaming Types ====================
+
+export interface StreamLogMessage {
+  level: "stdout" | "stderr" | "info" | "error" | "progress" | "normalized" | "finished";
+  content: string;
+  timestamp: string;
+  progress_pct?: number;
+  stage?: string;
+}
+
+export interface StreamNormalizedEntry {
+  entry_type: "system_message" | "assistant_message" | "thinking" | "tool_use" | "error_message";
+  content: string;
+  sequence: number;
+  tool_name?: string | null;
+  action_type?: string | null;
+  tool_status?: string | null;
+  metadata?: Record<string, any>;
+}
+
+export interface StreamCallbackData {
+  content?: string;
+  error?: string;
+  status?: string;
+  progress?: number;
+  stage?: string;
+  normalized?: StreamNormalizedEntry;
+}
+
+// ==================== Dashboard Types ====================
+
+export interface BudgetStatus {
+  daily_budget: number | null;
+  daily_spent: number;
+  daily_remaining: number;
+  weekly_budget: number | null;
+  weekly_spent: number;
+  weekly_remaining: number;
+  monthly_budget: number | null;
+  monthly_spent: number;
+  monthly_remaining: number;
+  is_over_budget: boolean;
+  warning_threshold_reached: boolean;
+}
+
+export interface SprintMetrics {
+  total_tickets: number;
+  completed_tickets: number;
+  in_progress_tickets: number;
+  blocked_tickets: number;
+  completion_rate: number;
+  avg_cycle_time_hours: number;
+  velocity: number;
+}
+
+export interface AgentMetrics {
+  total_sessions: number;
+  successful_sessions: number;
+  success_rate: number;
+  avg_turns_per_session: number;
+  most_used_agent: string;
+  total_cost_usd: number;
+}
+
+export interface CostTrendItem {
+  date: string;
+  cost: number;
+}
+
+export interface DashboardResponse {
+  budget: BudgetStatus;
+  sprint: SprintMetrics;
+  agent: AgentMetrics;
+  cost_trend: CostTrendItem[];
+}
+
+// ==================== Agent Types ====================
+
+export interface AgentInfo {
+  type: string;
+  name: string;
+  available: boolean;
+  supports_yolo: boolean;
+  supports_session_resume: boolean;
+  supports_mcp: boolean;
+  cost_per_1k_input: number | null;
+  cost_per_1k_output: number | null;
+  description: string;
+}
+
+export interface AgentListResponse {
+  agents: AgentInfo[];
+  default_agent: string;
+}
+
+export interface SessionInfo {
+  id: string;
+  ticket_id: string;
+  agent_type: string;
+  agent_session_id: string | null;
+  is_active: boolean;
+  turn_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  estimated_cost_usd: number;
+  last_prompt: string | null;
+  created_at: string;
+  updated_at: string;
+  ended_at: string | null;
+}
+
+// ==================== Agent Log Types ====================
+
+export interface JobExecutionSummary {
+  job_id: string;
+  job_kind: string;
+  job_status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
+  entry_count: number;
+  entries: NormalizedLogEntry[];
+}
+
+export interface TicketAgentLogsResponse {
+  ticket_id: string;
+  ticket_title: string;
+  total_entries: number;
+  total_jobs: number;
+  executions: JobExecutionSummary[];
+}
+
+// ==================== Pull Request Types ====================
+
+export interface PRStatus {
+  pr_number: number;
+  pr_url: string;
+  pr_state: string;
+  pr_created_at: string | null;
+  pr_merged_at: string | null;
+  pr_head_branch: string | null;
+  pr_base_branch: string | null;
+}
+
+export interface CreatePRRequest {
+  ticket_id: string;
+  title?: string;
+  body?: string;
+  base_branch?: string;
 }

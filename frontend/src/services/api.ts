@@ -4,13 +4,25 @@
 
 import { config } from "@/config";
 import type {
+  AgentInfo,
+  AgentListResponse,
+  AgentLogsResponse,
+  Board,
+  BoardCreate,
+  BoardListResponse,
   BoardResponse,
+  BudgetStatus,
   BulkAcceptRequest,
   BulkAcceptResponse,
   BulkPriorityUpdateRequest,
   BulkPriorityUpdateResponse,
   CleanupRequest,
   CleanupResponse,
+  CostTrendItem,
+  CreatePRRequest,
+  DashboardResponse,
+  DiscoverReposRequest,
+  DiscoverReposResponse,
   EvidenceListResponse,
   FeedbackBundle,
   GenerateTicketsResponse,
@@ -18,16 +30,21 @@ import type {
   GoalCreate,
   GoalListResponse,
   Job,
+  JobExecutionSummary,
   JobListResponse,
   MergeRequest,
   MergeResponse,
   MergeStatusResponse,
+  OrchestratorLogEntry,
+  OrchestratorLogsResponse,
   PlannerStartRequest,
   PlannerStartResponse,
   PlannerStatusResponse,
   PlannerTickResponse,
+  PRStatus,
   QueuedMessageStatus,
   QueueStatusResponse,
+  RecentEvent,
   ReflectionResult,
   ReviewComment,
   ReviewCommentCreate,
@@ -37,10 +54,40 @@ import type {
   RevisionDetail,
   RevisionDiffResponse,
   RevisionListResponse,
+  SessionInfo,
+  SprintMetrics,
+  AgentMetrics,
+  StreamCallbackData,
+  StreamNormalizedEntry,
+  SystemStatusResponse,
   Ticket,
+  TicketAgentLogsResponse,
   TicketCreate,
   TicketEventListResponse,
   TicketTransition,
+} from "@/types/api";
+
+// Re-export types that were previously defined here, so existing imports don't break
+export type {
+  AgentInfo,
+  AgentListResponse,
+  AgentLogsResponse,
+  BudgetStatus,
+  CostTrendItem,
+  CreatePRRequest,
+  DashboardResponse,
+  JobExecutionSummary,
+  OrchestratorLogEntry,
+  OrchestratorLogsResponse,
+  PRStatus,
+  RecentEvent,
+  SessionInfo,
+  SprintMetrics,
+  AgentMetrics,
+  StreamCallbackData,
+  StreamNormalizedEntry,
+  SystemStatusResponse,
+  TicketAgentLogsResponse,
 } from "@/types/api";
 
 const API_BASE = config.backendBaseUrl;
@@ -62,19 +109,77 @@ async function apiFetch<T>(
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
+    const errorData = await response.json().catch((parseErr) => {
+      console.error(`Failed to parse error response JSON from ${endpoint}:`, parseErr);
+      return {};
+    });
     const message = errorData.detail || `HTTP error ${response.status}`;
     throw new Error(message);
+  }
+
+  // Handle 204 No Content (no body to parse)
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return response.json();
 }
 
+// ==================== Board API ====================
+
+/**
+ * Fetch all boards
+ */
+export async function fetchBoards(): Promise<BoardListResponse> {
+  return apiFetch<BoardListResponse>("/boards");
+}
+
+/**
+ * Fetch a single board by ID
+ */
+export async function fetchBoardById(boardId: string): Promise<Board> {
+  return apiFetch<Board>(`/boards/${boardId}`);
+}
+
 /**
  * Fetch the board with all tickets grouped by state
+ *
+ * @param boardId - Optional board ID. If not provided, uses legacy /board endpoint
  */
-export async function fetchBoard(): Promise<BoardResponse> {
+export async function fetchBoard(boardId?: string): Promise<BoardResponse> {
+  if (boardId) {
+    return apiFetch<BoardResponse>(`/boards/${boardId}/board`);
+  }
   return apiFetch<BoardResponse>("/board");
+}
+
+/**
+ * Create a new board
+ */
+export async function createBoard(board: BoardCreate): Promise<Board> {
+  return apiFetch<Board>("/boards", {
+    method: "POST",
+    body: JSON.stringify(board),
+  });
+}
+
+/**
+ * Discover git repositories in specified paths
+ */
+export async function discoverRepos(request: DiscoverReposRequest): Promise<DiscoverReposResponse> {
+  return apiFetch<DiscoverReposResponse>("/repos/discover", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Delete a single ticket
+ */
+export async function deleteTicket(ticketId: string): Promise<void> {
+  return apiFetch<void>(`/tickets/${ticketId}`, {
+    method: "DELETE",
+  });
 }
 
 /**
@@ -154,6 +259,15 @@ export async function fetchTicketEvidence(
   ticketId: string
 ): Promise<EvidenceListResponse> {
   return apiFetch<EvidenceListResponse>(`/tickets/${ticketId}/evidence`);
+}
+
+/**
+ * Fetch tickets that are blocked by this ticket (downstream dependencies)
+ */
+export async function fetchTicketDependents(
+  ticketId: string
+): Promise<Ticket[]> {
+  return apiFetch<Ticket[]>(`/tickets/${ticketId}/dependents`);
 }
 
 /**
@@ -472,61 +586,6 @@ export async function runCleanup(data: CleanupRequest): Promise<CleanupResponse>
 
 // ==================== Debug API ====================
 
-export interface OrchestratorLogEntry {
-  timestamp: string;
-  level: string;
-  message: string;
-  data: Record<string, unknown>;
-}
-
-export interface OrchestratorLogsResponse {
-  logs: OrchestratorLogEntry[];
-  total: number;
-}
-
-export interface AgentLogEntry {
-  timestamp: string;
-  job_id: string;
-  ticket_id: string;
-  ticket_title: string;
-  kind: string;
-  content: string;
-}
-
-export interface AgentLogsResponse {
-  logs: AgentLogEntry[];
-  job_id: string | null;
-  ticket_title: string | null;
-}
-
-export interface RunningJobInfo {
-  job_id: string;
-  ticket_id: string;
-  ticket_title: string;
-  kind: string;
-  started_at: string | null;
-  log_preview: string | null;
-}
-
-export interface SystemStatusResponse {
-  timestamp: string;
-  running_jobs: RunningJobInfo[];
-  queued_count: number;
-  tickets_by_state: Record<string, number>;
-  recent_events_count: number;
-}
-
-export interface RecentEvent {
-  id: string;
-  ticket_id: string;
-  ticket_title: string | null;
-  event_type: string;
-  actor_type: string;
-  actor_id: string;
-  payload: Record<string, unknown> | null;
-  created_at: string;
-}
-
 /**
  * Fetch orchestrator logs from in-memory buffer
  */
@@ -583,42 +642,6 @@ export function streamOrchestratorLogs(
   }
   
   return eventSource;
-}
-
-/**
- * Log message from streaming endpoint
- */
-export interface StreamLogMessage {
-  level: "stdout" | "stderr" | "info" | "error" | "progress" | "normalized" | "finished";
-  content: string;
-  timestamp: string;
-  progress_pct?: number;
-  stage?: string;
-}
-
-/**
- * Normalized log entry from streaming (parsed cursor-agent JSON)
- */
-export interface StreamNormalizedEntry {
-  entry_type: "system_message" | "assistant_message" | "thinking" | "tool_use" | "error_message";
-  content: string;
-  sequence: number;
-  tool_name?: string | null;
-  action_type?: string | null;
-  tool_status?: string | null;
-  metadata?: Record<string, any>;
-}
-
-/**
- * Callback data for streaming logs
- */
-export interface StreamCallbackData {
-  content?: string;
-  error?: string;
-  status?: string;
-  progress?: number;
-  stage?: string;
-  normalized?: StreamNormalizedEntry;
 }
 
 /**
@@ -747,51 +770,6 @@ export async function cancelQueuedMessage(
 
 // ==================== Dashboard API ====================
 
-export interface BudgetStatus {
-  daily_budget: number | null;
-  daily_spent: number;
-  daily_remaining: number;
-  weekly_budget: number | null;
-  weekly_spent: number;
-  weekly_remaining: number;
-  monthly_budget: number | null;
-  monthly_spent: number;
-  monthly_remaining: number;
-  is_over_budget: boolean;
-  warning_threshold_reached: boolean;
-}
-
-export interface SprintMetrics {
-  total_tickets: number;
-  completed_tickets: number;
-  in_progress_tickets: number;
-  blocked_tickets: number;
-  completion_rate: number;
-  avg_cycle_time_hours: number;
-  velocity: number;
-}
-
-export interface AgentMetrics {
-  total_sessions: number;
-  successful_sessions: number;
-  success_rate: number;
-  avg_turns_per_session: number;
-  most_used_agent: string;
-  total_cost_usd: number;
-}
-
-export interface CostTrendItem {
-  date: string;
-  cost: number;
-}
-
-export interface DashboardResponse {
-  budget: BudgetStatus;
-  sprint: SprintMetrics;
-  agent: AgentMetrics;
-  cost_trend: CostTrendItem[];
-}
-
 /**
  * Fetch dashboard data with metrics and budget status
  */
@@ -810,39 +788,6 @@ export async function fetchDashboard(
 }
 
 // ==================== Agents API ====================
-
-export interface AgentInfo {
-  type: string;
-  name: string;
-  available: boolean;
-  supports_yolo: boolean;
-  supports_session_resume: boolean;
-  supports_mcp: boolean;
-  cost_per_1k_input: number | null;
-  cost_per_1k_output: number | null;
-  description: string;
-}
-
-export interface AgentListResponse {
-  agents: AgentInfo[];
-  default_agent: string;
-}
-
-export interface SessionInfo {
-  id: string;
-  ticket_id: string;
-  agent_type: string;
-  agent_session_id: string | null;
-  is_active: boolean;
-  turn_count: number;
-  total_input_tokens: number;
-  total_output_tokens: number;
-  estimated_cost_usd: number;
-  last_prompt: string | null;
-  created_at: string;
-  updated_at: string;
-  ended_at: string | null;
-}
 
 /**
  * Fetch all available AI agents
@@ -906,31 +851,6 @@ export async function normalizeJobLogs(
 }
 
 /**
- * Job execution summary with agent logs
- */
-export interface JobExecutionSummary {
-  job_id: string;
-  job_kind: string;
-  job_status: string;
-  started_at: string | null;
-  finished_at: string | null;
-  duration_seconds: number | null;
-  entry_count: number;
-  entries: NormalizedLogEntry[];
-}
-
-/**
- * Response containing all agent execution logs for a ticket
- */
-export interface TicketAgentLogsResponse {
-  ticket_id: string;
-  ticket_title: string;
-  total_entries: number;
-  total_jobs: number;
-  executions: JobExecutionSummary[];
-}
-
-/**
  * Fetch all agent execution logs for a ticket (chain of thought, tool calls, etc.)
  */
 export async function fetchTicketAgentLogs(
@@ -946,23 +866,6 @@ export async function fetchTicketAgentLogs(
 // ============================================================================
 // Pull Request API
 // ============================================================================
-
-export interface PRStatus {
-  pr_number: number;
-  pr_url: string;
-  pr_state: string;
-  pr_created_at: string | null;
-  pr_merged_at: string | null;
-  pr_head_branch: string | null;
-  pr_base_branch: string | null;
-}
-
-export interface CreatePRRequest {
-  ticket_id: string;
-  title?: string;
-  body?: string;
-  base_branch?: string;
-}
 
 /**
  * Create a GitHub Pull Request for a ticket

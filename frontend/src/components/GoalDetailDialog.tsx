@@ -9,7 +9,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { ProposedTicketsReview } from "@/components/ProposedTicketsReview";
 import { ReflectionDialog } from "@/components/ReflectionDialog";
-import { fetchGoal, generateTicketsForGoal } from "@/services/api";
+import { TicketGenerationProgress } from "@/components/TicketGenerationProgress";
+import { fetchGoal } from "@/services/api";
 import type { Goal, ProposedTicket } from "@/types/api";
 import { toast } from "sonner";
 import { Loader2, Sparkles, AlertCircle, Calendar, Lightbulb } from "lucide-react";
@@ -43,6 +44,7 @@ export function GoalDetailDialog({
   const [proposedTickets, setProposedTickets] = useState<ProposedTicket[]>([]);
   const [showReview, setShowReview] = useState(false);
   const [showReflection, setShowReflection] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
 
   const loadGoal = useCallback(async (id: string) => {
     setLoading(true);
@@ -67,23 +69,16 @@ export function GoalDetailDialog({
     }
   }, [goalId, open, loadGoal]);
 
-  const handleGenerateTickets = async () => {
+  const handleGenerateTickets = () => {
     if (!goalId) return;
+    // Show the streaming progress dialog
+    setShowProgress(true);
+  };
 
-    setGenerating(true);
-    setError(null);
-    try {
-      const response = await generateTicketsForGoal(goalId);
-      setProposedTickets(response.tickets);
-      setShowReview(true);
-      toast.success(`Generated ${response.tickets.length} proposed tickets`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to generate tickets";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setGenerating(false);
-    }
+  const handleGenerationComplete = () => {
+    // Refresh the board to show new tickets
+    onTicketsAccepted?.();
+    loadGoal(goalId!);
   };
 
   const handleReviewClose = () => {
@@ -220,6 +215,16 @@ export function GoalDetailDialog({
               goalTitle={goal?.title || ""}
               onPrioritiesUpdated={handlePrioritiesUpdated}
             />
+
+            {/* Ticket Generation Progress Dialog */}
+            {goalId && (
+              <TicketGenerationProgress
+                open={showProgress}
+                onOpenChange={setShowProgress}
+                goalId={goalId}
+                onComplete={handleGenerationComplete}
+              />
+            )}
           </div>
         ) : null}
       </DialogContent>

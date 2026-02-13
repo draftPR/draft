@@ -100,6 +100,47 @@ async def get_ticket(
     )
 
 
+@router.delete(
+    "/{ticket_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a ticket",
+)
+async def delete_ticket(
+    ticket_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Delete a ticket and all its associated data.
+
+    This will cascade delete:
+    - All jobs for this ticket
+    - All revisions and their review comments/summaries
+    - All ticket events
+    - The workspace and worktree (best effort)
+    - All evidence files
+
+    **WARNING:** This action cannot be undone!
+    """
+    from sqlalchemy import delete as sql_delete
+
+    service = TicketService(db)
+
+    # Verify ticket exists
+    ticket = await service.get_ticket_by_id(ticket_id)
+
+    # Clean up workspace (best effort, don't block deletion if it fails)
+    try:
+        await service._cleanup_workspace_async(ticket_id)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to cleanup workspace for ticket {ticket_id}: {e}")
+
+    # Delete the ticket (cascade will handle related records)
+    await db.execute(sql_delete(Ticket).where(Ticket.id == ticket_id))
+    await db.commit()
+
+
 @router.post(
     "/accept",
     response_model=BulkAcceptResponse,
@@ -532,6 +573,35 @@ async def get_ticket_evidence(
         evidence=evidence_responses,
         total=len(evidence_responses),
     )
+
+
+@router.get(
+    "/{ticket_id}/dependents",
+    response_model=list[TicketResponse],
+    summary="Get tickets blocked by this ticket",
+)
+async def get_ticket_dependents(
+    ticket_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[TicketResponse]:
+    """
+    Get all tickets that are blocked by this ticket (downstream dependencies).
+
+    Returns tickets where blocked_by_ticket_id = ticket_id, ordered by priority descending.
+    """
+    # First verify the ticket exists
+    service = TicketService(db)
+    await service.get_ticket_by_id(ticket_id)
+
+    # Get all tickets blocked by this ticket
+    result = await db.execute(
+        select(Ticket)
+        .where(Ticket.blocked_by_ticket_id == ticket_id)
+        .order_by(Ticket.priority.desc().nullslast(), Ticket.created_at)
+    )
+    dependent_tickets = list(result.scalars().all())
+
+    return [TicketResponse.model_validate(t) for t in dependent_tickets]
 
 
 @router.post(

@@ -36,6 +36,7 @@ from app.routers import (
     maintenance_router,
     merge_router,
     planner_router,
+    repos_router,
     revisions_router,
     tickets_router,
 )
@@ -354,6 +355,7 @@ app.include_router(goals_router)
 app.include_router(tickets_router)
 app.include_router(boards_router)  # New multi-board endpoints (/boards/...)
 app.include_router(board_legacy_router)  # Legacy kanban view (/board)
+app.include_router(repos_router)  # Repository discovery and management
 app.include_router(jobs_router)
 app.include_router(evidence_router)
 app.include_router(planner_router)
@@ -366,12 +368,6 @@ app.include_router(dashboard_router)  # Sprint dashboard and metrics
 app.include_router(executors_router)  # Executor plugin management
 app.include_router(websocket_router)  # WebSocket real-time updates
 app.include_router(pull_requests_router)  # GitHub PR integration
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "ok"}
 
 
 @app.get("/version")

@@ -298,6 +298,45 @@ async def initialize_all_board_configs(
     return result
 
 
+@router.delete(
+    "/{board_id}/tickets",
+    summary="Delete all tickets from a board",
+)
+async def delete_all_tickets(
+    board_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete all tickets from a board.
+
+    **WARNING:** This action cannot be undone!
+
+    This will cascade delete all associated:
+    - Jobs
+    - Revisions (and their review comments/summaries)
+    - Ticket events
+    - Workspaces
+    - Evidence files
+
+    Worktrees are cleaned up asynchronously (best effort).
+    """
+    # Verify board exists
+    board_service = BoardService(db)
+    try:
+        await board_service.get_board_by_id(board_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    # Delete all tickets for this board
+    ticket_service = TicketService(db)
+    count = await ticket_service.delete_all_tickets(board_id=board_id)
+
+    return {
+        "deleted_count": count,
+        "message": f"Deleted {count} ticket(s) from board {board_id}",
+    }
+
+
 @router.get(
     "/{board_id}/board",
     response_model=KanbanBoardResponse,
@@ -330,7 +369,15 @@ async def get_board_kanban(
     response_columns = []
     total_tickets = 0
     for column in columns:
-        ticket_responses = [TicketResponse.model_validate(t) for t in column.tickets]
+        # Create ticket responses with blocker title
+        ticket_responses = []
+        for t in column.tickets:
+            ticket_dict = TicketResponse.model_validate(t).model_dump()
+            # Add blocker title if ticket is blocked
+            if t.blocked_by_ticket_id and t.blocked_by:
+                ticket_dict["blocked_by_ticket_title"] = t.blocked_by.title
+            ticket_responses.append(ticket_dict)
+
         total_tickets += len(ticket_responses)
         response_columns.append(
             TicketsByState(
@@ -588,7 +635,15 @@ async def get_kanban_board(
     response_columns = []
     total_tickets = 0
     for column in columns:
-        ticket_responses = [TicketResponse.model_validate(t) for t in column.tickets]
+        # Create ticket responses with blocker title
+        ticket_responses = []
+        for t in column.tickets:
+            ticket_dict = TicketResponse.model_validate(t).model_dump()
+            # Add blocker title if ticket is blocked
+            if t.blocked_by_ticket_id and t.blocked_by:
+                ticket_dict["blocked_by_ticket_title"] = t.blocked_by.title
+            ticket_responses.append(ticket_dict)
+
         total_tickets += len(ticket_responses)
         response_columns.append(
             TicketsByState(

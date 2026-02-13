@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import type { ReviewComment } from "@/types/api";
 import { CommentThread } from "./CommentThread";
@@ -155,21 +155,22 @@ interface FileDiffProps {
   readOnly?: boolean;
 }
 
-function FileDiff({ 
-  file, 
-  comments, 
-  onAddComment, 
-  onResolveComment, 
+function FileDiff({
+  file,
+  comments,
+  onAddComment,
+  onResolveComment,
   onUnresolveComment,
-  readOnly 
+  readOnly
 }: FileDiffProps) {
   const [addingCommentLine, setAddingCommentLine] = useState<number | null>(null);
   const [commentBoxTop, setCommentBoxTop] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [commentPositions, setCommentPositions] = useState<Record<number, number>>({});
   const diffContainerRef = { current: null as HTMLDivElement | null };
   // Track if the library's click handler was called (for fallback detection)
   const libraryHandlerCalledRef = { current: false };
-  
+
   // Group comments by line number
   const commentsByLine = comments.reduce((acc, comment) => {
     if (!acc[comment.line_number]) {
@@ -178,6 +179,37 @@ function FileDiff({
     acc[comment.line_number].push(comment);
     return acc;
   }, {} as Record<number, ReviewComment[]>);
+
+  // Calculate positions for all comment threads when comments change
+  React.useEffect(() => {
+    if (!diffContainerRef.current || Object.keys(commentsByLine).length === 0) {
+      return;
+    }
+
+    const newPositions: Record<number, number> = {};
+    const container = diffContainerRef.current;
+    const rows = container.querySelectorAll('tr');
+
+    for (const [lineNumStr] of Object.entries(commentsByLine)) {
+      const lineNum = parseInt(lineNumStr, 10);
+
+      for (const row of rows) {
+        const lineNumberCells = row.querySelectorAll('pre');
+        for (const pre of lineNumberCells) {
+          if (pre.textContent?.trim() === String(lineNum)) {
+            const rowRect = row.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            newPositions[lineNum] = rowRect.bottom - containerRect.top;
+            break;
+          }
+        }
+        if (newPositions[lineNum]) break;
+      }
+    }
+
+    setCommentPositions(newPositions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commentsByLine, file]);
   
   const handleAddComment = async (body: string) => {
     if (addingCommentLine === null) return;
@@ -368,25 +400,39 @@ function FileDiff({
           onLineNumberClick={handleLineNumberClick}
           showDiffOnly={false}
         />
-        
-        {/* Existing comments displayed after each file's diff */}
-        {Object.entries(commentsByLine).map(([lineNum, lineComments]) => (
-          <div key={lineNum} className="mx-2 my-2">
-            {lineComments.map((comment) => (
-              <CommentThread
-                key={comment.id}
-                comment={comment}
-                onResolve={() => onResolveComment(comment.id)}
-                onUnresolve={() => onUnresolveComment(comment.id)}
-                readOnly={readOnly}
-              />
-            ))}
-          </div>
-        ))}
-        
+
+        {/* Existing comments displayed inline next to their lines */}
+        {Object.entries(commentsByLine).map(([lineNum, lineComments]) => {
+          const lineNumber = parseInt(lineNum, 10);
+          const top = commentPositions[lineNumber];
+
+          // Only render if we have a calculated position
+          if (top === undefined) return null;
+
+          return (
+            <div
+              key={lineNum}
+              className="absolute left-0 right-0 z-40 px-2"
+              style={{ top: `${top}px` }}
+            >
+              <div className="space-y-2">
+                {lineComments.map((comment) => (
+                  <CommentThread
+                    key={comment.id}
+                    comment={comment}
+                    onResolve={() => onResolveComment(comment.id)}
+                    onUnresolve={() => onUnresolveComment(comment.id)}
+                    readOnly={readOnly}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
         {/* Inline comment box - positioned absolutely below the clicked line */}
         {addingCommentLine !== null && (
-          <div 
+          <div
             className="absolute left-0 right-0 z-50 px-2"
             style={{ top: `${commentBoxTop}px` }}
             ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}

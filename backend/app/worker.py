@@ -706,6 +706,7 @@ def run_executor_cli(
     timeout: int = 600,
     job_id: str | None = None,
     normalize_logs: bool = False,
+    stdin_content: str | None = None,
 ) -> tuple[int, str, str]:
     """
     Run the executor CLI and capture output with real-time streaming.
@@ -719,6 +720,7 @@ def run_executor_cli(
         timeout: Command timeout in seconds
         job_id: Optional job ID for real-time log streaming
         normalize_logs: If True, parse cursor-agent JSON and stream normalized entries
+        stdin_content: Optional content to pipe to the process via stdin
 
     Returns:
         Tuple of (exit_code, stdout_relpath, stderr_relpath) - paths are relative to repo_root
@@ -740,11 +742,17 @@ def run_executor_cli(
         process = subprocess.Popen(
             command,
             cwd=cwd,
+            stdin=subprocess.PIPE if stdin_content else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,  # Line buffered
         )
+
+        # Write stdin content and close to signal EOF
+        if stdin_content and process.stdin:
+            process.stdin.write(stdin_content)
+            process.stdin.close()
         
         def stream_output(pipe, lines_list, is_stderr=False, stop_event=None):
             """Read and stream output line by line with stop event support."""
@@ -1698,7 +1706,8 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             write_log(log_path, f"Continuing from session: {existing_session.session_id} (execution #{existing_session.execution_count + 1})")
 
     # Get the command with YOLO mode and model selection
-    executor_command = executor_info.get_apply_command(
+    # Returns (command, stdin_content) tuple - prompt piped via stdin to avoid ARG_MAX
+    executor_command, executor_stdin = executor_info.get_apply_command(
         prompt_file,
         worktree_path,
         yolo_mode=yolo_enabled,
@@ -1731,6 +1740,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         timeout=execute_config.timeout,
         job_id=job_id,  # Enable real-time streaming
         normalize_logs=should_normalize,  # Parse cursor-agent JSON for nice display
+        stdin_content=executor_stdin,  # Pipe prompt via stdin (ARG_MAX safety)
     )
 
     # Calculate execution duration

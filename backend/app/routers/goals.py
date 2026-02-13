@@ -70,6 +70,125 @@ async def get_goal(
     return GoalResponse.model_validate(goal)
 
 
+@router.get(
+    "/{goal_id}/generate-tickets/stream",
+    summary="Generate tickets with streaming progress (SSE)",
+)
+async def generate_tickets_stream(
+    goal_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generate tickets with real-time streaming feedback using Server-Sent Events (SSE).
+
+    The stream sends JSON events with the following types:
+    - status: Progress updates like "Analyzing codebase...", "Generating tickets..."
+    - agent_output: Real-time output from the agent CLI
+    - ticket: Each ticket as it's created
+    - complete: Final summary when done
+    - error: If something goes wrong
+    """
+    import asyncio
+    import json as json_lib
+    import logging
+
+    from fastapi.responses import StreamingResponse
+
+    logger = logging.getLogger(__name__)
+
+    async def event_generator():
+        try:
+            # Send initial status
+            yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Starting ticket generation...'})}\n\n"
+            await asyncio.sleep(0.05)
+
+            # Load config for validate_tickets setting
+            config_service = ConfigService()
+            config = config_service.load_config()
+
+            yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Analyzing goal and building prompt...'})}\n\n"
+            await asyncio.sleep(0.05)
+
+            service = TicketGenerationService(db)
+
+            # Create a queue for streaming agent output
+            output_queue = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+
+            def stream_callback(line: str):
+                """Called from subprocess thread when agent outputs a line."""
+                try:
+                    loop.call_soon_threadsafe(
+                        output_queue.put_nowait, ("agent_output", line)
+                    )
+                except Exception:
+                    pass
+
+            yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Starting agent CLI...'})}\n\n"
+            await asyncio.sleep(0.05)
+
+            # Start generation task - repo_root resolved inside service from goal's board
+            generation_task = asyncio.create_task(
+                service.generate_from_goal(
+                    goal_id=goal_id,
+                    include_readme=False,
+                    validate_tickets=config.planner_config.features.validate_tickets,
+                    stream_callback=stream_callback,
+                )
+            )
+
+            # Stream agent output as it comes in
+            while not generation_task.done():
+                try:
+                    msg_type, data = await asyncio.wait_for(output_queue.get(), timeout=0.1)
+                    if msg_type == "agent_output":
+                        yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+                except asyncio.TimeoutError:
+                    continue
+
+            # Get final result
+            try:
+                result = await generation_task
+            except Exception as e:
+                logger.error(f"Ticket generation failed: {e}", exc_info=True)
+                yield f"data: {json_lib.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                return
+
+            # Drain any remaining messages
+            while not output_queue.empty():
+                msg_type, data = await output_queue.get()
+                if msg_type == "agent_output":
+                    yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+
+            # Stream each created ticket
+            if result.tickets:
+                yield f"data: {json_lib.dumps({'type': 'status', 'message': f'Created {len(result.tickets)} ticket(s)'})}\n\n"
+                for ticket in result.tickets:
+                    yield f"data: {json_lib.dumps({'type': 'ticket', 'ticket': {'id': ticket.id, 'title': ticket.title, 'priority': ticket.priority}})}\n\n"
+                    await asyncio.sleep(0.05)
+            else:
+                yield f"data: {json_lib.dumps({'type': 'error', 'message': 'No tickets generated. Check backend logs.'})}\n\n"
+
+            # Send completion
+            yield f"data: {json_lib.dumps({'type': 'complete', 'count': len(result.tickets)})}\n\n"
+
+        except ValueError as e:
+            yield f"data: {json_lib.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        except Exception as e:
+            logger.error(f"Ticket generation stream error: {e}", exc_info=True)
+            yield f"data: {json_lib.dumps({'type': 'error', 'message': f'Generation failed: {str(e)}'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post(
     "/{goal_id}/generate-tickets",
     summary="Generate proposed tickets using LLM planner",
@@ -154,15 +273,22 @@ async def generate_tickets(
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
-    response_data = GenerateTicketsResponse(
-        tickets=result.tickets,
-        goal_id=goal_id,
-    )
-    
+    # Build response
+    if len(result.tickets) == 0:
+        response_data = GenerateTicketsResponse(
+            tickets=[],
+            goal_id=goal_id,
+        )
+    else:
+        response_data = GenerateTicketsResponse(
+            tickets=result.tickets,
+            goal_id=goal_id,
+        )
+
     # Build response with X-Ignored-Fields header if applicable
     response = JSONResponse(content=response_data.model_dump())
     add_ignored_fields_header(response, ignored_fields)
-    
+
     return response
 
 

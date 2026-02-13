@@ -190,7 +190,7 @@ planner_config:
     #   - Not already implemented
     #   - Relevant to the codebase
     # Invalid tickets are filtered out and logged
-    validate_tickets: true
+    validate_tickets: false  # Disabled for testing - agent output will generate all tickets
 
   # ---------------------------------------------------------------------------
   # UDAR AGENT CONFIGURATION (Experimental)

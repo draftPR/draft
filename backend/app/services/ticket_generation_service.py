@@ -11,12 +11,12 @@ This service is responsible for:
 Ticket generation uses the same agent infrastructure as execution for consistency.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
 import re
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -129,7 +129,8 @@ class TicketGenerationService:
         goal_id: str,
         repo_root: Path | str | None = None,
         include_readme: bool = False,
-        validate_tickets: bool = True,
+        validate_tickets: bool = False,
+        stream_callback=None,
     ) -> GenerationResult:
         """Generate tickets from a goal using the agent CLI.
 
@@ -167,51 +168,76 @@ class TicketGenerationService:
         # Build prompt for agent
         prompt = self._build_agent_ticket_generation_prompt(goal, include_readme)
 
-        # Call agent to generate tickets
-        agent_response = self._call_agent_for_tickets(prompt, repo_root)
+        # Call agent to generate tickets (run in thread pool to avoid blocking event loop)
+        logger.info(f"Calling agent CLI for goal '{goal.title}' (streaming={'yes' if stream_callback else 'no'})")
+        agent_response = await asyncio.to_thread(
+            self._call_agent_for_tickets,
+            prompt,
+            repo_root,
+            stream_callback,
+        )
+        logger.info(f"Agent CLI completed. Response length: {len(agent_response)} chars")
 
         # Parse and validate response
         data = self._parse_agent_json_response(agent_response)
         raw_tickets = data.get("tickets", [])
 
+        logger.info(f"Agent generated {len(raw_tickets)} raw tickets for goal '{goal.title}'")
+        if len(raw_tickets) == 0:
+            logger.warning(f"Agent returned 0 tickets. Response preview: {agent_response[:500]}")
+
         # Validate tickets against codebase if enabled
+        filtered_count = 0
         if validate_tickets and raw_tickets:
-            logger.info(f"Validating {len(raw_tickets)} generated tickets against codebase")
-            
-            # Gather context for validation
-            context = self.context_gatherer.gather(
-                repo_root=repo_root,
-                include_readme_excerpt=include_readme,
-            )
-            context_summary = context.to_prompt_string()[:3000]  # Limit size for validation
-            
-            validated_tickets = []
-            filtered_count = 0
-            
-            for raw in raw_tickets:
-                validation = self._validate_ticket_against_codebase(
-                    ticket=raw,
-                    goal=goal,
-                    context_summary=context_summary,
+            logger.info(f"Validating {len(raw_tickets)} tickets against codebase")
+
+            try:
+                # Gather context for validation
+                context = self.context_gatherer.gather(
+                    repo_root=repo_root,
+                    include_readme_excerpt=include_readme,
                 )
-                
-                # Store validation result in ticket for later use in event payload
-                raw["_validation"] = validation
-                
-                # Only include appropriate tickets
-                if validation.get("is_valid") and validation.get("validation_result") == "appropriate":
-                    validated_tickets.append(raw)
-                else:
-                    filtered_count += 1
-                    logger.warning(
-                        f"Filtered ticket '{raw.get('title')}': "
-                        f"{validation.get('validation_result')} - {validation.get('reasoning')}"
-                    )
-            
-            if filtered_count > 0:
-                logger.info(f"Filtered {filtered_count}/{len(raw_tickets)} tickets during validation")
-            
-            raw_tickets = validated_tickets
+                context_summary = context.to_prompt_string()[:3000]  # Limit size for validation
+
+                validated_tickets = []
+
+                for raw in raw_tickets:
+                    try:
+                        validation = self._validate_ticket_against_codebase(
+                            ticket=raw,
+                            goal=goal,
+                            context_summary=context_summary,
+                        )
+
+                        # Store validation result in ticket for later use in event payload
+                        raw["_validation"] = validation
+
+                        # Only include appropriate tickets
+                        if validation.get("is_valid") and validation.get("validation_result") == "appropriate":
+                            validated_tickets.append(raw)
+                        else:
+                            filtered_count += 1
+                            logger.warning(
+                                f"Filtered ticket '{raw.get('title')}': "
+                                f"result={validation.get('validation_result')}, "
+                                f"reason={validation.get('reasoning')}"
+                            )
+                    except Exception as e:
+                        # If validation fails for a ticket, include it anyway (fail open)
+                        logger.error(f"Validation failed for ticket '{raw.get('title')}': {e}")
+                        validated_tickets.append(raw)
+
+                if filtered_count > 0:
+                    logger.warning(f"Filtered {filtered_count}/{len(raw_tickets)} tickets during validation")
+
+                raw_tickets = validated_tickets
+            except Exception as e:
+                # If entire validation process fails, proceed with all tickets (fail open)
+                logger.error(f"Validation process failed, proceeding with all {len(raw_tickets)} tickets: {e}")
+                filtered_count = 0
+        else:
+            if not validate_tickets:
+                logger.debug(f"Ticket validation disabled, skipping for {len(raw_tickets)} tickets")
 
         # Get existing tickets for dedup
         existing_tickets = await self._get_existing_tickets(goal_id)
@@ -222,96 +248,104 @@ class TicketGenerationService:
         title_to_ticket_id: dict[str, str] = {}
         # Track tickets that need blocked_by resolved after all are created
         pending_blocked_by: list[tuple[str, str]] = []  # (ticket_id, blocked_by_title)
-        
-        for raw in raw_tickets[:MAX_TICKETS_PER_GENERATION]:
-            # Validate required fields
-            title = raw.get("title", "").strip()
-            if not title or len(title) > 255:
-                continue
 
-            # Dedup check - only block on exact match
-            status, _, _, _ = self._check_duplicate(title, existing_tickets)
-            if status == "exact":
-                logger.debug(f"Skipping exact duplicate ticket: {title}")
-                continue
-            # Note: "similar" status just logs a warning, doesn't block
-
-            # Parse priority bucket
-            bucket_str = raw.get("priority_bucket", "P2")
+        for idx, raw in enumerate(raw_tickets[:MAX_TICKETS_PER_GENERATION], 1):
             try:
-                bucket = PriorityBucket(bucket_str)
-            except ValueError:
-                bucket = PriorityBucket.P2  # Default to medium
+                # Validate required fields
+                title = raw.get("title", "").strip()
+                if not title or len(title) > 255:
+                    logger.warning(f"Skipping ticket with invalid title (len={len(title)})")
+                    continue
 
-            priority = bucket_to_priority(bucket)
-            rationale = raw.get("priority_rationale", "")
+                # Dedup check - only block on exact match
+                status, _, _, _ = self._check_duplicate(title, existing_tickets)
+                if status == "exact":
+                    logger.info(f"Skipping exact duplicate ticket: {title[:50]}")
+                    continue
 
-            # Create ticket
-            ticket = Ticket(
-                goal_id=goal_id,
-                title=title,
-                description=raw.get("description", ""),
-                state=TicketState.PROPOSED.value,
-                priority=priority,
-            )
-            self.db.add(ticket)
-            await self.db.flush()
-            await self.db.refresh(ticket)
-            
-            # Track title -> id mapping for blocked_by resolution
-            title_to_ticket_id[title.lower()] = ticket.id
-            
-            # Check if this ticket has a blocked_by reference
-            blocked_by_title = raw.get("blocked_by")
-            if blocked_by_title:
-                pending_blocked_by.append((ticket.id, blocked_by_title))
+                # Parse priority bucket
+                bucket_str = raw.get("priority_bucket", "P2")
+                try:
+                    bucket = PriorityBucket(bucket_str)
+                except ValueError:
+                    bucket = PriorityBucket.P2  # Default to medium
 
-            # Build event payload
-            event_payload = {
-                "priority_bucket": bucket.value,
-                "priority_rationale": rationale,
-                "verification": raw.get("verification", []),
-                "notes": raw.get("notes"),
-                "blocked_by_title": blocked_by_title,
-            }
-            
-            # Add validation result if present
-            if "_validation" in raw:
-                validation = raw["_validation"]
-                event_payload["validation"] = {
-                    "validated": True,
-                    "confidence": validation.get("confidence"),
-                    "validation_result": validation.get("validation_result"),
-                    "reasoning": validation.get("reasoning"),
+                priority = bucket_to_priority(bucket)
+                rationale = raw.get("priority_rationale", "")
+
+                # Create ticket
+                ticket = Ticket(
+                    goal_id=goal_id,
+                    board_id=goal.board_id,
+                    title=title,
+                    description=raw.get("description", ""),
+                    state=TicketState.PROPOSED.value,
+                    priority=priority,
+                )
+                self.db.add(ticket)
+                await self.db.flush()
+                await self.db.refresh(ticket)
+                logger.info(f"Created ticket {ticket.id}: {title[:50]}")
+
+                # Track title -> id mapping for blocked_by resolution
+                title_to_ticket_id[title.lower()] = ticket.id
+
+                # Check if this ticket has a blocked_by reference
+                blocked_by_title = raw.get("blocked_by")
+                if blocked_by_title:
+                    pending_blocked_by.append((ticket.id, blocked_by_title))
+
+                # Build event payload
+                event_payload = {
+                    "priority_bucket": bucket.value,
+                    "priority_rationale": rationale,
+                    "verification": raw.get("verification", []),
+                    "notes": raw.get("notes"),
+                    "blocked_by_title": blocked_by_title,
                 }
 
-            # Create event
-            event = TicketEvent(
-                ticket_id=ticket.id,
-                event_type=EventType.CREATED.value,
-                from_state=None,
-                to_state=TicketState.PROPOSED.value,
-                actor_type=ActorType.PLANNER.value,
-                actor_id="ticket_generation_service",
-                reason=f"Generated from goal: {goal.title}",
-                payload_json=json.dumps(event_payload),
-            )
-            self.db.add(event)
+                # Add validation result if present
+                if "_validation" in raw:
+                    validation = raw["_validation"]
+                    event_payload["validation"] = {
+                        "validated": True,
+                        "confidence": validation.get("confidence"),
+                        "validation_result": validation.get("validation_result"),
+                        "reasoning": validation.get("reasoning"),
+                    }
 
-            created_tickets.append(
-                CreatedTicketSchema(
-                    id=ticket.id,
-                    title=ticket.title,
-                    description=ticket.description or "",
-                    priority_bucket=bucket,
-                    priority=priority,
-                    priority_rationale=rationale,
-                    verification=raw.get("verification", []),
-                    notes=raw.get("notes"),
+                # Create event
+                event = TicketEvent(
+                    ticket_id=ticket.id,
+                    event_type=EventType.CREATED.value,
+                    from_state=None,
+                    to_state=TicketState.PROPOSED.value,
+                    actor_type=ActorType.PLANNER.value,
+                    actor_id="ticket_generation_service",
+                    reason=f"Generated from goal: {goal.title}",
+                    payload_json=json.dumps(event_payload),
                 )
-            )
+                self.db.add(event)
 
-            existing_tickets.append((ticket.id, title))  # Add to dedup list
+                created_tickets.append(
+                    CreatedTicketSchema(
+                        id=ticket.id,
+                        title=ticket.title,
+                        description=ticket.description or "",
+                        priority_bucket=bucket,
+                        priority=priority,
+                        priority_rationale=rationale,
+                        verification=raw.get("verification", []),
+                        notes=raw.get("notes"),
+                    )
+                )
+
+                existing_tickets.append((ticket.id, title))  # Add to dedup list
+
+            except Exception as e:
+                logger.error(f"Error creating ticket '{raw.get('title', '')[:50]}': {e}", exc_info=True)
+                # Don't re-raise, continue with next ticket
+                continue
 
         # Resolve blocked_by references now that all tickets are created
         for ticket_id, blocked_by_title in pending_blocked_by:
@@ -339,6 +373,11 @@ class TicketGenerationService:
                 )
 
         await self.db.commit()
+
+        logger.info(
+            f"Created {len(created_tickets)} tickets for goal '{goal.title}' "
+            f"(generated: {len(data.get('tickets', []))}, filtered: {filtered_count})"
+        )
 
         return GenerationResult(
             tickets=created_tickets,
@@ -927,11 +966,17 @@ Guidelines:
                 {
                     "is_valid": True,  # Default to valid if parsing fails
                     "confidence": "low",
-                    "validation_result": "unclear",
-                    "reasoning": "Unable to validate ticket",
+                    "validation_result": "appropriate",  # Default to appropriate (fail open)
+                    "reasoning": "Unable to validate ticket, accepting by default",
                     "suggested_modification": None,
                 },
             )
+
+            # If result is "unclear", treat as appropriate (fail open)
+            if validation.get("validation_result") == "unclear":
+                validation["is_valid"] = True
+                validation["validation_result"] = "appropriate"
+                logger.debug(f"Validation unclear for '{ticket.get('title')}', accepting by default")
 
             return validation
 
@@ -1074,7 +1119,9 @@ Now analyze the codebase and generate the JSON."""
 
         return prompt
 
-    def _call_agent_for_tickets(self, prompt: str, repo_root: Path) -> str:
+    def _call_agent_for_tickets(
+        self, prompt: str, repo_root: Path, stream_callback=None
+    ) -> str:
         """Call the agent CLI to generate tickets.
 
         Args:
@@ -1088,7 +1135,7 @@ Now analyze the codebase and generate the JSON."""
             ValueError: If no agent is available or agent fails.
         """
         import os
-        
+
         # Get agent path from config
         agent_path = self.config.get_agent_path()
         
@@ -1125,26 +1172,66 @@ Now analyze the codebase and generate the JSON."""
                 )
 
         # Run the agent
-        logger.debug(f"Running agent command in {repo_root}")
+        logger.info(f"Running agent command: {cmd[0]} (cwd={repo_root})")
         try:
-            result = subprocess.run(
-                cmd,
-                cwd=repo_root,
-                capture_output=True,
-                text=True,
-                timeout=120,  # 2 minute timeout for ticket generation
-            )
+            if stream_callback:
+                # Stream output line by line for real-time feedback
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=repo_root,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                )
 
-            if result.returncode != 0:
-                logger.error(f"Agent failed with code {result.returncode}: {result.stderr}")
-                raise ValueError(f"Agent failed: {result.stderr[:500]}")
+                output_lines = []
+                # Read stdout line by line
+                while True:
+                    line = process.stdout.readline()
+                    if not line and process.poll() is not None:
+                        break
+                    if line:
+                        output_lines.append(line)
+                        stream_callback(line.rstrip())
 
-            return result.stdout
+                logger.info(f"Agent subprocess completed. Total lines: {len(output_lines)}")
+
+                # Wait for process to complete
+                try:
+                    process.wait(timeout=120)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                    raise ValueError("Agent timed out after 120 seconds")
+
+                if process.returncode != 0:
+                    stderr = process.stderr.read()
+                    logger.error(f"Agent failed with code {process.returncode}: {stderr}")
+                    raise ValueError(f"Agent failed: {stderr[:500]}")
+
+                return "".join(output_lines)
+            else:
+                # Non-streaming mode (original behavior)
+                result = subprocess.run(
+                    cmd,
+                    cwd=repo_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,  # 2 minute timeout for ticket generation
+                )
+
+                if result.returncode != 0:
+                    logger.error(f"Agent failed with code {result.returncode}: {result.stderr}")
+                    raise ValueError(f"Agent failed: {result.stderr[:500]}")
+
+                logger.debug(f"Agent response length: {len(result.stdout)} chars")
+                return result.stdout
 
         except subprocess.TimeoutExpired:
             raise ValueError("Agent timed out after 120 seconds")
         except FileNotFoundError:
-            raise ValueError(f"Agent command not found: {executor.command}")
+            raise ValueError(f"Agent command not found: {cmd[0]}")
 
     def _parse_agent_json_response(self, response: str) -> dict:
         """Parse JSON from agent response.

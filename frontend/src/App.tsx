@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
 import { config } from "@/config";
 import { KanbanBoard } from "@/components/KanbanBoard";
+import { BoardSelector } from "@/components/BoardSelector";
+import { RepoDiscoveryDialog } from "@/components/RepoDiscoveryDialog";
 import { CreateGoalDialog } from "@/components/CreateGoalDialog";
 import { CreateTicketDialog } from "@/components/CreateTicketDialog";
 import { GoalsListDialog } from "@/components/GoalsListDialog";
@@ -16,11 +18,12 @@ import {
   Dialog,
   DialogContent,
 } from "@/components/ui/dialog";
-import { Target, Plus, Bug, FlaskConical, Loader2, Settings, Keyboard } from "lucide-react";
+import { Target, Plus, Bug, FlaskConical, Loader2, Settings, Keyboard, FolderGit2 } from "lucide-react";
 import { createGoal, createTicket } from "@/services/api";
 import { toast } from "sonner";
 import { useAppShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { playSound } from "@/services/soundNotifications";
+import { BoardProvider } from "@/contexts/BoardContext";
 
 // Test data for quick generation
 const TEST_GOAL = {
@@ -60,6 +63,7 @@ function App() {
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [repoDiscoveryOpen, setRepoDiscoveryOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [generatingTestData, setGeneratingTestData] = useState(false);
 
@@ -105,17 +109,30 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card sticky top-0 z-40 shadow-sm">
-        <div className="container mx-auto px-6 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h1 className="text-base font-bold text-foreground uppercase tracking-wider">
-                {config.appName}
-              </h1>
-            </div>
-            <nav className="flex items-center gap-2">
+    <BoardProvider>
+      <div className="min-h-screen bg-background">
+        {/* Header */}
+        <header className="border-b border-border bg-card sticky top-0 z-40 shadow-sm">
+          <div className="container mx-auto px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <h1 className="text-base font-bold text-foreground uppercase tracking-wider">
+                  {config.appName}
+                </h1>
+                <BoardSelector />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRepoDiscoveryOpen(true)}
+                  className="h-8"
+                  title="Discover and add projects"
+                >
+                  <FolderGit2 className="h-4 w-4 mr-1.5" />
+                  Add Projects
+                </Button>
+              </div>
+              <nav className="flex items-center gap-2">
+              {import.meta.env.DEV && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -131,6 +148,7 @@ function App() {
                 )}
                 Test Data
               </Button>
+              )}
               <Button
                 variant={debugPanelOpen ? "secondary" : "ghost"}
                 size="sm"
@@ -216,6 +234,11 @@ function App() {
         open={queueStatusOpen}
         onOpenChange={setQueueStatusOpen}
       />
+      <RepoDiscoveryDialog
+        open={repoDiscoveryOpen}
+        onOpenChange={setRepoDiscoveryOpen}
+        onReposAdded={refreshBoard}
+      />
 
       {/* Debug Panel */}
       <DebugPanel
@@ -248,7 +271,8 @@ function App() {
 
       {/* Toast notifications */}
       <Toaster richColors position="bottom-right" />
-    </div>
+      </div>
+    </BoardProvider>
   );
 }
 

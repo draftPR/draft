@@ -283,20 +283,32 @@ class TicketService:
             logger.warning(f"Workspace cleanup error for ticket {ticket_id}: {e}")
             return False
 
-    async def get_board(self) -> list[TicketsByState]:
+    async def get_board(self, board_id: str | None = None) -> list[TicketsByState]:
         """
-        Get all tickets grouped by state for the board view.
+        Get tickets grouped by state for the board view.
         Tickets are ordered by priority (descending, nulls last) within each state.
+
+        Args:
+            board_id: Optional board ID to filter tickets. If None, returns all tickets.
 
         Returns:
             List of TicketsByState objects
         """
-        result = await self.db.execute(
-            select(Ticket).order_by(
+        query = (
+            select(Ticket)
+            .options(selectinload(Ticket.goal))  # Eagerly load goal to avoid N+1
+            .options(selectinload(Ticket.blocked_by))  # Eagerly load blocker ticket
+            .order_by(
                 Ticket.priority.desc().nulls_last(),
                 Ticket.created_at.desc(),
             )
         )
+
+        # Filter by board_id if provided
+        if board_id is not None:
+            query = query.where(Ticket.board_id == board_id)
+
+        result = await self.db.execute(query)
         tickets = result.scalars().all()
 
         # Group tickets by state
@@ -338,3 +350,64 @@ class TicketService:
             .order_by(TicketEvent.created_at.asc())
         )
         return list(result.scalars().all())
+
+    async def delete_all_tickets(self, board_id: str | None = None) -> int:
+        """
+        Delete all tickets from the database.
+
+        This will cascade delete all associated:
+        - Jobs
+        - Revisions (and their review comments/summaries)
+        - Ticket events
+        - Workspaces
+        - Evidence
+
+        Args:
+            board_id: Optional board ID to limit deletion to specific board
+
+        Returns:
+            Number of tickets deleted
+        """
+        from sqlalchemy import delete
+        from app.models.workspace import Workspace
+
+        # Build query
+        query = select(Ticket)
+        if board_id:
+            query = query.where(Ticket.board_id == board_id)
+
+        # Get all ticket IDs for workspace cleanup
+        result = await self.db.execute(query)
+        tickets = result.scalars().all()
+        ticket_ids = [t.id for t in tickets]
+        count = len(ticket_ids)
+
+        if count == 0:
+            return 0
+
+        # Clean up workspaces asynchronously (best effort)
+        cleanup_tasks = []
+        for ticket_id in ticket_ids:
+            task = asyncio.create_task(self._cleanup_workspace_async(ticket_id))
+            cleanup_tasks.append(task)
+
+        # Wait for cleanup with timeout (don't block deletion if cleanup fails)
+        if cleanup_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Workspace cleanup timed out during bulk ticket deletion")
+
+        # Delete all tickets (cascade will handle related records)
+        delete_query = delete(Ticket)
+        if board_id:
+            delete_query = delete_query.where(Ticket.board_id == board_id)
+
+        await self.db.execute(delete_query)
+        await self.db.commit()
+
+        logger.info(f"Deleted {count} tickets" + (f" from board {board_id}" if board_id else ""))
+        return count

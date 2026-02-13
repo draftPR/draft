@@ -9,6 +9,7 @@ from app.routers.jobs import router as jobs_router
 from app.routers.maintenance import router as maintenance_router
 from app.routers.merge import router as merge_router
 from app.routers.planner import router as planner_router
+from app.routers.repos import router as repos_router
 from app.routers.revisions import router as revisions_router
 from app.routers.tickets import router as tickets_router
 
@@ -17,6 +18,7 @@ __all__ = [
     "tickets_router",
     "boards_router",
     "board_legacy_router",
+    "repos_router",
     "jobs_router",
     "evidence_router",
     "planner_router",
