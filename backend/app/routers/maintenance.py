@@ -96,7 +96,7 @@ async def reenqueue_lost_jobs(
     """
     from sqlalchemy import select
     from app.models.job import Job, JobStatus, JobKind
-    from app.celery_app import celery_app
+    from app.services.task_dispatch import enqueue_task
     
     result = await db.execute(
         select(Job).where(Job.status == JobStatus.QUEUED.value)
@@ -120,7 +120,7 @@ async def reenqueue_lost_jobs(
                 details.append(f"Job {job.id}: Unknown kind {job.kind}")
                 continue
             
-            task = celery_app.send_task(task_name, args=[job.id])
+            task = enqueue_task(task_name, args=[job.id])
             
             # Update task ID
             job.celery_task_id = task.id

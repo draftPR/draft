@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.celery_app import celery_app
 from app.exceptions import ResourceNotFoundError, ValidationError
 from app.models.job import Job, JobKind, JobStatus
 from app.models.ticket import Ticket
@@ -155,8 +154,8 @@ class JobService:
         # Without this, async/sync session isolation causes "Job not found" errors
         await self.db.commit()
 
-        # Enqueue the Celery task using send_task (safer, avoids circular imports)
-        from app.celery_app import celery_app
+        # Enqueue the task via unified dispatch (supports SQLite and Celery backends)
+        from app.services.task_dispatch import enqueue_task
 
         task_names = {
             JobKind.EXECUTE: "execute_ticket",
@@ -166,9 +165,9 @@ class JobService:
         task_name = task_names.get(kind)
         if not task_name:
             raise ValueError(f"Unknown job kind: {kind}")
-        task = celery_app.send_task(task_name, args=[job.id])
+        task = enqueue_task(task_name, args=[job.id])
 
-        # Store the Celery task ID for later reference (e.g., cancellation)
+        # Store the task ID for later reference (e.g., cancellation)
         job.celery_task_id = task.id
 
         # Commit again to save the celery_task_id
@@ -273,10 +272,13 @@ class JobService:
         except Exception as e:
             logger.error(f"Failed to kill subprocess for job {job_id}: {e}")
 
-        # Attempt to revoke the Celery task (best-effort)
+        # Attempt to revoke the Celery task (best-effort, Redis backend only)
         if job.celery_task_id:
             try:
-                celery_app.control.revoke(job.celery_task_id, terminate=True)
+                from app.task_backend import is_redis_backend
+                if is_redis_backend():
+                    from app.celery_app import celery_app
+                    celery_app.control.revoke(job.celery_task_id, terminate=True)
             except Exception as e:
                 logger.warning(f"Failed to revoke Celery task {job.celery_task_id}: {e}")
 

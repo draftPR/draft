@@ -1,4 +1,4 @@
-"""Cost-based rate limiting middleware backed by Redis.
+"""Cost-based rate limiting middleware with pluggable backend (Redis or SQLite).
 
 CRITICAL: Rate limiting gates on ESTIMATED cost BEFORE expensive work.
 Actual cost is emitted as telemetry only (X-RateLimit-Actual-Cost header).
@@ -11,10 +11,9 @@ Cost estimation (pre-request):
 - Caps from config add fixed overhead
 
 This prevents "melt down first, then reject" under load.
-
-CRITICAL: Redis is REQUIRED. Returns 503 if unavailable.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -24,7 +23,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from app.redis_client import get_redis, redis_available
+from app.task_backend import is_sqlite_backend
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +64,10 @@ def _matches_pattern(path: str, patterns: set[str]) -> tuple[bool, str | None]:
     for pattern in patterns:
         pattern_parts = pattern.split("/")
         path_parts = path.split("/")
-        
+
         if len(pattern_parts) != len(path_parts):
             continue
-        
+
         match = True
         for p_part, path_part in zip(pattern_parts, path_parts):
             if p_part.startswith("{") and p_part.endswith("}"):
@@ -76,7 +75,7 @@ def _matches_pattern(path: str, patterns: set[str]) -> tuple[bool, str | None]:
             if p_part != path_part:
                 match = False
                 break
-        
+
         if match:
             return True, pattern
     return False, None
@@ -87,11 +86,11 @@ def _get_client_id(request: Request) -> str:
     client_id = request.headers.get("X-Client-ID")
     if client_id and len(client_id) <= 64:
         return client_id
-    
+
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return f"ip:{forwarded.split(',')[0].strip()}"
-    
+
     return f"ip:{request.client.host if request.client else 'unknown'}"
 
 
@@ -107,14 +106,9 @@ def _get_route_key(path: str) -> str:
 
 
 def _estimate_request_cost(body: bytes, matched_pattern: str | None) -> int:
-    """Estimate cost BEFORE request executes based on request intent.
-
-    This is the gating cost - we reject requests that would exceed budget
-    BEFORE doing any expensive work.
-    """
+    """Estimate cost BEFORE request executes based on request intent."""
     cost = BASE_COST
 
-    # Add operation-specific base cost
     if matched_pattern:
         if "analyze-codebase" in matched_pattern:
             cost += COST_ANALYZE_CODEBASE
@@ -129,60 +123,55 @@ def _estimate_request_cost(body: bytes, matched_pattern: str | None) -> int:
                 cost += COST_UDAR_GENERATE
             elif "/replan" in matched_pattern:
                 cost += COST_UDAR_REPLAN
-    
-    # Parse body to estimate additional cost
+
     try:
         body_dict = json.loads(body) if body else {}
-        
-        # Focus areas add cost
         focus_areas = body_dict.get("focus_areas", [])
         if focus_areas:
             cost += len(focus_areas) * COST_PER_FOCUS_AREA
-        
-        # README adds context processing cost
         if body_dict.get("include_readme"):
             cost += COST_INCLUDE_README
-            
     except (json.JSONDecodeError, TypeError):
         pass
-    
+
     return cost
 
 
 def _compute_actual_cost(response_body: bytes, estimated_cost: int) -> int:
-    """Compute actual cost from response (TELEMETRY ONLY, not for gating).
-    
-    This is for observability - we emit it as a header so clients and
-    dashboards can see real cost vs estimated.
-    """
+    """Compute actual cost from response (TELEMETRY ONLY, not for gating)."""
     actual = estimated_cost
-    
+
     try:
         response_dict = json.loads(response_body)
         context_stats = response_dict.get("context_stats")
-        
+
         if context_stats:
-            # Add cost based on actual work done
             files_scanned = context_stats.get("files_scanned", 0)
-            actual += files_scanned // 50  # +1 per 50 files
-            
+            actual += files_scanned // 50
+
             bytes_read = context_stats.get("bytes_read", 0)
-            actual += bytes_read // 10240  # +1 per 10KB
-            
+            actual += bytes_read // 10240
+
             if context_stats.get("context_truncated"):
-                actual += 5  # Hit caps = expensive
-            
+                actual += 5
+
     except (json.JSONDecodeError, TypeError, AttributeError):
         pass
-    
+
     return actual
 
 
+def _backend_available() -> bool:
+    """Check if the rate limit backend is available."""
+    if is_sqlite_backend():
+        return True
+    from app.redis_client import redis_available
+    return redis_available()
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Cost-based rate limiter that gates on ESTIMATED cost before work.
-    
-    CRITICAL: Redis is REQUIRED. Returns 503 if unavailable.
-    
+    """Cost-based rate limiter with pluggable backend.
+
     Flow:
     1. Estimate cost from request intent
     2. Check if estimated cost would exceed budget
@@ -207,116 +196,44 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Only rate-limit POST requests to specific endpoints
         if request.method != "POST":
             return await call_next(request)
-        
+
         matches, matched_pattern = _matches_pattern(request.url.path, RATE_LIMITED_ENDPOINTS)
         if not matches:
             return await call_next(request)
-        
-        # CRITICAL: Redis REQUIRED - NO fallback
-        if not redis_available():
-            logger.error(f"Redis unavailable for rate-limited endpoint: {request.url.path}")
+
+        # Backend REQUIRED
+        if not _backend_available():
+            logger.error(f"Backend unavailable for rate-limited endpoint: {request.url.path}")
             return JSONResponse(
                 status_code=503,
                 content={
-                    "detail": "Service temporarily unavailable. Redis is required for rate limiting.",
+                    "detail": "Service temporarily unavailable. Backend is required for rate limiting.",
                     "error_type": "service_unavailable",
                     "retry_after_seconds": 30,
                 },
                 headers={"Retry-After": "30"},
             )
-        
-        redis_client = get_redis()
+
         client_id = _get_client_id(request)
         route_key = _get_route_key(request.url.path)
-        
+
         # Read body to estimate cost BEFORE expensive work
         body = await request.body()
         estimated_cost = _estimate_request_cost(body, matched_pattern)
-        
+
         now = time.time()
-        window_start = now - self.window_seconds
-        redis_key = f"{REDIS_KEY_PREFIX}{client_id}:{route_key}"
-        
+
         try:
-            # Run Redis operations in a thread with timeout to prevent blocking event loop
-            import asyncio
-            
-            def _redis_rate_limit_check():
-                """Execute Redis rate limit check (runs in thread pool)."""
-                # Clean up expired entries and get current usage
-                pipe = redis_client.pipeline()
-                pipe.zremrangebyscore(redis_key, 0, window_start)
-                pipe.zrange(redis_key, 0, -1, withscores=True)
-                results = pipe.execute()
-                return results[1]
-            
-            # Execute with 5 second timeout to prevent hanging
-            try:
-                entries = await asyncio.wait_for(
-                    asyncio.to_thread(_redis_rate_limit_check),
-                    timeout=5.0
+            if is_sqlite_backend():
+                current_cost, oldest_time = await self._check_sqlite(
+                    client_id, route_key, estimated_cost
                 )
-            except asyncio.TimeoutError:
-                logger.error(f"Redis rate limit check timed out for {client_id}")
-                return JSONResponse(
-                    status_code=503,
-                    content={
-                        "detail": "Service temporarily unavailable due to rate limit timeout.",
-                        "error_type": "service_unavailable",
-                        "retry_after_seconds": 5,
-                    },
-                    headers={"Retry-After": "5"},
+            else:
+                current_cost, oldest_time = await self._check_redis(
+                    client_id, route_key, estimated_cost, now
                 )
-            
-            # Sum current cost
-            current_cost = 0
-            oldest_time = now
-            for member, score in entries:
-                try:
-                    _, cost_str = member.split(":", 1)
-                    current_cost += int(cost_str)
-                    if score < oldest_time:
-                        oldest_time = score
-                except (ValueError, AttributeError):
-                    current_cost += BASE_COST
-            
-            # GATE: Check if estimated cost would exceed budget BEFORE work
-            if current_cost + estimated_cost > self.budget:
-                retry_after = int(oldest_time + self.window_seconds - now)
-                retry_after = max(1, retry_after)
-                
-                logger.warning(
-                    f"Rate limit exceeded for {client_id}: "
-                    f"{current_cost}/{self.budget} points, estimated +{estimated_cost}"
-                )
-                
-                return JSONResponse(
-                    status_code=429,
-                    content={
-                        "detail": f"Rate limit exceeded. Budget: {self.budget} points/min.",
-                        "retry_after_seconds": retry_after,
-                        "budget": self.budget,
-                        "current_usage": current_cost,
-                        "estimated_cost": estimated_cost,
-                    },
-                    headers={
-                        "Retry-After": str(retry_after),
-                        "X-RateLimit-Limit": str(self.budget),
-                        "X-RateLimit-Remaining": str(max(0, self.budget - current_cost)),
-                        "X-RateLimit-Reset": str(int(now + retry_after)),
-                    },
-                )
-            
-            # Record ESTIMATED cost immediately (before work) - also in thread
-            def _redis_record_cost():
-                member = f"{now}:{estimated_cost}"
-                redis_client.zadd(redis_key, {member: now})
-                redis_client.expire(redis_key, self.window_seconds + 10)
-            
-            await asyncio.to_thread(_redis_record_cost)
-            
         except Exception as e:
-            logger.error(f"Redis rate limit pre-check failed: {e}")
+            logger.error(f"Rate limit check failed: {e}")
             return JSONResponse(
                 status_code=503,
                 content={
@@ -324,24 +241,58 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "error_type": "service_unavailable",
                 },
             )
-        
+
+        # GATE: Check if estimated cost would exceed budget BEFORE work
+        if current_cost + estimated_cost > self.budget:
+            retry_after = int(oldest_time + self.window_seconds - now)
+            retry_after = max(1, retry_after)
+
+            logger.warning(
+                f"Rate limit exceeded for {client_id}: "
+                f"{current_cost}/{self.budget} points, estimated +{estimated_cost}"
+            )
+
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": f"Rate limit exceeded. Budget: {self.budget} points/min.",
+                    "retry_after_seconds": retry_after,
+                    "budget": self.budget,
+                    "current_usage": current_cost,
+                    "estimated_cost": estimated_cost,
+                },
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Limit": str(self.budget),
+                    "X-RateLimit-Remaining": str(max(0, self.budget - current_cost)),
+                    "X-RateLimit-Reset": str(int(now + retry_after)),
+                },
+            )
+
+        # Record cost (SQLite already recorded in check step; Redis needs separate record)
+        if not is_sqlite_backend():
+            try:
+                await self._record_redis(client_id, route_key, estimated_cost, now)
+            except Exception as e:
+                logger.error(f"Failed to record rate limit cost: {e}")
+
         # Reconstruct request with body
         async def receive():
             return {"type": "http.request", "body": body}
         request._receive = receive
-        
+
         # Execute request (budget already reserved)
         response = await call_next(request)
-        
+
         # Read response body for telemetry
         response_body = b""
         async for chunk in response.body_iterator:
             response_body += chunk
-        
+
         # Compute actual cost for observability (telemetry only)
         actual_cost = _compute_actual_cost(response_body, estimated_cost)
         remaining = max(0, self.budget - current_cost - estimated_cost)
-        
+
         # Build response with rate limit headers, preserving original headers (including CORS)
         new_response = Response(
             content=response_body,
@@ -357,5 +308,75 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         new_response.headers["X-RateLimit-Reset"] = str(int(now + self.window_seconds))
         new_response.headers["X-RateLimit-Estimated-Cost"] = str(estimated_cost)
         new_response.headers["X-RateLimit-Actual-Cost"] = str(actual_cost)
-        
+
         return new_response
+
+    # ─── SQLite backend ───
+
+    async def _check_sqlite(
+        self, client_id: str, route_key: str, estimated_cost: int
+    ) -> tuple[int, float]:
+        """Check and record rate limit via SQLite. Returns (current_cost, oldest_time)."""
+        from app.sqlite_kv import rate_limit_check_and_record
+
+        client_key = f"{client_id}:{route_key}"
+        return await asyncio.to_thread(
+            rate_limit_check_and_record, client_key, estimated_cost, self.window_seconds
+        )
+
+    # ─── Redis backend ───
+
+    async def _check_redis(
+        self, client_id: str, route_key: str, estimated_cost: int, now: float
+    ) -> tuple[int, float]:
+        """Check rate limit via Redis. Returns (current_cost, oldest_time)."""
+        from app.redis_client import get_redis
+
+        redis_client = get_redis()
+        window_start = now - self.window_seconds
+        redis_key = f"{REDIS_KEY_PREFIX}{client_id}:{route_key}"
+
+        def _redis_rate_limit_check():
+            pipe = redis_client.pipeline()
+            pipe.zremrangebyscore(redis_key, 0, window_start)
+            pipe.zrange(redis_key, 0, -1, withscores=True)
+            results = pipe.execute()
+            return results[1]
+
+        try:
+            entries = await asyncio.wait_for(
+                asyncio.to_thread(_redis_rate_limit_check),
+                timeout=5.0
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Redis rate limit check timed out for {client_id}")
+            raise
+
+        current_cost = 0
+        oldest_time = now
+        for member, score in entries:
+            try:
+                _, cost_str = member.split(":", 1)
+                current_cost += int(cost_str)
+                if score < oldest_time:
+                    oldest_time = score
+            except (ValueError, AttributeError):
+                current_cost += BASE_COST
+
+        return current_cost, oldest_time
+
+    async def _record_redis(
+        self, client_id: str, route_key: str, estimated_cost: int, now: float
+    ) -> None:
+        """Record cost entry in Redis."""
+        from app.redis_client import get_redis
+
+        redis_client = get_redis()
+        redis_key = f"{REDIS_KEY_PREFIX}{client_id}:{route_key}"
+
+        def _redis_record_cost():
+            member = f"{now}:{estimated_cost}"
+            redis_client.zadd(redis_key, {member: now})
+            redis_client.expire(redis_key, self.window_seconds + 10)
+
+        await asyncio.to_thread(_redis_record_cost)

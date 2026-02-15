@@ -669,7 +669,7 @@ async def submit_review(
             )
 
             # Create new execute job with source_revision_id for traceability
-            from app.worker import execute_ticket_task
+            from app.services.task_dispatch import enqueue_task
 
             job = Job(
                 ticket_id=revision.ticket_id,
@@ -681,8 +681,8 @@ async def submit_review(
             await db.flush()
             await db.refresh(job)
 
-            # Enqueue the Celery task
-            task = execute_ticket_task.delay(job.id)
+            # Enqueue the execute task
+            task = enqueue_task("execute_ticket", args=[job.id])
             job.celery_task_id = task.id
 
         await db.commit()

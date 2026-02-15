@@ -250,8 +250,9 @@ def _reenqueue_lost_task(db: Session, job: Job, result: WatchdogResult) -> bool:
     Returns:
         True if the task was re-enqueued, False if it was still active
     """
-    from app.celery_app import celery_app
     from app.models.job import JobKind
+    from app.services.task_dispatch import enqueue_task
+    from app.task_backend import is_sqlite_backend
 
     # First check if the ticket is in a state where re-enqueueing makes sense
     # If ticket is already BLOCKED, DONE, or ABANDONED, don't re-enqueue
@@ -276,27 +277,25 @@ def _reenqueue_lost_task(db: Session, job: Job, result: WatchdogResult) -> bool:
             )
             return False
 
-    # Check if the Celery task is still pending/active
-    # Use a timeout to prevent blocking if Redis is slow
-    if job.celery_task_id:
+    # Check if the Celery task is still pending/active (Redis backend only)
+    # SQLite backend uses in-process worker, so task state is tracked via job_queue table
+    if not is_sqlite_backend() and job.celery_task_id:
         try:
+            from app.celery_app import celery_app
             task_result = celery_app.AsyncResult(job.celery_task_id)
-            # Use ready() which is more resilient than checking state directly
-            # ready() returns True if task finished (success/failure), False if pending
-            # This avoids potential blocking on slow Redis connections
             import threading
             task_state = [None]
-            
+
             def check_state():
                 try:
                     task_state[0] = task_result.state
                 except Exception:
                     task_state[0] = "UNKNOWN"
-            
+
             check_thread = threading.Thread(target=check_state, daemon=True)
             check_thread.start()
             check_thread.join(timeout=2)  # 2 second timeout for state check
-            
+
             if check_thread.is_alive():
                 # Timeout - assume task state is unknown, proceed with re-enqueue check
                 logger.warning(f"Timeout checking task state for job {job.id}")
@@ -306,7 +305,7 @@ def _reenqueue_lost_task(db: Session, job: Job, result: WatchdogResult) -> bool:
         except Exception as e:
             logger.warning(f"Error checking task status for job {job.id}: {e}")
 
-    # Task is lost or never existed - re-enqueue using send_task (safer for forked processes)
+    # Task is lost or never existed - re-enqueue via unified dispatch
     try:
         task = None
         task_name = None
@@ -318,7 +317,7 @@ def _reenqueue_lost_task(db: Session, job: Job, result: WatchdogResult) -> bool:
             task_name = "resume_ticket"
 
         if task_name:
-            task = celery_app.send_task(task_name, args=[job.id])
+            task = enqueue_task(task_name, args=[job.id])
 
         if task:
             old_task_id = job.celery_task_id

@@ -14,7 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from celery.exceptions import Ignore
 from sqlalchemy.orm import selectinload
 
 if TYPE_CHECKING:
@@ -22,7 +21,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-from app.celery_app import celery_app
+# Celery is optional (only needed for TASK_BACKEND=redis)
+try:
+    from app.celery_app import celery_app
+except Exception:
+    # Celery not available - provide a dummy that makes @celery_app.task() a no-op
+    class _DummyCelery:
+        @staticmethod
+        def task(*args, **kwargs):
+            def decorator(func):
+                return func
+            return decorator
+    celery_app = _DummyCelery()
 from app.database_sync import get_sync_db
 from app.exceptions import (
     ExecutorInvocationError,
@@ -319,6 +329,7 @@ def run_verification_command(
         ValueError: If command is not in allowlist
     """
     import shlex
+    import shutil as _shutil
 
     stdout_path = evidence_dir / f"{evidence_id}.stdout"
     stderr_path = evidence_dir / f"{evidence_id}.stderr"
@@ -339,12 +350,20 @@ def run_verification_command(
             raise ValueError("Empty command")
 
         # SECURITY CHECK: Validate first argument is in allowlist
-        base_command = Path(cmd_argv[0]).name  # Strip path, get command name
+        # Resolve the command to its full path to prevent PATH manipulation attacks
+        # (e.g., a malicious "pytest" script in the worktree shadowing the real one)
+        raw_cmd = cmd_argv[0]
+        base_command = Path(raw_cmd).name  # Strip path, get command name
         if base_command not in ALLOWED_COMMANDS:
             raise ValueError(
                 f"Command '{base_command}' not in allowlist. "
                 f"Allowed: {', '.join(sorted(ALLOWED_COMMANDS))}"
             )
+
+        # Resolve to absolute path via PATH lookup to ensure we run the real binary
+        resolved_path = _shutil.which(base_command)
+        if resolved_path:
+            cmd_argv[0] = resolved_path
 
         # Run WITHOUT shell=True (SECURE - no command injection possible)
         result = subprocess.run(
@@ -686,11 +705,11 @@ def _enqueue_verify_job_sync(ticket_id: str) -> str | None:
         db.flush()
         job_id = job.id
 
-        # Enqueue the Celery task using send_task (safer for forked processes)
-        from app.celery_app import celery_app
-        task = celery_app.send_task("verify_ticket", args=[job_id])
+        # Enqueue the verify task
+        from app.services.task_dispatch import enqueue_task
+        task = enqueue_task("verify_ticket", args=[job_id])
 
-        # Store the Celery task ID
+        # Store the task ID
         job.celery_task_id = task.id
         db.commit()
 
@@ -1434,30 +1453,37 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # Mark as running
     if not update_job_started(job_id, log_path_relative):
         write_log(log_path, "Job was canceled or not found, aborting.")
-        raise Ignore()
+        return {"job_id": job_id, "status": "canceled"}
+
+    # Check for cancellation BEFORE transitioning to EXECUTING state
+    # This prevents a race where the ticket transitions to EXECUTING but the job
+    # is immediately cancelled, leaving the ticket stuck in EXECUTING with no runner
+    if check_canceled(job_id):
+        write_log(log_path, "Job canceled before execution started, aborting.")
+        return {"job_id": job_id, "status": "canceled"}
 
     # Transition ticket to EXECUTING state BEFORE any execution work begins
     # This is critical - the ticket MUST be in EXECUTING state while running
     # This handles transitions from PLANNED, DONE (changes requested), or NEEDS_HUMAN
     from app.state_machine import validate_transition
-    
+
     with get_sync_db() as db:
         current_ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not current_ticket:
             write_log(log_path, "ERROR: Ticket not found in database")
             update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
             return {"job_id": job_id, "status": "failed", "error": "Ticket not found"}
-        
+
         current_state = TicketState(current_ticket.state)
         write_log(log_path, f"Current ticket state: '{current_state.value}'")
-        
+
         if current_state == TicketState.EXECUTING:
             write_log(log_path, "Ticket already in 'executing' state")
         elif validate_transition(current_state, TicketState.EXECUTING):
             write_log(log_path, f"Transitioning ticket from '{current_state.value}' to 'executing'")
             # Important: Do transition INSIDE the same db context to ensure atomicity
             current_ticket.state = TicketState.EXECUTING.value
-            
+
             # Create transition event
             event = TicketEvent(
                 ticket_id=ticket_id,
@@ -1476,11 +1502,6 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             # This shouldn't happen for valid workflows, but log and continue
             write_log(log_path, f"WARNING: Cannot transition from '{current_state.value}' to 'executing' (invalid transition)")
             write_log(log_path, "Continuing execution anyway...")
-
-    # Check for cancellation
-    if check_canceled(job_id):
-        write_log(log_path, "Job canceled, stopping execution.")
-        raise Ignore()
 
     # Load configuration from the worktree (where smartkanban.yaml should be)
     # Apply board-level overrides if present
@@ -1649,7 +1670,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # Check for cancellation before execution
     if check_canceled(job_id):
         write_log(log_path, "Job canceled, stopping execution.")
-        raise Ignore()
+        return {"job_id": job_id, "status": "canceled"}
 
     # =========================================================================
     # INTERACTIVE EXECUTOR (Cursor) - Hand off to user immediately
@@ -1856,7 +1877,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # Check for cancellation before state transition
     if check_canceled(job_id):
         write_log(log_path, "Job canceled, stopping execution.")
-        raise Ignore()
+        return {"job_id": job_id, "status": "canceled"}
 
     # =========================================================================
     # STATE TRANSITIONS
@@ -2047,6 +2068,11 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 
 @celery_app.task(bind=True, name="verify_ticket")
 def verify_ticket_task(self, job_id: str) -> dict:
+    """Verify task wrapper for Celery."""
+    return _verify_ticket_task_impl(job_id)
+
+
+def _verify_ticket_task_impl(job_id: str) -> dict:
     """
     Verify task for a ticket.
 
@@ -2097,12 +2123,12 @@ def verify_ticket_task(self, job_id: str) -> dict:
     # Mark as running
     if not update_job_started(job_id, log_path_relative):
         write_log(log_path, "Job was canceled or not found, aborting.")
-        raise Ignore()
+        return {"job_id": job_id, "status": "canceled"}
 
     # Check for cancellation
     if check_canceled(job_id):
         write_log(log_path, "Job canceled, stopping execution.")
-        raise Ignore()
+        return {"job_id": job_id, "status": "canceled"}
 
     # Load configuration from the worktree (where smartkanban.yaml should be)
     # Apply board-level overrides if present
@@ -2154,7 +2180,7 @@ def verify_ticket_task(self, job_id: str) -> dict:
         # Check for cancellation before each command
         if check_canceled(job_id):
             write_log(log_path, "Job canceled, stopping execution.")
-            raise Ignore()
+            return {"job_id": job_id, "status": "canceled"}
 
         write_log(log_path, f"Running command {i + 1}/{len(verify_commands)}: {command}")
 
@@ -2346,6 +2372,11 @@ def planner_tick_task(self) -> dict:
 
 @celery_app.task(bind=True, name="resume_ticket")
 def resume_ticket_task(self, job_id: str) -> dict:
+    """Resume task wrapper for Celery."""
+    return _resume_ticket_task_impl(job_id)
+
+
+def _resume_ticket_task_impl(job_id: str) -> dict:
     """
     Resume a ticket after human completion (interactive executor flow).
 
@@ -2388,7 +2419,7 @@ def resume_ticket_task(self, job_id: str) -> dict:
     # Mark as running
     if not update_job_started(job_id, log_path_relative):
         write_log(log_path, "Job was canceled or not found, aborting.")
-        raise Ignore()
+        return {"job_id": job_id, "status": "canceled"}
 
     # Validate ticket is in needs_human state
     if ticket.state != TicketState.NEEDS_HUMAN.value:

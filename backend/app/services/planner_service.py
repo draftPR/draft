@@ -793,27 +793,27 @@ class PlannerService:
         - If the DB update fails after Celery enqueue, the task ID is lost but
           the watchdog will re-enqueue (Celery task deduplicates by job_id)
         """
-        from app.worker import execute_ticket_task
+        from app.services.task_dispatch import enqueue_task
 
         try:
-            # Re-fetch the job to update celery_task_id
+            # Re-fetch the job to update task ID
             result = await self.db.execute(select(Job).where(Job.id == job_id))
             job = result.scalar_one_or_none()
             if not job:
-                logger.error(f"Job {job_id} not found when enqueueing Celery task")
+                logger.error(f"Job {job_id} not found when enqueueing task")
                 return
 
-            # Skip if job already has a celery_task_id (idempotency)
+            # Skip if job already has a task ID (idempotency)
             if job.celery_task_id:
-                logger.debug(f"Job {job_id} already has Celery task {job.celery_task_id}")
+                logger.debug(f"Job {job_id} already has task {job.celery_task_id}")
                 return
 
-            # Enqueue the Celery task
-            task = execute_ticket_task.delay(job_id)
+            # Enqueue the task via unified dispatch
+            task = enqueue_task("execute_ticket", args=[job_id])
             job.celery_task_id = task.id
             await self.db.commit()
 
-            logger.info(f"Enqueued Celery task {task.id} for job {job_id}")
+            logger.info(f"Enqueued task {task.id} for job {job_id}")
         except Exception as e:
             logger.error(f"Failed to enqueue Celery task for job {job_id}: {e}")
             # Don't re-raise - the watchdog will recover this job

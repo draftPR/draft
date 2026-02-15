@@ -79,10 +79,26 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager - initializes database on startup."""
+    from app.task_backend import is_sqlite_backend
+
     # Startup: Initialize database tables
     await init_db()
+
+    # Start SQLite worker if using SQLite backend (replaces Celery worker)
+    sqlite_worker = None
+    if is_sqlite_backend():
+        from app.services.sqlite_worker import setup_worker
+        sqlite_worker = setup_worker()
+        sqlite_worker.start()
+        logger.info("SQLite worker started (TASK_BACKEND=sqlite)")
+
     yield
-    # Shutdown: cleanup connections
+
+    # Shutdown
+    if sqlite_worker:
+        sqlite_worker.stop()
+        logger.info("SQLite worker stopped")
+
     from app.redis_client import close_redis
     close_redis()
     logger.info("Application shutdown complete")
@@ -309,16 +325,20 @@ async def healthcheck_detailed(request: Request) -> JSONResponse:
         checks["checks"]["database"] = f"error: {str(e)}"
         logger.error(f"Database health check failed: {e}")
 
-    # Check Redis
-    try:
-        from app.redis_client import redis_client
-
-        await redis_client.ping()
-        checks["checks"]["redis"] = "ok"
-    except Exception as e:
-        checks["status"] = "unhealthy"
-        checks["checks"]["redis"] = f"error: {str(e)}"
-        logger.error(f"Redis health check failed: {e}")
+    # Check Redis (only when using Redis backend)
+    from app.task_backend import is_sqlite_backend as _is_sqlite
+    if _is_sqlite():
+        checks["checks"]["redis"] = "not required (TASK_BACKEND=sqlite)"
+    else:
+        try:
+            from app.redis_client import get_redis
+            redis_client = get_redis()
+            redis_client.ping()
+            checks["checks"]["redis"] = "ok"
+        except Exception as e:
+            checks["status"] = "unhealthy"
+            checks["checks"]["redis"] = f"error: {str(e)}"
+            logger.error(f"Redis health check failed: {e}")
 
     # Check disk space
     try:

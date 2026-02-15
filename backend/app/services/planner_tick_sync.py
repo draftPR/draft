@@ -385,33 +385,32 @@ def _execute_queued_message_sync(db) -> str | None:
 
 
 def _enqueue_celery_job_sync(job_id: str) -> None:
-    """Enqueue a Celery task for a job (synchronous).
-    
-    Uses send_task() instead of direct task import to avoid SIGSEGV
-    crashes in forked Celery worker processes with Python 3.14/SQLite.
+    """Enqueue a task for a job (synchronous).
+
+    Uses unified task dispatch to support both SQLite and Celery backends.
     """
-    from app.celery_app import celery_app
-    
+    from app.services.task_dispatch import enqueue_task
+
     try:
         with get_sync_db() as db:
             job = db.execute(select(Job).where(Job.id == job_id)).scalar_one_or_none()
             if not job:
-                logger.error(f"Job {job_id} not found when enqueueing Celery task")
+                logger.error(f"Job {job_id} not found when enqueueing task")
                 return
-            
-            # Skip if already has celery_task_id
+
+            # Skip if already has task ID
             if job.celery_task_id:
-                logger.debug(f"Job {job_id} already has Celery task {job.celery_task_id}")
+                logger.debug(f"Job {job_id} already has task {job.celery_task_id}")
                 return
-            
-            # Enqueue using send_task (safer than importing worker module)
-            task = celery_app.send_task("execute_ticket", args=[job_id])
+
+            # Enqueue via unified dispatch
+            task = enqueue_task("execute_ticket", args=[job_id])
             job.celery_task_id = task.id
             db.commit()
-            
-            logger.info(f"Enqueued Celery task {task.id} for job {job_id}")
+
+            logger.info(f"Enqueued task {task.id} for job {job_id}")
     except Exception as e:
-        logger.error(f"Failed to enqueue Celery task for job {job_id}: {e}")
+        logger.error(f"Failed to enqueue task for job {job_id}: {e}")
 
 
 def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:

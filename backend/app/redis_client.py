@@ -1,13 +1,22 @@
-"""Redis client singleton with connection pooling and retry logic."""
+"""Redis client singleton with connection pooling and retry logic.
+
+When TASK_BACKEND=sqlite, Redis is not required and all operations
+use the in-memory FallbackCache instead.
+"""
 
 import os
 import logging
 import time
 from typing import Callable, TypeVar, Any, Optional
 
-import redis
-from redis.connection import ConnectionPool
-from redis.exceptions import ConnectionError, TimeoutError, RedisError
+# Redis is optional - only needed when TASK_BACKEND=redis
+try:
+    import redis
+    from redis.connection import ConnectionPool
+    from redis.exceptions import ConnectionError, TimeoutError, RedisError
+    _REDIS_INSTALLED = True
+except ImportError:
+    _REDIS_INSTALLED = False
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +132,7 @@ class FallbackCache:
         pass
 
 
-def get_connection_pool() -> ConnectionPool:
+def get_connection_pool():
     """Get or create the shared Redis connection pool."""
     global _connection_pool
     if _connection_pool is None:
@@ -142,21 +151,24 @@ def get_connection_pool() -> ConnectionPool:
     return _connection_pool
 
 
-def get_redis() -> redis.Redis | FallbackCache:
+def get_redis():
     """Get the shared Redis client instance with connection pooling.
 
-    In local/demo mode (SMART_KANBAN_MODE=local), returns an in-memory
-    fallback cache instead of Redis. This allows evaluation without Redis.
+    In local/demo mode (SMART_KANBAN_MODE=local) or when TASK_BACKEND=sqlite,
+    returns an in-memory fallback cache instead of Redis.
 
     Returns a connected Redis client or FallbackCache. Connection is lazy and pooled.
     """
     global _redis_client, _fallback_client
 
     # Check if we should use fallback mode
-    if SMART_KANBAN_MODE == "local":
+    if SMART_KANBAN_MODE == "local" or not _REDIS_INSTALLED:
         if _fallback_client is None:
             _fallback_client = FallbackCache()
-            logger.info("Running in LOCAL mode - using in-memory cache (no Redis required)")
+            if not _REDIS_INSTALLED:
+                logger.info("Redis not installed - using in-memory cache")
+            else:
+                logger.info("Running in LOCAL mode - using in-memory cache (no Redis required)")
         return _fallback_client
 
     # Try to use real Redis
@@ -237,6 +249,8 @@ def redis_available() -> bool:
     Returns True if we can ping Redis (with retries), False otherwise.
     Used to gracefully degrade when Redis is down.
     """
+    if not _REDIS_INSTALLED:
+        return False
     try:
         client = get_redis()
         redis_with_retry(client.ping, max_retries=2)

@@ -57,10 +57,18 @@ class TicketService:
             if not blocker:
                 raise ResourceNotFoundError("Blocking Ticket", data.blocked_by_ticket_id)
             blocked_by_title = blocker.title
-        
+
+        # Fetch board_id from the parent goal
+        from app.models.goal import Goal
+
+        goal = await self.db.get(Goal, data.goal_id)
+        if not goal:
+            raise ResourceNotFoundError("Goal", data.goal_id)
+
         # Create the ticket
         ticket = Ticket(
             goal_id=data.goal_id,
+            board_id=goal.board_id,
             title=data.title,
             description=data.description,
             state=TicketState.PROPOSED.value,
@@ -203,9 +211,6 @@ class TicketService:
         from app.models.job import Job, JobKind, JobStatus
 
         try:
-            # Import here to avoid circular dependency
-            from app.celery_app import celery_app
-
             # IDEMPOTENCY CHECK: Is there already an active verify job?
             active_verify_result = await self.db.execute(
                 select(Job).where(
@@ -230,10 +235,11 @@ class TicketService:
             await self.db.flush()
             await self.db.refresh(job)
 
-            # Enqueue the Celery task using send_task (safer)
-            task = celery_app.send_task("verify_ticket", args=[job.id])
+            # Enqueue the verify task via unified dispatch
+            from app.services.task_dispatch import enqueue_task
+            task = enqueue_task("verify_ticket", args=[job.id])
 
-            # Store the Celery task ID
+            # Store the task ID
             job.celery_task_id = task.id
             await self.db.flush()
 
