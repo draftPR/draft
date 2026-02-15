@@ -14,7 +14,7 @@ from app.database_sync import get_sync_db
 from app.exceptions import InvalidStateTransitionError, ResourceNotFoundError
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
-from app.schemas.ticket import TicketCreate, TicketsByState
+from app.schemas.ticket import TicketCreate, TicketResponse, TicketsByState
 from app.services.workspace_service import WorkspaceService
 from app.state_machine import (
     ActorType,
@@ -319,10 +319,20 @@ class TicketService:
         # Build response with all states (even empty ones)
         columns = []
         for state in TicketState:
+            # Convert tickets to response format and add blocker titles
+            ticket_list = tickets_by_state.get(state.value, [])
+            ticket_responses = []
+            for ticket in ticket_list:
+                ticket_dict = TicketResponse.model_validate(ticket).model_dump()
+                # Add blocker title if ticket is blocked
+                if ticket.blocked_by_ticket_id and ticket.blocked_by:
+                    ticket_dict["blocked_by_ticket_title"] = ticket.blocked_by.title
+                ticket_responses.append(ticket_dict)
+
             columns.append(
                 TicketsByState(
                     state=state,
-                    tickets=tickets_by_state.get(state.value, []),
+                    tickets=ticket_responses,
                 )
             )
 

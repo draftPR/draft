@@ -89,11 +89,12 @@ class ExecutorInfo:
             # Cursor Agent CLI with non-interactive mode:
             # - --print: Non-interactive mode that prints response and exits
             # - --output-format=stream-json: Stream JSON output line-by-line for real-time logs
+            # - --trust: Trust the workspace directory (required for Cursor Agent to execute)
             # - --force: Allow all commands without prompting (like YOLO mode)
             # - --workspace: Set the working directory
             # Prompt is piped via stdin to avoid ARG_MAX limits
             prompt_content = prompt_file.read_text()
-            cmd = [self.command, "--print", "--output-format=stream-json", "--workspace", str(worktree_path)]
+            cmd = [self.command, "--print", "--output-format=stream-json", "--trust", "--workspace", str(worktree_path)]
             if yolo_mode:
                 cmd.append("--force")
             return cmd, prompt_content

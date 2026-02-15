@@ -6,8 +6,15 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { EvidenceList } from "@/components/EvidenceList";
 import { RevisionViewer } from "@/components/RevisionViewer";
+import { TicketDAGView } from "@/components/TicketDAGView";
 import { Button } from "@/components/ui/button";
 import {
   fetchTicketEvents,
@@ -17,6 +24,8 @@ import {
   mergeTicket,
   fetchTicketJobs,
   retryJob,
+  fetchTicketDependents,
+  fetchTicket,
 } from "@/services/api";
 import type {
   Ticket,
@@ -49,15 +58,19 @@ import {
   Check,
   X,
   Activity,
+  GitBranch,
+  Lock,
 } from "lucide-react";
 import { CreatePRButton } from "@/components/PullRequest/CreatePRButton";
 import { PRStatusBadge } from "@/components/PullRequest/PRStatusBadge";
 import { AgentActivityLog } from "@/components/AgentActivityLog";
+import { BlockingIndicator } from "@/components/BlockingIndicator";
 
 interface TicketDetailDrawerProps {
   ticket: Ticket | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onNavigateToTicket?: (ticketId: string) => void;
 }
 
 function formatDate(dateString: string): string {
@@ -82,18 +95,22 @@ export function TicketDetailDrawer({
   ticket,
   open,
   onOpenChange,
+  onNavigateToTicket,
 }: TicketDetailDrawerProps) {
   const [events, setEvents] = useState<TicketEvent[]>([]);
   const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [dependents, setDependents] = useState<Ticket[]>([]);
   const [mergeStatus, setMergeStatus] = useState<MergeStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [revisionsLoading, setRevisionsLoading] = useState(false);
   const [mergeLoading, setMergeLoading] = useState(false);
+  const [dependentsLoading, setDependentsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRevisionViewer, setShowRevisionViewer] = useState(false);
+  const [showDAGView, setShowDAGView] = useState(false);
 
   const loadEvents = useCallback(async (ticketId: string) => {
     setLoading(true);
@@ -151,6 +168,25 @@ export function TicketDetailDrawer({
     } catch (err) {
       console.error("Failed to load jobs:", err);
       setJobs([]);
+    }
+  }, []);
+
+  const loadDependents = useCallback(async (ticketId: string) => {
+    setDependentsLoading(true);
+    try {
+      const tickets = await fetchTicketDependents(ticketId);
+      setDependents(tickets);
+    } catch (err) {
+      console.error("Failed to load dependents:", err);
+      setDependents([]);
+      // Only show toast for non-404 errors (404 means no dependents, which is fine)
+      if (err instanceof Error && !err.message.includes('404')) {
+        toast.error("Failed to load dependent tickets", {
+          description: err.message || "Unable to fetch tickets that depend on this one",
+        });
+      }
+    } finally {
+      setDependentsLoading(false);
     }
   }, []);
 
@@ -224,6 +260,29 @@ export function TicketDetailDrawer({
     }
   }, [ticket, loadEvents, loadMergeStatus]);
 
+  const handleNavigateToTicket = useCallback(async (ticketId: string) => {
+    try {
+      const targetTicket = await fetchTicket(ticketId);
+      // This will trigger the useEffect to reload all data for the new ticket
+      // We need to update the parent component's selectedTicket state
+      // For now, we'll reload the current drawer content
+      // Note: Ideally, the parent (KanbanBoard) should handle this via a callback
+      // But we can fake it by reloading everything for the new ticket
+      if (open) {
+        loadEvents(targetTicket.id);
+        loadEvidence(targetTicket.id);
+        loadRevisions(targetTicket.id);
+        loadMergeStatus(targetTicket.id);
+        loadJobs(targetTicket.id);
+        loadDependents(targetTicket.id);
+      }
+    } catch (err) {
+      toast.error("Failed to load ticket", {
+        description: err instanceof Error ? err.message : "Unknown error"
+      });
+    }
+  }, [open, loadEvents, loadEvidence, loadRevisions, loadMergeStatus, loadJobs, loadDependents]);
+
   useEffect(() => {
     if (ticket && open) {
       loadEvents(ticket.id);
@@ -231,11 +290,12 @@ export function TicketDetailDrawer({
       loadRevisions(ticket.id);
       loadMergeStatus(ticket.id);
       loadJobs(ticket.id);
+      loadDependents(ticket.id);
       setShowRevisionViewer(false); // Reset when opening a new ticket
     }
     // Only re-fetch when ticket ID changes or drawer opens, not on ticket object reference changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticket?.id, open, loadEvents, loadEvidence, loadRevisions, loadMergeStatus, loadJobs]);
+  }, [ticket?.id, open, loadEvents, loadEvidence, loadRevisions, loadMergeStatus, loadJobs, loadDependents]);
 
   // Auto-refresh jobs when there's a running job (to update status)
   const hasRunningJob = jobs.some(j => j.status === JobStatus.RUNNING || j.status === JobStatus.QUEUED);
@@ -281,6 +341,7 @@ export function TicketDetailDrawer({
   }
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-[25%] min-w-[500px] overflow-y-auto bg-background pl-8">
         <SheetHeader className="pb-8 border-b border-border/40">
@@ -332,6 +393,82 @@ export function TicketDetailDrawer({
               </p>
             </div>
           </div>
+
+          {/* Dependencies Section */}
+          {(ticket.blocked_by_ticket_id || dependents.length > 0) && (
+            <div className="space-y-4">
+              <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
+                <GitBranch className="h-3.5 w-3.5" />
+                Dependencies
+              </h3>
+
+              {/* Upstream blocker */}
+              {ticket.blocked_by_ticket_id && (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-muted-foreground/80 tracking-wide uppercase">
+                    ⬆️ Blocked by
+                  </p>
+                  <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 space-y-2">
+                    <BlockingIndicator
+                      blockedByTicketId={ticket.blocked_by_ticket_id}
+                      blockedByTicketTitle={ticket.blocked_by_ticket_title}
+                      onNavigateToBlocker={onNavigateToTicket}
+                    />
+                    <p className="text-[10px] text-amber-700 dark:text-amber-400/80 leading-relaxed">
+                      ⚠️ This ticket cannot be executed until the blocker is marked as DONE.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Downstream dependents */}
+              {dependents.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-muted-foreground/80 tracking-wide uppercase">
+                    ⬇️ Blocking {dependents.length} ticket{dependents.length !== 1 ? "s" : ""}
+                  </p>
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                    {dependentsLoading ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {dependents.map((dep) => (
+                          <button
+                            key={dep.id}
+                            className="w-full text-left text-[12px] flex items-center gap-2 p-2 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                            onClick={() => onNavigateToTicket?.(dep.id)}
+                            aria-label={`Navigate to dependent ticket: ${dep.title}`}
+                            title={`Click to view: ${dep.title}`}
+                          >
+                            <Lock className="h-3 w-3 flex-shrink-0 text-blue-600 dark:text-blue-400" />
+                            <span className="flex-1 truncate text-foreground">{dep.title}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {STATE_DISPLAY_NAMES[dep.state]}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* View DAG button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-2 text-[12px]"
+                onClick={() => setShowDAGView(true)}
+                aria-label="Open dependency graph"
+                title="Open full dependency graph visualization"
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+                View Full Dependency Graph
+              </Button>
+            </div>
+          )}
 
           {/* Review Changes Section - shown for reviewable states */}
           {canShowRevisions && (
@@ -551,5 +688,18 @@ export function TicketDetailDrawer({
         </div>
       </SheetContent>
     </Sheet>
+
+    {/* DAG View Dialog */}
+    <Dialog open={showDAGView} onOpenChange={setShowDAGView}>
+      <DialogContent className="max-w-[95vw] h-[95vh] p-0">
+        <DialogHeader className="px-6 py-4 border-b">
+          <DialogTitle>Dependency Graph</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 overflow-hidden">
+          <TicketDAGView highlightedTicketId={ticket?.id || null} />
+        </div>
+      </DialogContent>
+    </Dialog>
+  </>
   );
 }

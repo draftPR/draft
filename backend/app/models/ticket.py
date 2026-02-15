@@ -139,6 +139,7 @@ class Ticket(Base):
         foreign_keys=[blocked_by_ticket_id],
         remote_side="Ticket.id",
         uselist=False,
+        back_populates="blocking",
     )
     # Tickets that this ticket is blocking
     blocking: Mapped[list["Ticket"]] = relationship(

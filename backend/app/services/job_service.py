@@ -145,7 +145,6 @@ class JobService:
             board_id=ticket.board_id,  # Inherit board_id from ticket
             kind=kind.value,
             status=JobStatus.QUEUED.value,
-            variant=variant or "default",
         )
         self.db.add(job)
         await self.db.flush()

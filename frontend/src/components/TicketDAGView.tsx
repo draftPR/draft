@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { config } from "@/config";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, GitBranch, AlertCircle, Info } from "lucide-react";
+import { Loader2, GitBranch, AlertCircle, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Ticket {
@@ -38,11 +38,40 @@ const STATE_COLORS: Record<string, { fill: string; stroke: string; text: string 
   abandoned: { fill: "#9ca3af", stroke: "#6b7280", text: "#f9fafb" },
 };
 
-export function TicketDAGView() {
+interface TicketDAGViewProps {
+  highlightedTicketId?: string | null;
+}
+
+export function TicketDAGView({ highlightedTicketId: propHighlightedTicketId }: TicketDAGViewProps = {}) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [highlightedTicketId, setHighlightedTicketId] = useState<string | null>(null);
+
+  // Read highlight param from URL or prop
+  useEffect(() => {
+    if (propHighlightedTicketId) {
+      setHighlightedTicketId(propHighlightedTicketId);
+    } else {
+      const params = new URLSearchParams(window.location.search);
+      const highlightId = params.get('highlight');
+      setHighlightedTicketId(highlightId);
+    }
+  }, [propHighlightedTicketId]);
+
+  // Keyboard shortcut: Escape to clear highlight
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && highlightedTicketId) {
+        setHighlightedTicketId(null);
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [highlightedTicketId]);
 
   // Fetch tickets
   useEffect(() => {
@@ -202,8 +231,41 @@ export function TicketDAGView() {
         hasCycle,
         maxLayer,
       },
+      ticketMap,
     };
   }, [tickets]);
+
+  // Compute connected nodes for highlighting
+  const connectedNodes = useMemo(() => {
+    if (!highlightedTicketId) return null;
+
+    const connected = new Set<string>();
+    connected.add(highlightedTicketId);
+
+    // Add all upstream blockers (recursive)
+    const addUpstream = (ticketId: string) => {
+      const ticket = tickets.find(t => t.id === ticketId);
+      if (ticket?.blocked_by_ticket_id && !connected.has(ticket.blocked_by_ticket_id)) {
+        connected.add(ticket.blocked_by_ticket_id);
+        addUpstream(ticket.blocked_by_ticket_id);
+      }
+    };
+
+    // Add all downstream dependents (recursive)
+    const addDownstream = (ticketId: string) => {
+      tickets.forEach(ticket => {
+        if (ticket.blocked_by_ticket_id === ticketId && !connected.has(ticket.id)) {
+          connected.add(ticket.id);
+          addDownstream(ticket.id);
+        }
+      });
+    };
+
+    addUpstream(highlightedTicketId);
+    addDownstream(highlightedTicketId);
+
+    return connected;
+  }, [highlightedTicketId, tickets]);
 
   if (loading) {
     return (
@@ -249,6 +311,24 @@ export function TicketDAGView() {
           <span>Tickets: {stats.totalTickets}</span>
           <span>Layers: {stats.maxLayer + 1}</span>
           <span>Dependencies: {edges.length}</span>
+          {connectedNodes && (
+            <div className="flex items-center gap-2">
+              <Badge variant="default" className="text-[10px] bg-amber-500 hover:bg-amber-600">
+                🎯 Highlighting {connectedNodes.size} connected ticket{connectedNodes.size !== 1 ? "s" : ""}
+              </Badge>
+              <button
+                onClick={() => {
+                  setHighlightedTicketId(null);
+                  window.history.replaceState({}, '', window.location.pathname);
+                }}
+                className="p-1 rounded hover:bg-muted transition-colors"
+                title="Clear highlight"
+                aria-label="Clear ticket highlight and show all tickets"
+              >
+                <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+              </button>
+            </div>
+          )}
           {stats.hasCycle && (
             <Badge variant="destructive" className="text-[10px]">
               ⚠️ Cycle Detected!
@@ -257,7 +337,9 @@ export function TicketDAGView() {
         </div>
         <div className="ml-auto flex items-center gap-2 text-xs">
           <Info className="h-3 w-3 text-muted-foreground" />
-          <span className="text-muted-foreground">Hover over nodes for details</span>
+          <span className="text-muted-foreground">
+            Hover over nodes for details{highlightedTicketId && " • Press ESC to clear highlight"}
+          </span>
         </div>
       </div>
 
@@ -322,6 +404,8 @@ export function TicketDAGView() {
             const toY = edge.toNode.y + 35;
 
             const isHighlighted = hoveredNode === edge.fromNode.id || hoveredNode === edge.toNode.id;
+            const isConnectedToHighlight = connectedNodes?.has(edge.fromNode.id) && connectedNodes?.has(edge.toNode.id);
+            const shouldDimEdge = connectedNodes !== null && !isConnectedToHighlight;
             const midX = (fromX + toX) / 2;
 
             return (
@@ -333,7 +417,7 @@ export function TicketDAGView() {
                   strokeWidth={isHighlighted ? "3" : "2"}
                   className={cn("transition-all", isHighlighted && "dark:stroke-blue-400")}
                   markerEnd="url(#arrowhead)"
-                  opacity={isHighlighted ? 1 : 0.5}
+                  opacity={shouldDimEdge ? 0.15 : (isHighlighted ? 1 : 0.5)}
                 />
               </g>
             );
@@ -343,8 +427,13 @@ export function TicketDAGView() {
           {nodes.map((node) => {
             const colors = STATE_COLORS[node.state] || STATE_COLORS.proposed;
             const isHovered = hoveredNode === node.id;
-            const isConnected = edges.some(e => e.fromNode.id === node.id || e.toNode.id === node.id) && hoveredNode !== null;
-            const shouldHighlight = isHovered || (isConnected && !isHovered);
+            const isHighlightedTicket = highlightedTicketId === node.id;
+            const isConnectedToHighlight = connectedNodes?.has(node.id) ?? false;
+            const isConnectedToHover = edges.some(e => e.fromNode.id === node.id || e.toNode.id === node.id) && hoveredNode !== null;
+
+            // Determine opacity: dim if we have a highlight and this node isn't connected
+            const shouldDim = connectedNodes !== null && !isConnectedToHighlight;
+            const shouldHighlight = isHovered || (isConnectedToHover && !isHovered);
 
             return (
               <g
@@ -372,11 +461,11 @@ export function TicketDAGView() {
                   height="70"
                   rx="8"
                   fill={colors.fill}
-                  stroke={colors.stroke}
-                  strokeWidth={isHovered ? "3" : "2"}
+                  stroke={isHighlightedTicket ? "#fbbf24" : colors.stroke}
+                  strokeWidth={isHighlightedTicket ? "4" : isHovered ? "3" : "2"}
                   className="transition-all"
-                  filter={node.state === "executing" ? "url(#glow)" : undefined}
-                  opacity={shouldHighlight && !isHovered ? 0.4 : 1}
+                  filter={node.state === "executing" || isHighlightedTicket ? "url(#glow)" : undefined}
+                  opacity={shouldDim ? 0.25 : (shouldHighlight && !isHovered ? 0.4 : 1)}
                 />
 
                 {/* Node content container */}

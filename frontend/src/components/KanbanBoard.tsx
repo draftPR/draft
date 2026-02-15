@@ -665,6 +665,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
         ticket={selectedTicket}
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
+        onNavigateToTicket={handleNavigateToBlocker}
       />
     </>
   );

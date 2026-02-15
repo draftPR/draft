@@ -365,29 +365,11 @@ async def get_board_kanban(
     service = TicketService(db)
     columns = await service.get_board(board_id=board_id)
 
-    # Transform to response schema
-    response_columns = []
-    total_tickets = 0
-    for column in columns:
-        # Create ticket responses with blocker title
-        ticket_responses = []
-        for t in column.tickets:
-            ticket_dict = TicketResponse.model_validate(t).model_dump()
-            # Add blocker title if ticket is blocked
-            if t.blocked_by_ticket_id and t.blocked_by:
-                ticket_dict["blocked_by_ticket_title"] = t.blocked_by.title
-            ticket_responses.append(ticket_dict)
-
-        total_tickets += len(ticket_responses)
-        response_columns.append(
-            TicketsByState(
-                state=column.state,
-                tickets=ticket_responses,
-            )
-        )
+    # Count total tickets (conversion already handled in service)
+    total_tickets = sum(len(column.tickets) for column in columns)
 
     return KanbanBoardResponse(
-        columns=response_columns,
+        columns=columns,
         total_tickets=total_tickets,
     )
 
@@ -631,29 +613,11 @@ async def get_kanban_board(
     service = TicketService(db)
     columns = await service.get_board()
 
-    # Transform to response schema
-    response_columns = []
-    total_tickets = 0
-    for column in columns:
-        # Create ticket responses with blocker title
-        ticket_responses = []
-        for t in column.tickets:
-            ticket_dict = TicketResponse.model_validate(t).model_dump()
-            # Add blocker title if ticket is blocked
-            if t.blocked_by_ticket_id and t.blocked_by:
-                ticket_dict["blocked_by_ticket_title"] = t.blocked_by.title
-            ticket_responses.append(ticket_dict)
-
-        total_tickets += len(ticket_responses)
-        response_columns.append(
-            TicketsByState(
-                state=column.state,
-                tickets=ticket_responses,
-            )
-        )
+    # Count total tickets (conversion already handled in service)
+    total_tickets = sum(len(column.tickets) for column in columns)
 
     return KanbanBoardResponse(
-        columns=response_columns,
+        columns=columns,
         total_tickets=total_tickets,
     )
 
