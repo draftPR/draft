@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -16,6 +16,9 @@ class JobQueueEntry(Base):
     """
 
     __tablename__ = "job_queue"
+    __table_args__ = (
+        Index("ix_job_queue_claim_order", "status", "priority", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     task_name: Mapped[str] = mapped_column(String(255), nullable=False)
