@@ -1,4 +1,4 @@
-"""Goal model for Smart Kanban."""
+"""Goal model for Alma Kanban."""
 
 import uuid
 from datetime import datetime

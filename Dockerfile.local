@@ -1,6 +1,6 @@
-# Dockerfile.local - All-in-one container for Smart Kanban local/demo mode
+# Dockerfile.local - All-in-one container for Alma Kanban local/demo mode
 #
-# This Dockerfile bundles everything needed to run Smart Kanban:
+# This Dockerfile bundles everything needed to run Alma Kanban:
 # - Redis (optional, uses in-memory fallback by default)
 # - Python backend (FastAPI)
 # - Celery worker

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Smart Kanban Unified Launcher
+Alma Kanban Unified Launcher
 Starts all required services (Redis, Backend, Worker, Frontend) with a single command.
 """
 
@@ -122,7 +122,7 @@ class ProcessManager:
 
 def check_prerequisites():
     """Check if all required tools are installed."""
-    print(f"{Colors.HEADER}{Colors.BOLD}=== Smart Kanban Launcher ==={Colors.ENDC}\n")
+    print(f"{Colors.HEADER}{Colors.BOLD}=== Alma Kanban Launcher ==={Colors.ENDC}\n")
     
     checks = []
     
@@ -251,7 +251,7 @@ def start_frontend(pm: ProcessManager):
 def print_status():
     """Print service URLs and status."""
     print(f"\n{Colors.OKGREEN}{Colors.BOLD}{'='*60}{Colors.ENDC}")
-    print(f"{Colors.OKGREEN}{Colors.BOLD}  Smart Kanban is running!{Colors.ENDC}")
+    print(f"{Colors.OKGREEN}{Colors.BOLD}  Alma Kanban is running!{Colors.ENDC}")
     print(f"{Colors.OKGREEN}{Colors.BOLD}{'='*60}{Colors.ENDC}\n")
     
     print(f"  {Colors.BOLD}Frontend:{Colors.ENDC}  {Colors.OKCYAN}http://localhost:{FRONTEND_PORT}{Colors.ENDC}")

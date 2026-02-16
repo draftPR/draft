@@ -4,8 +4,7 @@ import re
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
-
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # =============================================================================
 # Validation Constants
@@ -175,14 +174,12 @@ class GenerateTicketsRequest(BaseModel):
     (smartkanban.yaml repo_root). This prevents directory traversal attacks.
     """
 
+    model_config = ConfigDict(extra="ignore")
+
     include_readme: bool = Field(
         default=False,
         description="Whether to include README excerpt in context",
     )
-
-    class Config:
-        # Allow extra fields but ignore them (backwards compat)
-        extra = "ignore"
 
 
 class CreatedTicketSchema(BaseModel):
@@ -378,9 +375,9 @@ class PriorityUpdate(BaseModel):
 
 class BulkPriorityUpdateRequest(BaseModel):
     """Request to update priorities for multiple tickets.
-    
+
     AUTHORIZATION: board_id is REQUIRED. All tickets must belong to this board.
-    
+
     SAFETY: P0 assignments require explicit allow_p0=true flag and are
     limited to MAX_P0_PER_REQUEST (default 3) per request.
     """

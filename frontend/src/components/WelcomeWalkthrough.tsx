@@ -45,11 +45,11 @@ export function WelcomeWalkthrough() {
 
   const steps: Step[] = [
     {
-      title: "Welcome to Smart Kanban!",
+      title: "Welcome to Alma Kanban!",
       description: "The Autonomous Delivery System for Codebases",
       icon: <Rocket className="h-8 w-8 text-blue-500" />,
       details: [
-        "Smart Kanban autonomously plans, executes, and verifies code changes",
+        "Alma Kanban autonomously plans, executes, and verifies code changes",
         "You define goals in plain English, AI handles the implementation",
         "Full transparency with evidence trails for every action",
         "Let's walk through your first autonomous delivery in 5 quick steps",
@@ -62,7 +62,7 @@ export function WelcomeWalkthrough() {
       details: [
         'Look for the demo goal: "Fix the calculator bugs and add missing tests"',
         "This goal describes what needs to be done, not how to do it",
-        "Smart Kanban will break it down into concrete tickets",
+        "Alma Kanban will break it down into concrete tickets",
         "Click on the goal card to see the full description",
       ],
     },
@@ -72,7 +72,7 @@ export function WelcomeWalkthrough() {
       icon: <FileText className="h-8 w-8 text-purple-500" />,
       details: [
         'Click "Generate Tickets" button on the goal card',
-        "Smart Kanban analyzes the demo-repo codebase",
+        "Alma Kanban analyzes the demo-repo codebase",
         "AI creates tickets with dependencies and priorities",
         "Review the proposed tickets - they're in PROPOSED state awaiting your approval",
       ],
@@ -107,7 +107,7 @@ export function WelcomeWalkthrough() {
       icon: <GitMerge className="h-8 w-8 text-red-500" />,
       details: [
         "Once all tickets are approved, merge to main branch",
-        "Smart Kanban runs final safety checks",
+        "Alma Kanban runs final safety checks",
         "All worktrees are cleaned up automatically",
         "Changes are now in your main branch!",
         "🎉 Congratulations! You've completed your first autonomous delivery!",

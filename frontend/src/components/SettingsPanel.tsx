@@ -117,7 +117,7 @@ export function SettingsPanel() {
             Settings
           </h1>
           <p className="text-muted-foreground">
-            Configure Smart Kanban to match your workflow
+            Configure Alma Kanban to match your workflow
           </p>
         </div>
         {hasChanges && (

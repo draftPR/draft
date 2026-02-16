@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -37,11 +37,11 @@ export function TicketGenerationProgress({
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!open) {
       // Reset state when dialog closes
-      // eslint-disable-next-line react-hooks/exhaustive-deps
       setEvents([]);
       setIsComplete(false);
       setHasError(false);
@@ -59,13 +59,13 @@ export function TicketGenerationProgress({
 
       if (data.type === "complete") {
         setIsComplete(true);
-        setTimeout(() => {
+        timeoutRef.current = setTimeout(() => {
           onComplete();
           onOpenChange(false);
         }, 2000);
       } else if (data.type === "error") {
         setHasError(true);
-        setTimeout(() => {
+        timeoutRef.current = setTimeout(() => {
           onOpenChange(false);
         }, 3000);
       }
@@ -83,6 +83,10 @@ export function TicketGenerationProgress({
 
     return () => {
       eventSource.close();
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
     };
   }, [open, goalId, onComplete, onOpenChange]);
 

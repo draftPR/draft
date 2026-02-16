@@ -1,4 +1,4 @@
-"""Database connection and session management for Smart Kanban."""
+"""Database connection and session management for Alma Kanban."""
 
 import os
 from collections.abc import AsyncGenerator

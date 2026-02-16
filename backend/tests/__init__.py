@@ -1,3 +1,3 @@
-"""Tests for Smart Kanban backend."""
+"""Tests for Alma Kanban backend."""
 
 

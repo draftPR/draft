@@ -2,7 +2,7 @@
 set -e
 
 # Cleanup script for calculator-project board
-# This script removes all Smart Kanban data and resets code changes for the calculator project
+# This script removes all Alma Kanban data and resets code changes for the calculator project
 
 BOARD_ID="ca149d15-91a6-4bce-9f88-d9ee2df4764d"
 REPO_PATH="/Users/dor/Documents/code/tests/calculator-project"
@@ -150,7 +150,7 @@ echo ""
 
 # Optional: Delete the board itself
 echo "[6/6] Board cleanup..."
-read -p "Delete the board entirely from Smart Kanban? (y/N): " -n 1 -r
+read -p "Delete the board entirely from Alma Kanban? (y/N): " -n 1 -r
 echo ""
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then

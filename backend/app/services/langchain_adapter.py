@@ -1,6 +1,6 @@
 """LangChain adapter to bridge existing LLMService with LangChain's BaseLLM interface.
 
-This adapter allows UDAR agent to use Smart Kanban's existing LLM infrastructure
+This adapter allows UDAR agent to use Alma Kanban's existing LLM infrastructure
 (LiteLLM with multi-provider support) without refactoring.
 """
 
@@ -15,7 +15,7 @@ from app.services.llm_service import LLMService
 class LangChainLLMAdapter(LLM):
     """Adapter to use existing LLMService with LangChain.
 
-    This allows UDAR agent to leverage Smart Kanban's existing LLM infrastructure
+    This allows UDAR agent to leverage Alma Kanban's existing LLM infrastructure
     while using LangGraph's state machine framework.
 
     Example:

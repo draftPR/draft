@@ -1,1 +1,1 @@
-"""Executor plugin system for Smart Kanban."""
+"""Executor plugin system for Alma Kanban."""

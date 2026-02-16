@@ -2,7 +2,7 @@
 
 # Default target
 help:
-	@echo "Smart Kanban - Development Commands"
+	@echo "Alma Kanban - Development Commands"
 	@echo ""
 	@echo "Setup:"
 	@echo "  make setup          - Install all dependencies (frontend + backend)"
@@ -50,7 +50,7 @@ setup-frontend:
 
 # Quick start - one command to run everything
 run:
-	@echo "🚀 Starting Smart Kanban..."
+	@echo "🚀 Starting Alma Kanban..."
 	@python3 run.py
 
 # Development targets (manual)

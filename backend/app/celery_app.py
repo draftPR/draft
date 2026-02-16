@@ -1,4 +1,4 @@
-"""Celery application configuration for Smart Kanban."""
+"""Celery application configuration for Alma Kanban."""
 
 import os
 

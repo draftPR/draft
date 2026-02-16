@@ -5,7 +5,7 @@ import json
 import re
 
 # Sample agent output (based on what we saw in the stream)
-agent_output = """Now I understand the context. This is the Smart Kanban backend project, and the goal is to add calculator functionality (multiplication and division) to the `app/utils` module. Based on the existing code structure and the previous ticket examples I found, I'll generate appropriate tickets.
+agent_output = """Now I understand the context. This is the Alma Kanban backend project, and the goal is to add calculator functionality (multiplication and division) to the `app/utils` module. Based on the existing code structure and the previous ticket examples I found, I'll generate appropriate tickets.
 
 ```json
 {

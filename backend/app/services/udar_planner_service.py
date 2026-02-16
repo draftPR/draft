@@ -13,21 +13,20 @@ Key Cost Optimizations:
 Total: 1-2 LLM calls per goal for initial generation
 """
 
-from datetime import datetime
-from typing import TypedDict, Annotated
-from pathlib import Path
 import json
+from datetime import datetime
+from pathlib import Path
+from typing import TypedDict
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.langchain_adapter import LangChainLLMAdapter
-from app.services.llm_service import LLMService
-from app.services.context_gatherer import ContextGatherer
-from app.services.agent_memory_service import AgentMemoryService
 from app.models.goal import Goal
 from app.models.ticket import Ticket
-from app.models.normalized_log import NormalizedLogEntry
+from app.services.agent_memory_service import AgentMemoryService
+from app.services.context_gatherer import ContextGatherer
+from app.services.langchain_adapter import LangChainLLMAdapter
+from app.services.llm_service import LLMService
 
 
 class UDARState(TypedDict):
@@ -314,7 +313,7 @@ class UDARPlannerService:
             # Build feedback for self-correction (if needed)
             if validation_feedback_messages:
                 state["validation_feedback"] = (
-                    f"The following tickets failed validation:\n"
+                    "The following tickets failed validation:\n"
                     + "\n".join(validation_feedback_messages)
                 )
             else:
@@ -500,7 +499,7 @@ Return JSON in this format:
             parsed = json.loads(json_str)
             return parsed
 
-        except Exception as e:
+        except Exception:
             # Fallback if parsing fails
             return {
                 "reasoning": "Failed to parse LLM response",
@@ -656,13 +655,13 @@ Return JSON in this format:
         follow_ups = parsed_response.get("tickets", [])
 
         # Step 4: Create follow-up tickets (deterministic)
-        from app.models.ticket import Ticket
+        from sqlalchemy import select as sa_select
 
         created_count = 0
         for follow_up_data in follow_ups:
             # Get goal_id from first significant ticket
             first_ticket_id = significant_tickets[0]["ticket_id"]
-            stmt = select(Ticket).where(Ticket.id == first_ticket_id)
+            stmt = sa_select(Ticket).where(Ticket.id == first_ticket_id)
             result = await self.db.execute(stmt)
             original_ticket = result.scalar_one_or_none()
 
@@ -772,13 +771,13 @@ If no follow-ups are needed, return {{"reasoning": "...", "tickets": []}}
         """
         import asyncio
         import logging
+
         from app.exceptions import (
-            ResourceNotFoundError,
             LLMTimeoutError,
+            ResourceNotFoundError,
             ToolExecutionError,
             UDARAgentError,
         )
-        from app.models.agent_session import AgentSession
 
         logger = logging.getLogger(__name__)
 
@@ -838,7 +837,7 @@ If no follow-ups are needed, return {{"reasoning": "...", "tickets": []}}
                 },
             }
 
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             # LLM timeout - fallback to legacy if enabled
             logger.warning(
                 f"UDAR agent timeout after {timeout_seconds}s for goal {goal_id}, "
@@ -888,6 +887,7 @@ If no follow-ups are needed, return {{"reasoning": "...", "tickets": []}}
             Dict with legacy-generated tickets and metadata
         """
         import logging
+
         from app.services.ticket_generation_service import TicketGenerationService
 
         logger = logging.getLogger(__name__)
@@ -919,23 +919,26 @@ If no follow-ups are needed, return {{"reasoning": "...", "tickets": []}}
     async def _track_agent_session(self, goal_id: str, state: UDARState) -> None:
         """Track UDAR agent session costs in database.
 
+        Logs cost info for observability. AgentSession records require a ticket_id
+        (FK to tickets), so UDAR goal-level sessions are logged but not persisted
+        to the agent_sessions table.
+
         Args:
             goal_id: Goal ID
             state: Final UDAR state with token counts
         """
-        from app.models.agent_session import AgentSession
-        from app.services.agent_registry import AGENT_REGISTRY
         import logging
+
+        from app.services.agent_registry import AGENT_REGISTRY, AgentType
 
         logger = logging.getLogger(__name__)
 
         try:
-            # Get agent pricing (default to Claude Opus 4.6 for UDAR)
-            agent_type = "claude-opus-4-6"  # UDAR uses Opus by default
-            agent_info = AGENT_REGISTRY.get(agent_type)
+            # Get agent pricing from registry
+            agent_config = AGENT_REGISTRY.get(AgentType.CLAUDE)
 
-            if not agent_info:
-                logger.warning(f"Agent type {agent_type} not in registry, skipping cost tracking")
+            if not agent_config or not agent_config.cost_per_1k_input:
+                logger.warning("Claude agent config not found in registry, skipping cost tracking")
                 return
 
             # Calculate cost
@@ -943,32 +946,16 @@ If no follow-ups are needed, return {{"reasoning": "...", "tickets": []}}
             output_tokens = state.get("total_output_tokens", 0)
 
             cost_usd = (
-                (input_tokens / 1_000_000) * agent_info["cost_per_million_input_tokens"]
-                + (output_tokens / 1_000_000) * agent_info["cost_per_million_output_tokens"]
+                (input_tokens / 1000) * agent_config.cost_per_1k_input
+                + (output_tokens / 1000) * (agent_config.cost_per_1k_output or 0)
             )
-
-            # Create agent session record
-            session = AgentSession(
-                goal_id=goal_id,
-                agent_type=agent_type,
-                total_input_tokens=input_tokens,
-                total_output_tokens=output_tokens,
-                estimated_cost_usd=cost_usd,
-                metadata_={
-                    "phases_completed": state.get("phase", "unknown"),
-                    "llm_calls_made": state.get("llm_calls_made", 0),
-                    "iteration": state.get("iteration", 0),
-                    "trigger": state.get("trigger", "unknown"),
-                },
-            )
-
-            self.db.add(session)
-            await self.db.commit()
 
             logger.info(
-                f"Tracked UDAR agent session for goal {goal_id}: "
+                f"UDAR agent session for goal {goal_id}: "
                 f"{input_tokens} input tokens, {output_tokens} output tokens, "
-                f"${cost_usd:.4f} estimated cost"
+                f"${cost_usd:.4f} estimated cost, "
+                f"phases={state.get('phase', 'unknown')}, "
+                f"llm_calls={state.get('llm_calls_made', 0)}"
             )
 
         except Exception as e:

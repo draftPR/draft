@@ -1,6 +1,6 @@
-# Smart Kanban API - Example curl Commands
+# Alma Kanban API - Example curl Commands
 
-This document provides example curl commands to interact with the Smart Kanban API.
+This document provides example curl commands to interact with the Alma Kanban API.
 
 ## Prerequisites
 

@@ -1,4 +1,4 @@
-# Smart Kanban
+# Alma Kanban
 
 A local-first kanban board application for managing tasks and projects.
 
@@ -130,14 +130,14 @@ curl http://localhost:8000/health
 # {"status":"ok"}
 
 curl http://localhost:8000/version
-# {"app":"Smart Kanban","version":"0.1.0"}
+# {"app":"Alma Kanban","version":"0.1.0"}
 ```
 
 Open http://localhost:5173 in your browser to see the frontend.
 
 ## Workspace Isolation
 
-Smart Kanban uses git worktrees to provide isolated workspaces for each ticket. This enables safe parallel execution of multiple tickets without interference.
+Alma Kanban uses git worktrees to provide isolated workspaces for each ticket. This enables safe parallel execution of multiple tickets without interference.
 
 ### How It Works
 
@@ -168,7 +168,7 @@ If the directory is not a git repository, jobs will run without workspace isolat
 
 ## Verification Pipeline
 
-Smart Kanban includes a verification pipeline that runs configurable commands to verify ticket implementations.
+Alma Kanban includes a verification pipeline that runs configurable commands to verify ticket implementations.
 
 ### Configuration
 
@@ -223,7 +223,7 @@ Evidence is displayed in the ticket detail drawer in the UI:
 
 ## Background Jobs
 
-Smart Kanban uses Celery with Redis to run background jobs for ticket execution and verification.
+Alma Kanban uses Celery with Redis to run background jobs for ticket execution and verification.
 
 ### Job Workflow Example
 

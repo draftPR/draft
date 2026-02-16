@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BoardCreate(BaseModel):
@@ -26,17 +26,18 @@ class BoardCreate(BaseModel):
 class BoardUpdate(BaseModel):
     """Schema for updating a board."""
 
+    model_config = ConfigDict(extra="ignore")
+
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     default_branch: str | None = None
     config: dict | None = Field(None, description="Board-level configuration overrides")
 
-    class Config:
-        extra = "ignore"
-
 
 class BoardResponse(BaseModel):
     """Schema for board API response."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: str
     name: str
@@ -45,9 +46,6 @@ class BoardResponse(BaseModel):
     default_branch: str | None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class BoardListResponse(BaseModel):
@@ -60,13 +58,12 @@ class BoardListResponse(BaseModel):
 class BoardConfigUpdate(BaseModel):
     """Schema for updating board-level configuration overrides."""
 
+    model_config = ConfigDict(extra="ignore")
+
     config: dict | None = Field(
         None,
         description="Board-level configuration that overrides smartkanban.yaml settings"
     )
-
-    class Config:
-        extra = "ignore"
 
 
 class BoardConfigResponse(BaseModel):

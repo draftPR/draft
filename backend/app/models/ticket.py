@@ -1,4 +1,4 @@
-"""Ticket model for Smart Kanban."""
+"""Ticket model for Alma Kanban."""
 
 import json
 import uuid

@@ -1,6 +1,6 @@
 """LangChain tools for UDAR agent.
 
-These tools wrap existing Smart Kanban services to make them accessible
+These tools wrap existing Alma Kanban services to make them accessible
 to the LangGraph agent. All tools are designed to be deterministic and
 minimize LLM calls where possible.
 """
@@ -44,11 +44,10 @@ async def analyze_codebase(repo_root: str) -> str:
         }
     """
     try:
-        gatherer = ContextGatherer(repo_path=Path(repo_root))
+        gatherer = ContextGatherer(max_files=1000)
         context = gatherer.gather(
-            include_readme=True,
-            include_todos=True,
-            max_files=1000,  # Cap to prevent slowdowns
+            repo_root=Path(repo_root),
+            include_readme_excerpt=True,
         )
 
         # Convert to JSON-serializable format
@@ -63,7 +62,7 @@ async def analyze_codebase(repo_root: str) -> str:
             "stats": {
                 "files_scanned": context.stats.files_scanned,
                 "bytes_read": context.stats.bytes_read,
-                "excluded_count": context.stats.excluded_count,
+                "excluded_count": context.stats.skipped_excluded,
             },
         }
 
@@ -208,7 +207,7 @@ async def get_goal_context(db: AsyncSession, goal_id: str) -> str:
             "id": goal.id,
             "title": goal.title,
             "description": goal.description[:500] if goal.description else None,  # Cap at 500 chars
-            "status": goal.status,
+            "created_at": goal.created_at.isoformat() if goal.created_at else None,
             "ticket_counts": {
                 **ticket_counts,
                 "total": len(tickets),
@@ -254,11 +253,11 @@ async def analyze_ticket_changes(
         }
     """
     try:
-        from app.models.ticket import Ticket
-        from app.models.revision import Revision
+
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
-        import re
+
+        from app.models.ticket import Ticket
 
         # Get ticket with revision
         stmt = (
@@ -292,25 +291,36 @@ async def analyze_ticket_changes(
                 "has_revision": False,
             })
 
-        # Parse diff_stat_content (deterministic)
+        # Load diff stat from evidence (deterministic)
         files_changed = []
         lines_added = 0
         lines_deleted = 0
 
-        if latest_revision.diff_stat_content:
-            # Parse diff stat format: "file.py | 10 +++++-----"
-            for line in latest_revision.diff_stat_content.split('\n'):
-                if '|' in line:
-                    # Extract filename
-                    file_part = line.split('|')[0].strip()
-                    if file_part:
-                        files_changed.append(file_part)
+        if latest_revision.diff_stat_evidence_id:
+            from app.models.evidence import Evidence
 
-                    # Extract line counts
-                    plus_count = line.count('+')
-                    minus_count = line.count('-')
-                    lines_added += plus_count
-                    lines_deleted += minus_count
+            evidence = await db.get(Evidence, latest_revision.diff_stat_evidence_id)
+            diff_stat_content = None
+            if evidence and evidence.stdout_path:
+                try:
+                    from pathlib import Path
+
+                    diff_stat_content = Path(evidence.stdout_path).read_text()
+                except Exception:
+                    pass
+
+            if diff_stat_content:
+                # Parse diff stat format: "file.py | 10 +++++-----"
+                for line in diff_stat_content.split("\n"):
+                    if "|" in line:
+                        file_part = line.split("|")[0].strip()
+                        if file_part:
+                            files_changed.append(file_part)
+
+                        plus_count = line.count("+")
+                        minus_count = line.count("-")
+                        lines_added += plus_count
+                        lines_deleted += minus_count
 
         # Check verification status
         verification_passed = latest_revision.status == "approved"

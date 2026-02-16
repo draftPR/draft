@@ -1,7 +1,7 @@
 [project]
-name = "smart-kanban-backend"
+name = "alma-kanban-backend"
 version = "0.1.0"
-description = "Smart Kanban Backend API"
+description = "Alma Kanban Backend API"
 requires-python = ">=3.11"
 
 [tool.ruff]

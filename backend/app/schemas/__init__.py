@@ -1,4 +1,4 @@
-"""Pydantic schemas for Smart Kanban API."""
+"""Pydantic schemas for Alma Kanban API."""
 
 from app.schemas.board import (
     BoardCreate,

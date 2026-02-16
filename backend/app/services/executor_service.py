@@ -1,4 +1,4 @@
-"""Service for executing code changes using CLI tools (Claude Code CLI or Cursor CLI)."""
+"""Service for executing code changes using CLI tools (Claude, Codex, Gemini, Cursor)."""
 
 import os
 import shutil
@@ -14,6 +14,8 @@ class ExecutorType(str, Enum):
     """Supported executor CLI types."""
 
     CLAUDE = "claude"  # Headless executor - can run automatically
+    CODEX = "codex"  # Headless executor - OpenAI Codex CLI
+    GEMINI = "gemini"  # Headless executor - Google Gemini CLI
     CURSOR_AGENT = "cursor-agent"  # Headless executor - Cursor Agent CLI
     CURSOR = "cursor"  # Interactive executor - requires human completion
 
@@ -40,7 +42,12 @@ class ExecutorInfo:
         Claude CLI and Cursor Agent CLI support headless operation.
         Cursor CLI is interactive - it opens the editor for human completion.
         """
-        if self.executor_type in (ExecutorType.CLAUDE, ExecutorType.CURSOR_AGENT):
+        if self.executor_type in (
+            ExecutorType.CLAUDE,
+            ExecutorType.CODEX,
+            ExecutorType.GEMINI,
+            ExecutorType.CURSOR_AGENT,
+        ):
             return ExecutorMode.HEADLESS
         return ExecutorMode.INTERACTIVE
 
@@ -98,6 +105,27 @@ class ExecutorInfo:
             if yolo_mode:
                 cmd.append("--force")
             return cmd, prompt_content
+        elif self.executor_type == ExecutorType.CODEX:
+            # OpenAI Codex CLI with non-interactive mode:
+            # - --print: Non-interactive mode that prints response and exits
+            # - --auto-edit: Automatically apply edits to files
+            # - --full-auto: ONLY if yolo_mode is enabled (skip all confirmations)
+            # Prompt is piped via stdin to avoid ARG_MAX limits
+            prompt_content = prompt_file.read_text()
+            cmd = [self.command, "--print", "--auto-edit"]
+            if yolo_mode:
+                cmd.append("--full-auto")
+            return cmd, prompt_content
+        elif self.executor_type == ExecutorType.GEMINI:
+            # Google Gemini CLI with non-interactive mode:
+            # - --print: Non-interactive mode that prints response and exits
+            # - --yolo: ONLY if yolo_mode is enabled (skip all confirmations)
+            # Prompt is piped via stdin to avoid ARG_MAX limits
+            prompt_content = prompt_file.read_text()
+            cmd = [self.command, "--print"]
+            if yolo_mode:
+                cmd.append("--yolo")
+            return cmd, prompt_content
         elif self.executor_type == ExecutorType.CURSOR:
             # Cursor CLI is INTERACTIVE ONLY
             # It opens the editor with the worktree. User must complete changes manually.
@@ -112,20 +140,25 @@ class ExecutorService:
 
     Executor Types:
         - Claude CLI (headless): Can run fully automated. Preferred for CI/automation.
+        - Codex CLI (headless): OpenAI's Codex CLI for automated code changes.
+        - Gemini CLI (headless): Google's Gemini CLI for automated code changes.
         - Cursor Agent CLI (headless): Can run fully automated via cursor-agent.
         - Cursor CLI (interactive): Opens editor for human completion. Use as handoff.
 
     Design Decisions:
         - Claude CLI is preferred for headless operation
-        - Cursor Agent CLI is an alternative headless executor
+        - Codex and Gemini are alternative headless executors
+        - Cursor Agent CLI is another headless executor
         - Cursor CLI is a fallback that prepares workspace + prompt, then hands off to user
         - If only Cursor is available, caller should transition to needs_human
     """
 
     # CLI names to check in order of preference
-    # Claude and cursor-agent are preferred because they support headless operation
+    # Claude, Codex, Gemini, and cursor-agent are preferred because they support headless operation
     CLI_PREFERENCES = [
         (ExecutorType.CLAUDE, "claude"),
+        (ExecutorType.CODEX, "codex"),
+        (ExecutorType.GEMINI, "gemini"),
         (ExecutorType.CURSOR_AGENT, "cursor-agent"),
         (ExecutorType.CURSOR, "cursor"),
     ]
@@ -214,6 +247,8 @@ class ExecutorService:
             "Please install one of the following:\n"
             "  - Claude Code CLI (recommended for automation): "
             "https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview\n"
+            "  - Codex CLI (OpenAI): https://github.com/openai/codex\n"
+            "  - Gemini CLI (Google): https://github.com/google/gemini-cli\n"
             "  - Cursor Agent CLI: Set agent_path in smartkanban.yaml\n"
             "  - Cursor CLI (interactive, opens editor): https://docs.cursor.com/cli"
         )

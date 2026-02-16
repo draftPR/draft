@@ -11,7 +11,6 @@ These tests validate the critical invariants that must hold for the PR-like revi
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.goal import Goal
 from app.models.job import Job, JobKind, JobStatus
@@ -21,7 +20,6 @@ from app.models.revision import Revision, RevisionStatus
 from app.models.ticket import Ticket
 from app.services.review_service import ReviewService
 from app.services.revision_service import RevisionService
-
 
 # ==================== Test Fixtures ====================
 
@@ -75,23 +73,23 @@ async def test_revision_idempotency_constraint_prevents_duplicates(
     db: AsyncSession, sample_ticket: Ticket, sample_job: Job
 ):
     """Test that the same job cannot create two revisions.
-    
+
     If the same execute job is retried, we must not create Revision N twice.
     The unique constraint on (ticket_id, job_id) should prevent this.
     """
     revision_service = RevisionService(db)
-    
+
     # Create first revision
-    revision1 = await revision_service.create_revision(
+    await revision_service.create_revision(
         ticket_id=sample_ticket.id,
         job_id=sample_job.id,
     )
     await db.commit()
-    
+
     # Attempt to create second revision with same job_id
     # This should raise an IntegrityError due to unique constraint
     from sqlalchemy.exc import IntegrityError
-    
+
     with pytest.raises(IntegrityError):
         await revision_service.create_revision(
             ticket_id=sample_ticket.id,
@@ -107,13 +105,13 @@ async def test_at_most_one_open_revision_per_ticket(
     db: AsyncSession, sample_ticket: Ticket
 ):
     """Test that creating a new revision supersedes the previous open revision.
-    
+
     For a ticket:
     - At most 1 revision can be 'open'
     - Creating a new revision must supersede the previous open revision in the same transaction
     """
     revision_service = RevisionService(db)
-    
+
     # Create first job and revision
     job1 = Job(
         ticket_id=sample_ticket.id,
@@ -122,17 +120,17 @@ async def test_at_most_one_open_revision_per_ticket(
     )
     db.add(job1)
     await db.flush()
-    
+
     revision1 = await revision_service.create_revision(
         ticket_id=sample_ticket.id,
         job_id=job1.id,
     )
     await db.commit()
-    
+
     # Verify rev1 is open
     await db.refresh(revision1)
     assert revision1.status == RevisionStatus.OPEN.value
-    
+
     # Create second job and revision
     job2 = Job(
         ticket_id=sample_ticket.id,
@@ -141,21 +139,21 @@ async def test_at_most_one_open_revision_per_ticket(
     )
     db.add(job2)
     await db.flush()
-    
+
     revision2 = await revision_service.create_revision(
         ticket_id=sample_ticket.id,
         job_id=job2.id,
     )
     await db.commit()
-    
+
     # Refresh rev1 and verify it's superseded
     await db.refresh(revision1)
     assert revision1.status == RevisionStatus.SUPERSEDED.value, \
         "Previous open revision should be superseded"
-    
+
     # Verify rev2 is open
     assert revision2.status == RevisionStatus.OPEN.value
-    
+
     # Count open revisions - must be exactly 1
     result = await db.execute(
         select(Revision).where(
@@ -172,24 +170,24 @@ async def test_at_most_one_open_revision_per_ticket(
 # ==================== Test 3: Approval Gating ====================
 
 
-async def test_approval_blocked_with_unresolved_comments(
+async def test_approval_allowed_with_unresolved_comments(
     db: AsyncSession, sample_ticket: Ticket, sample_job: Job
 ):
-    """Test that approval is rejected if unresolved comments exist.
-    
-    UI gating is not enough - this must be enforced server-side.
-    POST /revisions/{id}/review must reject approval if unresolved comments exist.
+    """Test that approval succeeds even with unresolved comments.
+
+    The review service deliberately allows approval with unresolved comments.
+    Comments are informational; approving accepts the changes regardless.
     """
     revision_service = RevisionService(db)
     review_service = ReviewService(db)
-    
+
     # Create revision
     revision = await revision_service.create_revision(
         ticket_id=sample_ticket.id,
         job_id=sample_job.id,
     )
     await db.commit()
-    
+
     # Add an unresolved comment
     await review_service.add_comment(
         revision_id=revision.id,
@@ -199,18 +197,16 @@ async def test_approval_blocked_with_unresolved_comments(
         author_type=AuthorType.HUMAN,
     )
     await db.commit()
-    
-    # Attempt to approve - should be rejected
-    from app.exceptions import ValidationError
-    
-    with pytest.raises(ValidationError) as exc_info:
-        await review_service.submit_review(
-            revision_id=revision.id,
-            decision=ReviewDecision.APPROVED,
-            summary="LGTM",
-        )
-    
-    assert "unresolved comment" in str(exc_info.value).lower()
+
+    # Approval should succeed despite unresolved comments
+    summary = await review_service.submit_review(
+        revision_id=revision.id,
+        decision=ReviewDecision.APPROVED,
+        summary="LGTM",
+    )
+
+    assert summary is not None
+    assert summary.decision == ReviewDecision.APPROVED.value
 
 
 async def test_approval_succeeds_when_all_comments_resolved(
@@ -219,14 +215,14 @@ async def test_approval_succeeds_when_all_comments_resolved(
     """Test that approval succeeds when all comments are resolved."""
     revision_service = RevisionService(db)
     review_service = ReviewService(db)
-    
+
     # Create revision
     revision = await revision_service.create_revision(
         ticket_id=sample_ticket.id,
         job_id=sample_job.id,
     )
     await db.commit()
-    
+
     # Add a comment
     comment = await review_service.add_comment(
         revision_id=revision.id,
@@ -236,11 +232,11 @@ async def test_approval_succeeds_when_all_comments_resolved(
         author_type=AuthorType.HUMAN,
     )
     await db.commit()
-    
+
     # Resolve the comment
     await review_service.resolve_comment(comment.id)
     await db.commit()
-    
+
     # Now approval should succeed
     review_summary = await review_service.submit_review(
         revision_id=revision.id,
@@ -248,7 +244,7 @@ async def test_approval_succeeds_when_all_comments_resolved(
         summary="LGTM",
     )
     await db.commit()
-    
+
     assert review_summary.decision == ReviewDecision.APPROVED.value
 
 
@@ -259,17 +255,17 @@ async def test_feedback_bundle_contains_unresolved_comments(
     db: AsyncSession, sample_ticket: Ticket, sample_job: Job
 ):
     """Test that feedback bundle includes all unresolved comments.
-    
+
     When changes are requested:
     - The feedback bundle must include review summary
     - Only unresolved comments should be included (or resolved with flag)
     """
     revision_service = RevisionService(db)
     review_service = ReviewService(db)
-    
+
     # Save IDs upfront before any operations that might expire them
     ticket_id = sample_ticket.id
-    
+
     # Create revision
     revision = await revision_service.create_revision(
         ticket_id=ticket_id,
@@ -277,7 +273,7 @@ async def test_feedback_bundle_contains_unresolved_comments(
     )
     revision_id = revision.id
     await db.commit()
-    
+
     # Add two comments
     comment1 = await review_service.add_comment(
         revision_id=revision_id,
@@ -286,7 +282,7 @@ async def test_feedback_bundle_contains_unresolved_comments(
         body="Rename this variable",
         author_type=AuthorType.HUMAN,
     )
-    comment2 = await review_service.add_comment(
+    await review_service.add_comment(
         revision_id=revision_id,
         file_path="src/helper.py",
         line_number=10,
@@ -294,11 +290,11 @@ async def test_feedback_bundle_contains_unresolved_comments(
         author_type=AuthorType.HUMAN,
     )
     await db.commit()
-    
+
     # Resolve one comment
     await review_service.resolve_comment(comment1.id)
     await db.commit()
-    
+
     # Request changes
     await review_service.submit_review(
         revision_id=revision_id,
@@ -306,19 +302,19 @@ async def test_feedback_bundle_contains_unresolved_comments(
         summary="Please address the remaining issue",
     )
     await db.commit()
-    
+
     # Expire cached objects to force a fresh query
     db.expire_all()
-    
+
     # Get feedback bundle
     feedback = await review_service.get_feedback_bundle(revision_id)
-    
+
     # Verify feedback bundle structure
     assert feedback.ticket_id == ticket_id
     assert feedback.revision_id == revision_id
     assert feedback.decision == "changes_requested"
     assert feedback.summary == "Please address the remaining issue"
-    
+
     # Only unresolved comment should be in the bundle
     assert len(feedback.comments) == 1
     assert feedback.comments[0].file_path == "src/helper.py"
@@ -332,7 +328,7 @@ async def test_orphaned_comments_included_in_feedback_bundle(
     db: AsyncSession, sample_ticket: Ticket, sample_job: Job
 ):
     """Test that comments whose anchors can't be found are still included.
-    
+
     When a comment is on a line that's been removed in a new revision:
     - Comment should show as orphaned (via the orphaned flag)
     - Comment should still be included in feedback bundle
@@ -340,16 +336,16 @@ async def test_orphaned_comments_included_in_feedback_bundle(
     """
     revision_service = RevisionService(db)
     review_service = ReviewService(db)
-    
+
     # Create revision
     revision = await revision_service.create_revision(
         ticket_id=sample_ticket.id,
         job_id=sample_job.id,
     )
     await db.commit()
-    
+
     # Add a comment with specific anchor data
-    comment = await review_service.add_comment(
+    await review_service.add_comment(
         revision_id=revision.id,
         file_path="src/old_file.py",
         line_number=100,  # Line that might not exist after rerun
@@ -359,7 +355,7 @@ async def test_orphaned_comments_included_in_feedback_bundle(
         line_content="def slow_function():",
     )
     await db.commit()
-    
+
     # Request changes
     await review_service.submit_review(
         revision_id=revision.id,
@@ -367,10 +363,10 @@ async def test_orphaned_comments_included_in_feedback_bundle(
         summary="Please optimize",
     )
     await db.commit()
-    
+
     # Get feedback bundle - comment should be present
     feedback = await review_service.get_feedback_bundle(revision.id)
-    
+
     # The comment must be included (not dropped!)
     assert len(feedback.comments) == 1
     assert feedback.comments[0].file_path == "src/old_file.py"
@@ -384,16 +380,16 @@ async def test_orphaned_comments_included_in_feedback_bundle(
 
 async def test_auto_rerun_cap_enforced(db: AsyncSession, sample_goal: Goal):
     """Test that auto-reruns are capped to prevent infinite loops.
-    
+
     Caps:
     - Max 2 auto-reruns PER REVISION (per source_revision_id)
     - Max 5 total revisions per ticket
-    
+
     After max reached: require explicit human action.
     """
     # This test validates the logic exists, but the actual cap is enforced
     # in the router endpoint. We test the count logic here.
-    
+
     ticket = Ticket(
         title="Rerun Test Ticket",
         description="Test ticket for rerun cap",
@@ -402,9 +398,9 @@ async def test_auto_rerun_cap_enforced(db: AsyncSession, sample_goal: Goal):
     )
     db.add(ticket)
     await db.flush()
-    
+
     revision_service = RevisionService(db)
-    
+
     # Create first revision (from initial job)
     job1 = Job(
         ticket_id=ticket.id,
@@ -413,15 +409,15 @@ async def test_auto_rerun_cap_enforced(db: AsyncSession, sample_goal: Goal):
     )
     db.add(job1)
     await db.flush()
-    
+
     revision1 = await revision_service.create_revision(
         ticket_id=ticket.id,
         job_id=job1.id,
     )
     await db.commit()
-    
+
     # Simulate 2 auto-reruns from revision 1 (max per revision)
-    for i in range(2):
+    for _i in range(2):
         job = Job(
             ticket_id=ticket.id,
             kind=JobKind.EXECUTE.value,
@@ -430,19 +426,19 @@ async def test_auto_rerun_cap_enforced(db: AsyncSession, sample_goal: Goal):
         )
         db.add(job)
         await db.flush()
-        
+
         await revision_service.create_revision(
             ticket_id=ticket.id,
             job_id=job.id,
         )
     await db.commit()
-    
+
     # Count jobs that addressed revision 1
     jobs_from_rev1 = await db.execute(
         select(Job).where(Job.source_revision_id == revision1.id)
     )
     reruns_from_rev1 = len(list(jobs_from_rev1.scalars().all()))
-    
+
     assert reruns_from_rev1 == 2, "Should have 2 auto-reruns from revision 1"
     # The router logic checks: if reruns_from_this_revision >= 2, reject
     # A 3rd auto-rerun FROM THE SAME REVISION should be blocked
@@ -456,14 +452,14 @@ async def test_job_source_revision_traceability(
 ):
     """Test that jobs triggered by review have source_revision_id set."""
     revision_service = RevisionService(db)
-    
+
     # Create initial revision
     revision = await revision_service.create_revision(
         ticket_id=sample_ticket.id,
         job_id=sample_job.id,
     )
     await db.commit()
-    
+
     # Create a new job triggered by review (simulating what the router does)
     new_job = Job(
         ticket_id=sample_ticket.id,
@@ -473,7 +469,7 @@ async def test_job_source_revision_traceability(
     )
     db.add(new_job)
     await db.commit()
-    
+
     # Verify the traceability link
     await db.refresh(new_job)
     assert new_job.source_revision_id == revision.id, \

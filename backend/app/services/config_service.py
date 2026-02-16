@@ -350,7 +350,7 @@ class PlannerConfig:
 
 @dataclass
 class SmartKanbanConfig:
-    """Root configuration for Smart Kanban.
+    """Root configuration for Alma Kanban.
 
     Structure:
         project:

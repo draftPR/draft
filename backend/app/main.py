@@ -1,4 +1,4 @@
-"""Smart Kanban Backend - FastAPI Application."""
+"""Alma Kanban Backend - FastAPI Application."""
 
 import logging
 import os
@@ -48,7 +48,7 @@ from app.routers.websocket import router as websocket_router
 
 load_dotenv()
 
-APP_NAME = "Orion Kanban"
+APP_NAME = "Alma Kanban"
 APP_VERSION = "0.1.0"
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=APP_NAME,
     version=APP_VERSION,
-    description="A local-first Smart Kanban application with state machine workflow",
+    description="A local-first Alma Kanban application with state machine workflow",
     lifespan=lifespan,
 )
 
@@ -215,7 +215,7 @@ async def llm_api_error_handler(
 async def smart_kanban_error_handler(
     request: Request, exc: SmartKanbanError
 ) -> JSONResponse:
-    """Handle generic Smart Kanban errors."""
+    """Handle generic Alma Kanban errors."""
     return JSONResponse(
         status_code=500,
         content={

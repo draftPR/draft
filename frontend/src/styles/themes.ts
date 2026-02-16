@@ -1,5 +1,5 @@
 /**
- * Theme system for Smart Kanban.
+ * Theme system for Alma Kanban.
  *
  * Includes standard dark/light themes plus a "HUD mode" for monitoring.
  */

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Starting Smart Kanban..."
+echo "🚀 Starting Alma Kanban..."
 
 # Run database migrations
 cd /workspace/backend

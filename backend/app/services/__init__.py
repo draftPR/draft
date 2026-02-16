@@ -1,4 +1,4 @@
-"""Service layer for Smart Kanban business logic."""
+"""Service layer for Alma Kanban business logic."""
 
 from app.services.board_service import BoardService
 from app.services.cleanup_service import CleanupService

@@ -10,7 +10,7 @@ export const config = {
   /**
    * Application name
    */
-  appName: "Orion Kanban",
+  appName: "Alma Kanban",
 } as const;
 
 

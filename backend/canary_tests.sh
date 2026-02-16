@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# CANARY TESTS FOR SMART KANBAN EXECUTOR INTEGRATION
+# CANARY TESTS FOR ALMA KANBAN EXECUTOR INTEGRATION
 # =============================================================================
 #
 # Prerequisites:
@@ -541,7 +541,7 @@ canary_5() {
 
 main() {
     echo "=============================================="
-    echo "    SMART KANBAN CANARY TESTS"
+    echo "    ALMA KANBAN CANARY TESTS"
     echo "=============================================="
     echo ""
     echo "API Base: $API_BASE"

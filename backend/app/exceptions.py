@@ -1,8 +1,8 @@
-"""Custom exceptions for Smart Kanban."""
+"""Custom exceptions for Alma Kanban."""
 
 
 class SmartKanbanError(Exception):
-    """Base exception for Smart Kanban."""
+    """Base exception for Alma Kanban."""
 
     pass
 

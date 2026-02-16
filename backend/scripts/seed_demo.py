@@ -50,7 +50,7 @@ async def seed_demo_data():
             id="demo-board",
             name="Demo Calculator Project",
             description=(
-                "A demonstration board showing Smart Kanban's autonomous delivery system. "
+                "A demonstration board showing Alma Kanban's autonomous delivery system. "
                 "This board contains a simple calculator app with intentional bugs and TODOs."
             ),
             repo_root=str(demo_repo_path),
@@ -95,7 +95,7 @@ async def seed_demo_data():
 - Test suite: `tests/test_calculator.py`
 - Python project with pytest for testing
 
-This is a realistic but constrained problem - perfect for demonstrating Smart Kanban's end-to-end autonomous delivery pipeline!
+This is a realistic but constrained problem - perfect for demonstrating Alma Kanban's end-to-end autonomous delivery pipeline!
 """,
         )
         session.add(demo_goal)
@@ -115,7 +115,7 @@ This is a realistic but constrained problem - perfect for demonstrating Smart Ka
         print(f"  Title: {demo_goal.title}")
         print()
         print("Next Steps:")
-        print("  1. Start Smart Kanban: docker compose up")
+        print("  1. Start Alma Kanban: docker compose up")
         print("  2. Open UI: http://localhost:3000")
         print("  3. Look for the demo goal and click 'Generate Tickets'")
         print("  4. Watch autonomous execution!")
@@ -142,7 +142,7 @@ def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Seed demo data for Smart Kanban")
+    parser = argparse.ArgumentParser(description="Seed demo data for Alma Kanban")
     parser.add_argument(
         "--clear",
         action="store_true",

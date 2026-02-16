@@ -1,4 +1,4 @@
-"""Celery worker tasks for Smart Kanban."""
+"""Celery worker tasks for Alma Kanban."""
 
 from __future__ import annotations
 

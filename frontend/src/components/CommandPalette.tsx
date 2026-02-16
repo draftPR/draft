@@ -310,7 +310,7 @@ export function CommandPalette({
 }
 
 /**
- * Example commands for common Smart Kanban actions.
+ * Example commands for common Alma Kanban actions.
  */
 export const exampleCommands: Command[] = [
   // Goal actions

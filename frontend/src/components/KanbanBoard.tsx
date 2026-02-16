@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   DragDropContext,
   Droppable,
@@ -53,17 +53,24 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
       });
   }, []);
 
-  // Load board data - not memoized to avoid dependency issues
-  const loadBoard = async (silent = false) => {
+  // Guard to prevent overlapping auto-refresh requests
+  const isRefreshing = useRef(false);
+
+  // Load board data
+  const loadBoard = useCallback(async (silent = false) => {
     if (!currentBoard) {
       setLoading(false);
       setBoard(null);
       return;
     }
 
+    // Skip if a silent refresh is already in-flight
+    if (silent && isRefreshing.current) return;
+
     if (!silent) {
       setLoading(true);
     }
+    isRefreshing.current = true;
     setError(null);
     try {
       const data = await fetchBoard(currentBoard.id);
@@ -76,29 +83,28 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
         toast.error(message);
       }
     } finally {
+      isRefreshing.current = false;
       if (!silent) {
         setLoading(false);
       }
     }
-  };
+  }, [currentBoard]);
 
   // Load board when currentBoard changes or refresh is triggered
   useEffect(() => {
     loadBoard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentBoard?.id, refreshTrigger]);
+  }, [loadBoard, refreshTrigger]);
 
   // Auto-refresh interval - only run when a board is selected
   useEffect(() => {
     if (!autoRefresh || !currentBoard) return;
 
     const intervalId = setInterval(() => {
-      loadBoard(true); // Silent refresh
+      loadBoard(true); // Silent refresh (skipped if already in-flight)
     }, 3000); // Refresh every 3 seconds
 
     return () => clearInterval(intervalId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRefresh, currentBoard?.id]); // Only recreate when autoRefresh or board changes
+  }, [autoRefresh, currentBoard, loadBoard]);
 
   const handleAutopilotStart = useCallback(async () => {
     setAutopilotLoading(true);

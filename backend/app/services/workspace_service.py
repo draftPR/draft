@@ -315,6 +315,7 @@ class WorkspaceService:
         # Create new workspace record
         workspace = Workspace(
             ticket_id=ticket_id,
+            board_id=ticket.board_id,
             worktree_path=str(worktree_dir),
             branch_name=branch_name,
         )

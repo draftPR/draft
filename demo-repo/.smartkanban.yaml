@@ -1,8 +1,8 @@
-# Smart Kanban Configuration for Demo Calculator
+# Alma Kanban Configuration for Demo Calculator
 
 project:
   name: "Demo Calculator App"
-  description: "A simple calculator with bugs - perfect for demonstrating Smart Kanban"
+  description: "A simple calculator with bugs - perfect for demonstrating Alma Kanban"
 
 execute_config:
   timeout: 300

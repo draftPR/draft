@@ -1,4 +1,4 @@
-"""Simple calculator with some bugs to demonstrate Smart Kanban.
+"""Simple calculator with some bugs to demonstrate Alma Kanban.
 
 This module contains several issues:
 - No error handling for division by zero

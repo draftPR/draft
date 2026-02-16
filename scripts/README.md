@@ -1,6 +1,6 @@
-# Smart Kanban Scripts
+# Alma Kanban Scripts
 
-This directory contains utility scripts for managing the Smart Kanban system.
+This directory contains utility scripts for managing the Alma Kanban system.
 
 ## Ticket Generation Scripts
 
@@ -34,7 +34,7 @@ Generates a JSON file containing 4 pre-defined tickets for the `~/Documents/code
 
 ### create_test_tickets.sh
 
-Automatically creates 4 tickets for the `~/Documents/code/tests/` project via the Smart Kanban API.
+Automatically creates 4 tickets for the `~/Documents/code/tests/` project via the Alma Kanban API.
 
 **Prerequisites:**
 - Backend server must be running: `cd backend && uvicorn app.main:app --reload`
