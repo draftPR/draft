@@ -2268,20 +2268,61 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
     # Transition ticket based on outcome
     if all_succeeded:
         write_log(log_path, "All verification commands passed!")
-        # Always transition to needs_human for review - user must explicitly approve to move to done
-        write_log(log_path, "Transitioning ticket to 'needs_human' for review")
-        transition_ticket_sync(
-            ticket_id,
-            TicketState.NEEDS_HUMAN,
-            reason=f"Verification passed: {len(verify_commands)} command(s) succeeded, awaiting human approval",
-            payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms},
-        )
+
+        # Check if autonomy mode allows auto-approval (skip NEEDS_HUMAN)
+        auto_approved = False
+        try:
+            from app.services.autonomy_service import AutonomyService
+
+            with get_sync_db() as autonomy_db:
+                ticket_for_check = autonomy_db.query(Ticket).filter(Ticket.id == ticket_id).first()
+                if ticket_for_check:
+                    autonomy_svc = AutonomyService()
+                    check = autonomy_svc.can_auto_approve_revision_sync(autonomy_db, ticket_for_check)
+                    if check.approved:
+                        write_log(log_path, f"Autonomy: auto-approving revision ({check.reason})")
+                        # Transition directly to DONE, skipping NEEDS_HUMAN
+                        transition_ticket_sync(
+                            ticket_id,
+                            TicketState.DONE,
+                            reason=f"Auto-approved: verification passed ({len(verify_commands)} command(s)), {check.reason}",
+                            payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms, "auto_approved": True},
+                            actor_id="autonomy_service",
+                        )
+                        # Record audit event
+                        autonomy_svc.record_auto_action_sync(
+                            autonomy_db,
+                            ticket_for_check,
+                            action_type="approve_revision",
+                            details={"reason": check.reason, "evidence_ids": evidence_records},
+                            from_state=TicketState.VERIFYING.value,
+                            to_state=TicketState.DONE.value,
+                        )
+                        autonomy_db.commit()
+                        auto_approved = True
+                    else:
+                        write_log(log_path, f"Autonomy: not auto-approving ({check.reason})")
+        except Exception as e:
+            write_log(log_path, f"Autonomy check failed (falling back to NEEDS_HUMAN): {e}")
+            logger.warning(f"Autonomy check failed for ticket {ticket_id}: {e}")
+
+        if not auto_approved:
+            # Default flow: transition to needs_human for review
+            write_log(log_path, "Transitioning ticket to 'needs_human' for review")
+            transition_ticket_sync(
+                ticket_id,
+                TicketState.NEEDS_HUMAN,
+                reason=f"Verification passed: {len(verify_commands)} command(s) succeeded, awaiting human approval",
+                payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms},
+            )
+
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
         return {
             "job_id": job_id,
             "status": "succeeded",
             "worktree": str(worktree_path) if worktree_path else None,
             "evidence_ids": evidence_records,
+            "auto_approved": auto_approved,
         }
     else:
         # Verification failed

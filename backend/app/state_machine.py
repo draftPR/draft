@@ -58,6 +58,7 @@ ALLOWED_TRANSITIONS: dict[TicketState, list[TicketState]] = {
         TicketState.EXECUTING,  # Rework needed
         TicketState.NEEDS_HUMAN,  # Verification passed, awaiting human review
         TicketState.BLOCKED,  # Verification failed
+        TicketState.DONE,  # Auto-approved (autonomy mode, skips NEEDS_HUMAN)
     ],
     TicketState.NEEDS_HUMAN: [
         TicketState.EXECUTING,  # Human resolved, back to executing

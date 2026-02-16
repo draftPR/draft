@@ -19,6 +19,7 @@ import {
   Calendar,
   ChevronRight,
   Sparkles,
+  Zap,
 } from "lucide-react";
 
 interface GoalsListDialogProps {
@@ -145,6 +146,12 @@ export function GoalsListDialog({
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0 pr-1">
+                        {goal.autonomy_enabled && (
+                          <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400" title="Autonomy enabled">
+                            <Zap className="h-3.5 w-3.5" />
+                            <span>Auto</span>
+                          </div>
+                        )}
                         <div className="flex items-center gap-1 text-xs text-primary">
                           <Sparkles className="h-3.5 w-3.5" />
                           <span>AI</span>

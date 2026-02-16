@@ -10,10 +10,12 @@ import { Button } from "@/components/ui/button";
 import { ProposedTicketsReview } from "@/components/ProposedTicketsReview";
 import { ReflectionDialog } from "@/components/ReflectionDialog";
 import { TicketGenerationProgress } from "@/components/TicketGenerationProgress";
-import { fetchGoal } from "@/services/api";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { fetchGoal, updateGoal } from "@/services/api";
 import type { Goal, ProposedTicket } from "@/types/api";
 import { toast } from "sonner";
-import { Loader2, Sparkles, AlertCircle, Calendar, Lightbulb } from "lucide-react";
+import { Loader2, Sparkles, AlertCircle, Calendar, Lightbulb, Zap } from "lucide-react";
 
 interface GoalDetailDialogProps {
   goalId: string | null;
@@ -146,6 +148,26 @@ export function GoalDetailDialog({
                 <span>Created {formatDate(goal.created_at)}</span>
               </div>
             </div>
+
+            {/* Autonomy Settings */}
+            {goal.autonomy_enabled && (
+              <div className="border rounded-lg p-3 bg-amber-50/50 dark:bg-amber-950/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="h-4 w-4 text-amber-500" />
+                  <span className="text-sm font-medium">Autonomy Active</span>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {goal.auto_approval_count} auto-actions
+                    {goal.max_auto_approvals ? ` / ${goal.max_auto_approvals} max` : ""}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span>{goal.auto_approve_tickets ? "v" : "x"} Tickets</span>
+                  <span>{goal.auto_approve_revisions ? "v" : "x"} Revisions</span>
+                  <span>{goal.auto_merge ? "v" : "x"} Merge</span>
+                  <span>{goal.auto_approve_followups ? "v" : "x"} Follow-ups</span>
+                </div>
+              </div>
+            )}
 
             {/* Show review UI if we have proposed tickets */}
             {showReview && proposedTickets.length > 0 ? (

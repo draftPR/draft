@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -49,6 +49,15 @@ class Goal(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    # Autonomy fields
+    autonomy_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+    auto_approve_tickets: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+    auto_approve_revisions: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+    auto_merge: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+    auto_approve_followups: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+    max_auto_approvals: Mapped[int | None] = mapped_column(Integer, default=None, nullable=True)
+    auto_approval_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     # Relationships
     board: Mapped["Board | None"] = relationship("Board", back_populates="goals")

@@ -273,13 +273,20 @@ class TicketGenerationService:
                 priority = bucket_to_priority(bucket)
                 rationale = raw.get("priority_rationale", "")
 
+                # Determine initial state: auto-approve if goal has autonomy enabled
+                initial_state = TicketState.PROPOSED.value
+                auto_approved_ticket = False
+                if goal.autonomy_enabled and goal.auto_approve_tickets:
+                    initial_state = TicketState.PLANNED.value
+                    auto_approved_ticket = True
+
                 # Create ticket
                 ticket = Ticket(
                     goal_id=goal_id,
                     board_id=goal.board_id,
                     title=title,
                     description=raw.get("description", ""),
-                    state=TicketState.PROPOSED.value,
+                    state=initial_state,
                     priority=priority,
                 )
                 self.db.add(ticket)
@@ -314,18 +321,36 @@ class TicketGenerationService:
                         "reasoning": validation.get("reasoning"),
                     }
 
+                # Add auto-approval info to event payload
+                if auto_approved_ticket:
+                    event_payload["auto_approved"] = True
+
                 # Create event
                 event = TicketEvent(
                     ticket_id=ticket.id,
                     event_type=EventType.CREATED.value,
                     from_state=None,
-                    to_state=TicketState.PROPOSED.value,
+                    to_state=initial_state,
                     actor_type=ActorType.PLANNER.value,
                     actor_id="ticket_generation_service",
                     reason=f"Generated from goal: {goal.title}",
                     payload_json=json.dumps(event_payload),
                 )
                 self.db.add(event)
+
+                # Record autonomy event if auto-approved
+                if auto_approved_ticket:
+                    autonomy_event = TicketEvent(
+                        ticket_id=ticket.id,
+                        event_type=EventType.TRANSITIONED.value,
+                        from_state=TicketState.PROPOSED.value,
+                        to_state=TicketState.PLANNED.value,
+                        actor_type=ActorType.SYSTEM.value,
+                        actor_id="autonomy_service",
+                        reason="Auto-approved ticket (autonomy mode)",
+                        payload_json=json.dumps({"autonomy_action": "approve_ticket"}),
+                    )
+                    self.db.add(autonomy_event)
 
                 created_tickets.append(
                     CreatedTicketSchema(

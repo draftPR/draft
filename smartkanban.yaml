@@ -125,6 +125,34 @@ merge_config:
   delete_branch_after_merge: true
 
 # =============================================================================
+# AUTONOMY CONFIGURATION
+# =============================================================================
+# Safety rails for full autonomy mode. When a goal has autonomy_enabled=true,
+# these settings control what the system is allowed to auto-approve.
+#
+# Individual gates (auto_approve_tickets, auto_approve_revisions, auto_merge,
+# auto_approve_followups) are set per-goal via the API.
+# These global settings define safety limits that apply to ALL autonomous goals.
+
+autonomy_config:
+  # Maximum diff lines allowed for auto-approval of revisions.
+  # Diffs larger than this require human review.
+  max_diff_lines: 500
+
+  # File patterns that trigger mandatory human review.
+  # If any file in the diff matches these patterns, auto-approval is blocked.
+  sensitive_file_patterns:
+    - "**/.env*"
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/secrets/**"
+    - "**/credentials*"
+
+  # Require all verification commands to pass before auto-approving.
+  # When true (default), any verification failure blocks auto-approval.
+  require_verification_pass: true
+
+# =============================================================================
 # PLANNER CONFIGURATION
 # =============================================================================
 # Settings for the AI planner that automates workflow decisions.

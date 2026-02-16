@@ -29,6 +29,7 @@ import type {
   Goal,
   GoalCreate,
   GoalListResponse,
+  GoalUpdate,
   Job,
   JobExecutionSummary,
   JobListResponse,
@@ -206,6 +207,16 @@ export async function createGoal(data: GoalCreate): Promise<Goal> {
  */
 export async function fetchGoals(): Promise<GoalListResponse> {
   return apiFetch<GoalListResponse>("/goals");
+}
+
+/**
+ * Update a goal (supports partial updates including autonomy settings)
+ */
+export async function updateGoal(goalId: string, data: GoalUpdate): Promise<Goal> {
+  return apiFetch<Goal>(`/goals/${goalId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 }
 
 /**

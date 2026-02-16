@@ -7,7 +7,14 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.goal import GoalCreate, GoalListResponse, GoalResponse
+from app.schemas.goal import (
+    AutonomySettings,
+    AutonomyStatusResponse,
+    GoalCreate,
+    GoalListResponse,
+    GoalResponse,
+    GoalUpdate,
+)
 from app.schemas.planner import (
     GenerateTicketsRequest,
     GenerateTicketsResponse,
@@ -17,7 +24,7 @@ from app.services.config_service import ConfigService
 from app.services.goal_service import GoalService
 from app.services.ticket_generation_service import TicketGenerationService
 from app.services.udar_planner_service import UDARPlannerService
-from app.utils.ignored_fields import check_ignored_fields, add_ignored_fields_header
+from app.utils.ignored_fields import add_ignored_fields_header, check_ignored_fields
 
 router = APIRouter(prefix="/goals", tags=["goals"])
 
@@ -68,6 +75,74 @@ async def get_goal(
     service = GoalService(db)
     goal = await service.get_goal_by_id(goal_id)
     return GoalResponse.model_validate(goal)
+
+
+@router.patch(
+    "/{goal_id}",
+    response_model=GoalResponse,
+    summary="Update a goal",
+)
+async def update_goal(
+    goal_id: str,
+    data: GoalUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> GoalResponse:
+    """Update a goal with partial data. Supports updating autonomy settings."""
+    service = GoalService(db)
+    goal = await service.update_goal(goal_id, data)
+    await db.commit()
+    return GoalResponse.model_validate(goal)
+
+
+@router.patch(
+    "/{goal_id}/autonomy",
+    response_model=GoalResponse,
+    summary="Update autonomy settings for a goal",
+)
+async def update_autonomy(
+    goal_id: str,
+    data: AutonomySettings,
+    db: AsyncSession = Depends(get_db),
+) -> GoalResponse:
+    """Update autonomy settings for a goal. Accepts partial updates."""
+    service = GoalService(db)
+    update_data = GoalUpdate(**data.model_dump())
+    goal = await service.update_goal(goal_id, update_data)
+    await db.commit()
+    return GoalResponse.model_validate(goal)
+
+
+@router.get(
+    "/{goal_id}/autonomy/status",
+    response_model=AutonomyStatusResponse,
+    summary="Get autonomy status for a goal",
+)
+async def get_autonomy_status(
+    goal_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> AutonomyStatusResponse:
+    """Get autonomy status including settings, approval count, and budget info."""
+    service = GoalService(db)
+    goal = await service.get_goal_by_id(goal_id)
+
+    # Check budget remaining
+    budget_remaining = None
+    if goal.budget:
+        if goal.budget.total_budget is not None:
+            # Would need cost tracking service for actual spend, placeholder for now
+            budget_remaining = goal.budget.total_budget
+
+    return AutonomyStatusResponse(
+        goal_id=goal.id,
+        autonomy_enabled=goal.autonomy_enabled,
+        auto_approve_tickets=goal.auto_approve_tickets,
+        auto_approve_revisions=goal.auto_approve_revisions,
+        auto_merge=goal.auto_merge,
+        auto_approve_followups=goal.auto_approve_followups,
+        max_auto_approvals=goal.max_auto_approvals,
+        auto_approval_count=goal.auto_approval_count,
+        budget_remaining=budget_remaining,
+    )
 
 
 @router.get(
@@ -214,21 +289,21 @@ async def generate_tickets(
     Requires LLM API key environment variables (OPENAI_API_KEY, etc.).
     """
     import json
-    
+
     # Parse raw body to check for ignored fields
     body = await raw_request.body()
     try:
         raw_body = json.loads(body) if body else {}
     except json.JSONDecodeError:
         raw_body = {}
-    
+
     # Check for ignored/deprecated fields
     allowed_fields = {"include_readme"}
     ignored_fields = check_ignored_fields(raw_request, raw_body, allowed_fields)
-    
+
     # Parse into Pydantic model
     request = GenerateTicketsRequest(**{k: v for k, v in raw_body.items() if k in allowed_fields})
-    
+
     # Get repo root from config - DO NOT accept arbitrary paths from client
     config_service = ConfigService()
     config = config_service.load_config()

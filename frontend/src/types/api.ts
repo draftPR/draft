@@ -51,11 +51,36 @@ export interface Goal {
   description: string | null;
   created_at: string;
   updated_at: string;
+  // Autonomy fields
+  autonomy_enabled: boolean;
+  auto_approve_tickets: boolean;
+  auto_approve_revisions: boolean;
+  auto_merge: boolean;
+  auto_approve_followups: boolean;
+  max_auto_approvals: number | null;
+  auto_approval_count: number;
 }
 
 export interface GoalCreate {
   title: string;
   description?: string | null;
+  autonomy_enabled?: boolean;
+  auto_approve_tickets?: boolean;
+  auto_approve_revisions?: boolean;
+  auto_merge?: boolean;
+  auto_approve_followups?: boolean;
+  max_auto_approvals?: number | null;
+}
+
+export interface GoalUpdate {
+  title?: string;
+  description?: string | null;
+  autonomy_enabled?: boolean;
+  auto_approve_tickets?: boolean;
+  auto_approve_revisions?: boolean;
+  auto_merge?: boolean;
+  auto_approve_followups?: boolean;
+  max_auto_approvals?: number | null;
 }
 
 export interface GoalListResponse {

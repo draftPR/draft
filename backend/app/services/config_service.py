@@ -216,6 +216,37 @@ class MergeConfig:
 
 
 @dataclass
+class AutonomyConfig:
+    """Configuration for full autonomy mode safety rails."""
+
+    max_diff_lines: int = 500
+    sensitive_file_patterns: list[str] = field(default_factory=lambda: [
+        "**/.env*",
+        "**/*.pem",
+        "**/*.key",
+        "**/secrets/**",
+        "**/credentials*",
+    ])
+    require_verification_pass: bool = True
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AutonomyConfig":
+        """Create a config instance from a dictionary."""
+        default_patterns = [
+            "**/.env*",
+            "**/*.pem",
+            "**/*.key",
+            "**/secrets/**",
+            "**/credentials*",
+        ]
+        return cls(
+            max_diff_lines=data.get("max_diff_lines", 500),
+            sensitive_file_patterns=data.get("sensitive_file_patterns") or default_patterns,
+            require_verification_pass=data.get("require_verification_pass", True),
+        )
+
+
+@dataclass
 class PlannerFeaturesConfig:
     """Feature flags for the planner."""
 
@@ -400,6 +431,7 @@ class SmartKanbanConfig:
     planner_config: PlannerConfig = field(default_factory=PlannerConfig)
     cleanup_config: CleanupConfig = field(default_factory=CleanupConfig)
     merge_config: MergeConfig = field(default_factory=MergeConfig)
+    autonomy_config: AutonomyConfig = field(default_factory=AutonomyConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SmartKanbanConfig":
@@ -438,6 +470,10 @@ class SmartKanbanConfig:
         merge_data = data.get("merge_config", {})
         merge_config = MergeConfig.from_dict(merge_data) if merge_data else MergeConfig()
 
+        # Parse autonomy config
+        autonomy_data = data.get("autonomy_config", {})
+        autonomy_config = AutonomyConfig.from_dict(autonomy_data) if autonomy_data else AutonomyConfig()
+
         return cls(
             project=project,
             execute_config=execute_config,
@@ -445,6 +481,7 @@ class SmartKanbanConfig:
             planner_config=planner_config,
             cleanup_config=cleanup_config,
             merge_config=merge_config,
+            autonomy_config=autonomy_config,
         )
 
     # Convenience properties for backwards compatibility
@@ -565,3 +602,7 @@ class ConfigService:
     def get_merge_config(self) -> MergeConfig:
         """Get the merge configuration."""
         return self.load_config().merge_config
+
+    def get_autonomy_config(self) -> AutonomyConfig:
+        """Get the autonomy configuration."""
+        return self.load_config().autonomy_config

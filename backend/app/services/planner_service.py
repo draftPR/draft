@@ -263,6 +263,16 @@ class PlannerService:
                         {"count": len(replan_actions)},
                     )
 
+            # 6. Auto-merge DONE tickets with autonomy enabled
+            auto_merge_actions = await self._auto_merge_done_tickets()
+            actions.extend(auto_merge_actions)
+            if auto_merge_actions:
+                add_orchestrator_log(
+                    "INFO",
+                    f"Auto-merged {len(auto_merge_actions)} ticket(s)",
+                    {"count": len(auto_merge_actions)},
+                )
+
             # Commit all DB changes BEFORE enqueueing Celery jobs
             await self.db.commit()
             add_orchestrator_log("DEBUG", "DB changes committed")
@@ -917,12 +927,26 @@ class PlannerService:
                 logger.error(f"Failed to generate follow-up for ticket {ticket.id}: {e}")
                 continue
 
-            # Create follow-up ticket (ALWAYS in PROPOSED state)
+            # Determine initial state: auto-approve if goal has autonomy enabled
+            initial_state = TicketState.PROPOSED.value
+            auto_approved_followup = False
+            try:
+                from app.services.autonomy_service import AutonomyService
+
+                goal = ticket.goal
+                if goal and goal.autonomy_enabled and goal.auto_approve_followups:
+                    initial_state = TicketState.PLANNED.value
+                    auto_approved_followup = True
+            except Exception:
+                pass
+
+            # Create follow-up ticket
             followup_ticket = Ticket(
                 goal_id=ticket.goal_id,
+                board_id=ticket.board_id,
                 title=proposal.title,
                 description=proposal.description,
-                state=TicketState.PROPOSED.value,  # MUST be PROPOSED, not PLANNED
+                state=initial_state,
                 priority=ticket.priority,  # Inherit priority
             )
             self.db.add(followup_ticket)
@@ -934,7 +958,7 @@ class PlannerService:
                 ticket_id=followup_ticket.id,
                 event_type=EventType.CREATED.value,
                 from_state=None,
-                to_state=TicketState.PROPOSED.value,
+                to_state=initial_state,
                 actor_type=ActorType.PLANNER.value,
                 actor_id="planner",
                 reason=f"Follow-up for blocked ticket: {ticket.title}",
@@ -943,10 +967,25 @@ class PlannerService:
                         "parent_ticket_id": ticket.id,  # Link to blocked ticket
                         "blocked_ticket_id": ticket.id,  # Legacy field
                         "verification": proposal.verification,
+                        "auto_approved": auto_approved_followup,
                     }
                 ),
             )
             self.db.add(creation_event)
+
+            # Record autonomy event if auto-approved
+            if auto_approved_followup:
+                autonomy_event = TicketEvent(
+                    ticket_id=followup_ticket.id,
+                    event_type=EventType.TRANSITIONED.value,
+                    from_state=TicketState.PROPOSED.value,
+                    to_state=TicketState.PLANNED.value,
+                    actor_type=ActorType.SYSTEM.value,
+                    actor_id="autonomy_service",
+                    reason="Auto-approved follow-up ticket (autonomy mode)",
+                    payload_json=json.dumps({"autonomy_action": "approve_followup"}),
+                )
+                self.db.add(autonomy_event)
 
             # Create event on blocked ticket noting the follow-up
             link_event = TicketEvent(
@@ -1151,6 +1190,117 @@ Generate a follow-up ticket proposal as JSON."""
                     details={"summary": reflection.summary},
                 )
             )
+
+        return actions
+
+    async def _auto_merge_done_tickets(self) -> list[PlannerAction]:
+        """Auto-merge DONE tickets where goal has auto_merge enabled.
+
+        Scans for DONE tickets whose goals have autonomy_enabled + auto_merge,
+        and where a workspace still exists (not yet merged).
+
+        Returns:
+            List of PlannerActions for merge results.
+        """
+        from app.services.autonomy_service import AutonomyService
+        from app.services.merge_service import MergeService
+
+        actions: list[PlannerAction] = []
+
+        # Find DONE tickets with active workspaces
+        done_result = await self.db.execute(
+            select(Ticket)
+            .where(Ticket.state == TicketState.DONE.value)
+            .options(
+                selectinload(Ticket.workspace),
+                selectinload(Ticket.goal),
+                selectinload(Ticket.revisions),
+                selectinload(Ticket.events),
+            )
+        )
+        done_tickets = done_result.scalars().all()
+
+        for ticket in done_tickets:
+            # Skip if no active workspace (already merged or cleaned up)
+            if not ticket.workspace or not ticket.workspace.is_active:
+                continue
+
+            # Skip if goal doesn't have auto_merge enabled
+            goal = ticket.goal
+            if not goal or not goal.autonomy_enabled or not goal.auto_merge:
+                continue
+
+            # Skip if already merged (check events)
+            already_merged = any(
+                e.event_type == EventType.MERGE_SUCCEEDED.value
+                for e in ticket.events
+            )
+            if already_merged:
+                continue
+
+            # Skip if no approved revision
+            from app.models.revision import RevisionStatus
+            has_approved = any(
+                r.status == RevisionStatus.APPROVED.value
+                for r in ticket.revisions
+            )
+            if not has_approved:
+                # Auto-approve the latest open revision if autonomy allows it
+                open_revision = next(
+                    (r for r in ticket.revisions if r.status == "open"),
+                    None,
+                )
+                if open_revision:
+                    open_revision.status = RevisionStatus.APPROVED.value
+                    await self.db.flush()
+                    logger.info(
+                        f"Auto-approved revision {open_revision.id} for ticket {ticket.id}"
+                    )
+                else:
+                    continue
+
+            try:
+                merge_service = MergeService(self.db)
+                merge_result = await merge_service.merge_ticket(
+                    ticket_id=ticket.id,
+                    actor_id="autonomy_service",
+                )
+
+                if merge_result.success:
+                    actions.append(
+                        PlannerAction(
+                            action_type=PlannerActionType.SKIPPED,  # No specific merge type exists
+                            ticket_id=ticket.id,
+                            ticket_title=ticket.title,
+                            details={
+                                "action": "auto_merge",
+                                "success": True,
+                                "message": merge_result.message,
+                            },
+                        )
+                    )
+                    logger.info(f"Auto-merged ticket {ticket.id}: {merge_result.message}")
+                else:
+                    # Transition to BLOCKED on merge failure
+                    ticket.state = TicketState.BLOCKED.value
+                    blocked_event = TicketEvent(
+                        ticket_id=ticket.id,
+                        event_type=EventType.TRANSITIONED.value,
+                        from_state=TicketState.DONE.value,
+                        to_state=TicketState.BLOCKED.value,
+                        actor_type=ActorType.SYSTEM.value,
+                        actor_id="autonomy_service",
+                        reason=f"Auto-merge failed: {merge_result.message}",
+                        payload_json=json.dumps({
+                            "autonomy_action": "auto_merge_failed",
+                            "merge_error": merge_result.message,
+                        }),
+                    )
+                    self.db.add(blocked_event)
+                    logger.warning(f"Auto-merge failed for ticket {ticket.id}: {merge_result.message}")
+
+            except Exception as e:
+                logger.error(f"Auto-merge error for ticket {ticket.id}: {e}")
 
         return actions
 
