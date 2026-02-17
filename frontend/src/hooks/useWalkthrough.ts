@@ -14,7 +14,7 @@ export function useWalkthrough() {
   const [state, setState] = useState<WalkthroughState>({
     isFirstRun: true,
     currentStep: 0,
-    totalSteps: 5,
+    totalSteps: 6,
     isOpen: false,
   });
 
@@ -80,7 +80,7 @@ export function useWalkthrough() {
     setState({
       isFirstRun: true,
       currentStep: 0,
-      totalSteps: 5,
+      totalSteps: 6,
       isOpen: true,
     });
   };
