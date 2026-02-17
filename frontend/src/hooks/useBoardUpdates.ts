@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { applyPatch } from 'fast-json-patch';
+import { applyPatch, type Operation } from 'fast-json-patch';
 import { queryKeys } from './queryKeys';
 
 /**
@@ -76,8 +76,8 @@ export function useBoardUpdates(boardId: string | null | undefined): UseBoardUpd
   const [updates, setUpdates] = useState<BoardUpdateMessage[]>([]);
   const [error, setError] = useState<string | undefined>();
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const listenersRef = useRef<Set<BoardUpdateListener>>(new Set());
   const lastSeqRef = useRef<number>(0);
 
@@ -189,7 +189,7 @@ export function useBoardUpdates(boardId: string | null | undefined): UseBoardUpd
                   try {
                     const patched = applyPatch(
                       structuredClone(current),
-                      message.ops,
+                      message.ops as Operation[],
                       false, // don't validate
                       false, // don't mutate
                     ).newDocument;

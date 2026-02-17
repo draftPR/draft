@@ -14,7 +14,6 @@ import type {
   PriorityBucket,
 } from "@/types/api";
 import {
-  PRIORITY_BUCKET_LABELS,
   PRIORITY_BUCKET_COLORS,
   PRIORITY_BUCKET_VALUES,
 } from "@/types/api";

@@ -2,7 +2,6 @@
  * Component for rendering system messages
  */
 
-import React from "react";
 
 interface Props {
   content: string;

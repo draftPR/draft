@@ -39,7 +39,7 @@ export function GlobalSettingsDialog({
 }: GlobalSettingsDialogProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [loadingModels, setLoadingModels] = useState(false);
+  const [_loadingModels, setLoadingModels] = useState(false);
 
   // Form state
   const [executorModel, setExecutorModel] = useState<string>("auto");
@@ -58,7 +58,7 @@ export function GlobalSettingsDialog({
 
         // If current model is not valid for new executor, reset to auto
         if (executorModel && executorModel !== "auto") {
-          const isValidModel = models.some(opt => opt.id === executorModel);
+          const isValidModel = models.some((opt: ExecutorModel) => opt.id === executorModel);
           if (!isValidModel) {
             setExecutorModel("auto");
           }

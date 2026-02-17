@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { config } from "@/config";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { BoardSelector } from "@/components/BoardSelector";
@@ -22,7 +22,6 @@ import { Target, Plus, Bug, FlaskConical, Loader2, Settings, Keyboard, FolderGit
 import { createGoal, createTicket } from "@/services/api";
 import { toast } from "sonner";
 import { useAppShortcuts } from "@/hooks/useKeyboardShortcuts";
-import { playSound } from "@/services/soundNotifications";
 import { BoardProvider } from "@/contexts/BoardContext";
 
 // Test data for quick generation

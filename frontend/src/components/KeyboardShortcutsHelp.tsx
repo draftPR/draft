@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,10 @@ import { useKeyboardNavigation, type KeyboardShortcut } from '../hooks/useKeyboa
 interface KeyboardShortcutsHelpProps {
   /** List of shortcuts to display */
   shortcuts?: KeyboardShortcut[];
+  /** Controlled open state */
+  open?: boolean;
+  /** Callback when open state changes */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -30,8 +34,10 @@ interface KeyboardShortcutsHelpProps {
  * <KeyboardShortcutsHelp shortcuts={shortcuts} />
  * ```
  */
-export function KeyboardShortcutsHelp({ shortcuts = [] }: KeyboardShortcutsHelpProps) {
-  const [open, setOpen] = useState(false);
+export function KeyboardShortcutsHelp({ shortcuts = [], open: controlledOpen, onOpenChange }: KeyboardShortcutsHelpProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const setOpen = onOpenChange || setInternalOpen;
 
   // Register `?` to open help
   useKeyboardNavigation({

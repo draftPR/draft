@@ -15,8 +15,6 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
-  DollarSign,
-  FileText,
   Shield,
   Undo2,
   GitMerge,

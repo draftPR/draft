@@ -22,13 +22,8 @@ import {
   Activity,
   Terminal,
   ScrollText,
-  ChevronDown,
-  ChevronRight,
   Play,
-  Clock,
   Zap,
-  AlertCircle,
-  CheckCircle,
   XCircle,
   Loader2,
   Minimize2,
@@ -114,7 +109,7 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
   
   // UI states
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, _setError] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [copied, setCopied] = useState(false);
   

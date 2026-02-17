@@ -2,7 +2,7 @@
  * Component for rendering file changes (edit/create/delete)
  */
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { ChevronDown, FileEdit, FilePlus, FileX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NormalizedLogEntry, FileEditMetadata } from "@/types/logs";

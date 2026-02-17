@@ -2,7 +2,7 @@
  * Badge component to display PR status with live refresh
  */
 
-import React, { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { GitPullRequest, ExternalLink, RefreshCw, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,23 +46,16 @@ export function PRStatusBadge({ ticket, onRefresh }: Props) {
   const config = stateConfig[state as keyof typeof stateConfig] || stateConfig.OPEN;
   const Icon = config.icon;
 
-  const handleRefresh = async (e: React.MouseEvent) => {
+  const handleRefresh = async (e: MouseEvent) => {
     e.stopPropagation();
     setRefreshing(true);
 
     try {
       await refreshPRStatus(ticket.id);
-      toast({
-        title: "PR Status Refreshed",
-        description: "Successfully updated PR status from GitHub",
-      });
+      toast.success("PR status refreshed");
       onRefresh?.();
-    } catch (error: any) {
-      toast({
-        title: "Failed to Refresh",
-        description: error.message || "Could not fetch PR status",
-        variant: "destructive",
-      });
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Could not fetch PR status");
     } finally {
       setRefreshing(false);
     }

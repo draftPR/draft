@@ -2,7 +2,7 @@
  * Button component to create a GitHub Pull Request for a ticket
  */
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { GitPullRequest, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -37,30 +37,11 @@ export function CreatePRButton({ ticket, onPRCreated }: Props) {
         base_branch: "main",
       });
 
-      toast({
-        title: "Pull Request Created! 🎉",
-        description: (
-          <div>
-            <p className="mb-2">PR #{result.pr_number} created successfully</p>
-            <a
-              href={result.pr_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-500 hover:underline text-sm"
-            >
-              View on GitHub →
-            </a>
-          </div>
-        ),
-      });
+      toast.success(`PR #${result.pr_number} created successfully`);
 
       onPRCreated?.();
-    } catch (error: any) {
-      toast({
-        title: "Failed to Create PR",
-        description: error.message || "An unexpected error occurred",
-        variant: "destructive",
-      });
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "An unexpected error occurred");
     } finally {
       setCreating(false);
     }

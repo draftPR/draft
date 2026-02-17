@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { clearBoardConfig, getBoardConfig, updateBoardConfig, getExecutorModels, ExecutorModel, deleteAllTickets } from "@/services/api";
+import { clearBoardConfig, getBoardConfig, updateBoardConfig, getExecutorModels, deleteAllTickets, type ExecutorModel } from "@/services/api";
 import { toast } from "sonner";
 import { AlertCircle, Info, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -63,7 +63,7 @@ export function BoardSettingsDialog({
 
         // If current model is not valid for new executor, reset to auto
         if (executorModel && executorModel !== "auto") {
-          const isValidModel = models.some(opt => opt.id === executorModel);
+          const isValidModel = models.some((opt: { id: string }) => opt.id === executorModel);
           if (!isValidModel) {
             setExecutorModel("auto");
           }

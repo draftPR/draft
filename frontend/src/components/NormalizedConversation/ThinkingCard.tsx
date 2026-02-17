@@ -2,7 +2,7 @@
  * Collapsible card for AI thinking/reasoning blocks
  */
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { ChevronDown, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 

@@ -52,8 +52,8 @@ const defaultDashboardData: DashboardResponse = {
 };
 
 function BudgetCard({ budget }: { budget: BudgetStatus }) {
-  const dailyPercent = (budget.daily_spent / budget.daily_budget) * 100;
-  const weeklyPercent = (budget.weekly_spent / budget.weekly_budget) * 100;
+  const dailyPercent = (budget.daily_spent / (budget.daily_budget ?? 1)) * 100;
+  const weeklyPercent = (budget.weekly_spent / (budget.weekly_budget ?? 1)) * 100;
   
   return (
     <Card className="min-w-0">

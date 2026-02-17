@@ -10,11 +10,8 @@ import { Button } from "@/components/ui/button";
 import { ProposedTicketsReview } from "@/components/ProposedTicketsReview";
 import { ReflectionDialog } from "@/components/ReflectionDialog";
 import { TicketGenerationProgress } from "@/components/TicketGenerationProgress";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { fetchGoal, updateGoal } from "@/services/api";
+import { fetchGoal } from "@/services/api";
 import type { Goal, ProposedTicket } from "@/types/api";
-import { toast } from "sonner";
 import { Loader2, Sparkles, AlertCircle, Calendar, Lightbulb, Zap } from "lucide-react";
 
 interface GoalDetailDialogProps {
@@ -41,7 +38,7 @@ export function GoalDetailDialog({
 }: GoalDetailDialogProps) {
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [generating, _setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [proposedTickets, setProposedTickets] = useState<ProposedTicket[]>([]);
   const [showReview, setShowReview] = useState(false);

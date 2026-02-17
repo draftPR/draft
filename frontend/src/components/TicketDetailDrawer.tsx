@@ -23,9 +23,7 @@ import {
   fetchMergeStatus,
   mergeTicket,
   fetchTicketJobs,
-  retryJob,
   fetchTicketDependents,
-  fetchTicket,
 } from "@/services/api";
 import type {
   Ticket,
@@ -34,6 +32,8 @@ import type {
   Revision,
   MergeStatusResponse,
   Job,
+  WorkspaceInfo,
+  LastMergeAttempt,
 } from "@/types/api";
 import {
   STATE_DISPLAY_NAMES,
@@ -54,7 +54,6 @@ import {
   ExternalLink,
   GitMerge,
   FolderGit,
-  RefreshCw,
   Check,
   X,
   Activity,
@@ -231,22 +230,6 @@ export function TicketDetailDrawer({
     }
   }, [ticket, loadMergeStatus, loadEvents]);
 
-  const handleRetryJob = useCallback(async (jobId: string) => {
-    try {
-      const newJob = await retryJob(jobId);
-      toast.success("Job retry queued", {
-        description: `New job ${newJob.id} created`,
-      });
-      if (ticket) {
-        loadJobs(ticket.id);
-      }
-    } catch (err) {
-      toast.error("Failed to retry job", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-    }
-  }, [ticket, loadJobs]);
-
   const handleRevisionUpdated = useCallback(() => {
     if (ticket) {
       loadRevisions(ticket.id);
@@ -261,29 +244,6 @@ export function TicketDetailDrawer({
       loadMergeStatus(ticket.id);
     }
   }, [ticket, loadEvents, loadMergeStatus]);
-
-  const handleNavigateToTicket = useCallback(async (ticketId: string) => {
-    try {
-      const targetTicket = await fetchTicket(ticketId);
-      // This will trigger the useEffect to reload all data for the new ticket
-      // We need to update the parent component's selectedTicket state
-      // For now, we'll reload the current drawer content
-      // Note: Ideally, the parent (KanbanBoard) should handle this via a callback
-      // But we can fake it by reloading everything for the new ticket
-      if (open) {
-        loadEvents(targetTicket.id);
-        loadEvidence(targetTicket.id);
-        loadRevisions(targetTicket.id);
-        loadMergeStatus(targetTicket.id);
-        loadJobs(targetTicket.id);
-        loadDependents(targetTicket.id);
-      }
-    } catch (err) {
-      toast.error("Failed to load ticket", {
-        description: err instanceof Error ? err.message : "Unknown error"
-      });
-    }
-  }, [open, loadEvents, loadEvidence, loadRevisions, loadMergeStatus, loadJobs, loadDependents]);
 
   useEffect(() => {
     if (ticket && open) {
@@ -522,11 +482,11 @@ export function TicketDetailDrawer({
                     <span className="text-[13px] font-medium">Merged to main</span>
                   </div>
                   {/* Warning if merge was done without pulling latest */}
-                  {mergeStatus.last_merge_attempt?.payload?.pull_warning && (
+                  {(mergeStatus.last_merge_attempt as unknown as LastMergeAttempt | null)?.payload?.pull_warning && (
                     <div className="flex items-start gap-2 text-amber-500 bg-amber-500/10 rounded-lg p-2.5">
                       <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                       <span className="text-[12px]">
-                        {mergeStatus.last_merge_attempt.payload.pull_warning}
+                        {(mergeStatus.last_merge_attempt as unknown as LastMergeAttempt).payload?.pull_warning}
                       </span>
                     </div>
                   )}
@@ -537,13 +497,13 @@ export function TicketDetailDrawer({
                     <div className="flex items-start gap-2">
                       <span className="text-[11px] text-muted-foreground min-w-[60px]">Branch:</span>
                       <code className="text-[12px] text-foreground font-mono">
-                        {mergeStatus.workspace.branch_name}
+                        {(mergeStatus.workspace as unknown as WorkspaceInfo).branch_name}
                       </code>
                     </div>
                     <div className="flex items-start gap-2">
                       <span className="text-[11px] text-muted-foreground min-w-[60px]">Path:</span>
                       <code className="text-[11px] text-muted-foreground font-mono break-all">
-                        {mergeStatus.workspace.worktree_path}
+                        {(mergeStatus.workspace as unknown as WorkspaceInfo).worktree_path}
                       </code>
                     </div>
                   </div>
@@ -570,10 +530,10 @@ export function TicketDetailDrawer({
                     </p>
                   )}
 
-                  {mergeStatus.last_merge_attempt && mergeStatus.last_merge_attempt.event_type === "merge_failed" && (
+                  {mergeStatus.last_merge_attempt && (mergeStatus.last_merge_attempt as unknown as LastMergeAttempt).event_type === "merge_failed" && (
                     <div className="flex items-center gap-2 text-destructive text-[12px]">
                       <X className="h-3.5 w-3.5" />
-                      <span>Last merge failed: {mergeStatus.last_merge_attempt.reason}</span>
+                      <span>Last merge failed: {(mergeStatus.last_merge_attempt as unknown as LastMergeAttempt).reason}</span>
                     </div>
                   )}
                 </div>

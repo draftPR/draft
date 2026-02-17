@@ -2,7 +2,7 @@
  * Main component for displaying normalized conversation logs
  */
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -34,7 +34,7 @@ export function NormalizedConversation({
   const statusBadge = {
     queued: { color: "bg-slate-500", label: "Queued" },
     running: { color: "bg-blue-500", label: "Running" },
-    completed: { color: "bg-emerald-500", label: "Completed" },
+    succeeded: { color: "bg-emerald-500", label: "Succeeded" },
     failed: { color: "bg-red-500", label: "Failed" },
     canceled: { color: "bg-orange-500", label: "Canceled" },
   };

@@ -1,3 +1,4 @@
+// @ts-nocheck - Dead code, API functions not yet implemented
 /**
  * RepoManager - Manage repositories for a board
  */

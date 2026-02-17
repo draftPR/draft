@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { CheckCircle, XCircle, Clock, Terminal, FileEdit, Zap } from 'lucide-react';
@@ -63,7 +62,7 @@ export function ActionTimeline({ actions }: ActionTimelineProps) {
 
         {/* Actions */}
         <div className="space-y-4">
-          {actions.map((action, idx) => (
+          {actions.map((action, _idx) => (
             <Card key={action.id} className="relative ml-10">
               {/* Timeline dot */}
               <div className="absolute -left-10 top-6 flex h-8 w-8 items-center justify-center rounded-full border-2 border-border bg-background">

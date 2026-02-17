@@ -5,7 +5,7 @@
  * and React Router Outlet for page content.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Outlet, useParams, useNavigate, useLocation } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { config } from "@/config";
@@ -38,9 +38,7 @@ import { createGoal, createTicket } from "@/services/api";
 import { toast } from "sonner";
 import { useAppShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useUIStore } from "@/stores/uiStore";
-import { useBoardStore, selectCurrentBoard } from "@/stores/boardStore";
-import { useBoardsQuery } from "@/hooks/useQueries";
-import { BoardProvider } from "@/contexts/BoardContext";
+import { useBoard } from "@/contexts/BoardContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/queryKeys";
 
@@ -89,21 +87,15 @@ export function AppLayout() {
   // Zustand UI state
   const ui = useUIStore();
 
-  // Board state
-  const { currentBoardId, setCurrentBoardId } = useBoardStore();
-  const { data: boardsData } = useBoardsQuery();
-  const boards = boardsData?.boards ?? [];
-  const currentBoard = selectCurrentBoard(boards, currentBoardId);
+  // Board state (from BoardProvider above us in the tree)
+  const { currentBoard, setCurrentBoard } = useBoard();
 
   // Sync board from URL param
-  if (boardId && boardId !== currentBoardId) {
-    setCurrentBoardId(boardId);
-  }
-
-  // Auto-select first board if none selected
-  if (!currentBoardId && boards.length > 0) {
-    setCurrentBoardId(boards[0].id);
-  }
+  useEffect(() => {
+    if (boardId && boardId !== currentBoard?.id) {
+      setCurrentBoard(boardId);
+    }
+  }, [boardId, currentBoard?.id, setCurrentBoard]);
 
   // Notification bridge
   useNotificationBridge(currentBoard?.id);
@@ -155,7 +147,6 @@ export function AppLayout() {
   };
 
   return (
-    <BoardProvider>
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card sticky top-0 z-40 shadow-sm">
@@ -322,6 +313,5 @@ export function AppLayout() {
       {/* Toast notifications */}
       <Toaster richColors position="bottom-right" />
     </div>
-    </BoardProvider>
   );
 }

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -17,7 +16,7 @@ interface TicketEvidenceProps {
 }
 
 export function TicketEvidence({ ticketId }: TicketEvidenceProps) {
-  const { evidence, loading, error, refetch } = useTicketEvidence(ticketId);
+  const { evidence, loading, error } = useTicketEvidence(ticketId);
 
   if (loading) {
     return (

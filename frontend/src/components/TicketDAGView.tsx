@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { config } from "@/config";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, GitBranch, AlertCircle, Info, X } from "lucide-react";
@@ -189,7 +189,6 @@ export function TicketDAGView({ highlightedTicketId: propHighlightedTicketId }: 
     });
 
     // Layout constants
-    const NODE_WIDTH = 200;
     const NODE_HEIGHT = 80;
     const LAYER_SPACING = 240;
     const NODE_SPACING = 100;
@@ -198,8 +197,6 @@ export function TicketDAGView({ highlightedTicketId: propHighlightedTicketId }: 
     const nodes: TicketNode[] = [];
     for (let layer = 0; layer <= maxLayer; layer++) {
       const layerNodes = layerMap.get(layer) || [];
-      const layerHeight = layerNodes.length * (NODE_HEIGHT + NODE_SPACING);
-
       layerNodes.forEach((node, index) => {
         node.x = layer * LAYER_SPACING + 50;
         node.y = index * (NODE_HEIGHT + NODE_SPACING) + 50;

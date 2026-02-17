@@ -10,6 +10,7 @@
 
 import { createBrowserRouter, Navigate } from "react-router";
 import { AppLayout } from "@/layouts/AppLayout";
+import { BoardProvider } from "@/contexts/BoardContext";
 
 import { BoardLayout } from "@/components/BoardLayout";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -17,7 +18,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 export const router = createBrowserRouter([
   {
     path: "/",
-    element: <AppLayout />,
+    element: <BoardProvider><AppLayout /></BoardProvider>,
     children: [
       {
         index: true,

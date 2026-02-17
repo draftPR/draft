@@ -32,14 +32,14 @@ export function ResizableLayout({
   showDetail = false,
 }: ResizableLayoutProps) {
   return (
-    <Group direction="horizontal" className="h-[calc(100vh-57px)]">
+    <Group orientation="horizontal" className="h-[calc(100vh-57px)]">
       {/* Sidebar panel */}
       {showSidebar && sidebar && (
         <>
           <Panel
             defaultSize={20}
-            min={15}
-            max={30}
+            minSize={15}
+            maxSize={30}
             collapsible
             className="bg-card border-r border-border"
           >
@@ -50,7 +50,7 @@ export function ResizableLayout({
       )}
 
       {/* Main content panel */}
-      <Panel defaultSize={showDetail ? 60 : 100} min={40}>
+      <Panel defaultSize={showDetail ? 60 : 100} minSize={40}>
         <div className="h-full overflow-y-auto">{main}</div>
       </Panel>
 
@@ -60,8 +60,8 @@ export function ResizableLayout({
           <Separator className="w-1.5 bg-border hover:bg-primary/20 transition-colors" />
           <Panel
             defaultSize={35}
-            min={25}
-            max={50}
+            minSize={25}
+            maxSize={50}
             collapsible
             className="bg-card border-l border-border"
           >

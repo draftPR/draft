@@ -4,13 +4,11 @@ import { Input } from './ui/input';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 import {
   Search,
-  Plus,
   Play,
   CheckSquare,
   Target,
   List,
   Settings,
-  LogOut,
   FileText,
 } from 'lucide-react';
 

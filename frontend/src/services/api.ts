@@ -70,6 +70,7 @@ export type {
   AgentLogsResponse,
   CreatePRRequest,
   DashboardResponse,
+  JobExecutionSummary,
   OrchestratorLogEntry,
   OrchestratorLogsResponse,
   PRStatus,
@@ -80,7 +81,58 @@ export type {
   StreamNormalizedEntry,
   SystemStatusResponse,
   TicketAgentLogsResponse,
+  BudgetStatus,
+  SprintMetrics,
+  AgentMetrics,
 } from "@/types/api";
+
+// ==================== Board Config API ====================
+
+export interface ExecutorModel {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export async function getBoardConfig(boardId: string): Promise<{ has_overrides: boolean; config: any }> {
+  return apiFetch<{ has_overrides: boolean; config: any }>(`/boards/${boardId}/config`);
+}
+
+export async function updateBoardConfig(boardId: string, config: Record<string, any>): Promise<void> {
+  return apiFetch<void>(`/boards/${boardId}/config`, {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+}
+
+export async function clearBoardConfig(boardId: string): Promise<void> {
+  return apiFetch<void>(`/boards/${boardId}/config`, {
+    method: "DELETE",
+  });
+}
+
+export async function getExecutorModels(executor: string): Promise<ExecutorModel[]> {
+  return apiFetch<ExecutorModel[]>(`/executors/${executor}/models`);
+}
+
+export async function deleteAllTickets(boardId: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>(`/boards/${boardId}/tickets`, {
+    method: "DELETE",
+  });
+}
+
+// ==================== Global Settings API ====================
+
+export async function getGlobalSettings(): Promise<{ config_path: string; execute_config: any }> {
+  return apiFetch<{ config_path: string; execute_config: any }>("/settings");
+}
+
+export async function updateGlobalSettings(settings: Record<string, any>): Promise<void> {
+  return apiFetch<void>("/settings", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
 
 const API_BASE = config.backendBaseUrl;
 
@@ -706,13 +758,13 @@ export function streamAgentLogs(
   };
   
   // Listen to all event types
-  eventSource.addEventListener("stdout", (e) => handleEvent(e, "stdout"));
-  eventSource.addEventListener("stderr", (e) => handleEvent(e, "stderr"));
-  eventSource.addEventListener("info", (e) => handleEvent(e, "info"));
-  eventSource.addEventListener("error", (e) => handleEvent(e, "error"));
-  eventSource.addEventListener("progress", (e) => handleEvent(e, "progress"));
-  eventSource.addEventListener("normalized", (e) => handleEvent(e, "normalized"));
-  eventSource.addEventListener("finished", (e) => handleEvent(e, "finished"));
+  eventSource.addEventListener("stdout", (e) => handleEvent(e as MessageEvent, "stdout"));
+  eventSource.addEventListener("stderr", (e) => handleEvent(e as MessageEvent, "stderr"));
+  eventSource.addEventListener("info", (e) => handleEvent(e as MessageEvent, "info"));
+  eventSource.addEventListener("error", (e) => handleEvent(e as MessageEvent, "error"));
+  eventSource.addEventListener("progress", (e) => handleEvent(e as MessageEvent, "progress"));
+  eventSource.addEventListener("normalized", (e) => handleEvent(e as MessageEvent, "normalized"));
+  eventSource.addEventListener("finished", (e) => handleEvent(e as MessageEvent, "finished"));
   
   // Fallback for untyped messages
   eventSource.onmessage = (event) => {

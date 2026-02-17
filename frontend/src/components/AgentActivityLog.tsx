@@ -287,9 +287,6 @@ function LogEntry({ entry }: { entry: NormalizedLogEntry }) {
   const isError = entry.entry_type === "error";
   const isAssistant = entry.entry_type === "assistant_message";
   const isTodoList = entry.entry_type === "todo_list";
-  const isFileOp = ["file_edit", "file_create", "file_delete"].includes(entry.entry_type);
-  const isCommand = entry.entry_type === "command_run";
-
   const hasExpandableContent = entry.content.length > 300 || metadata.diff;
 
   // For assistant messages, always show full content with markdown

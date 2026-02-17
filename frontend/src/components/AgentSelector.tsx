@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -22,10 +21,9 @@ import {
   MessageSquare,
   Plug,
   DollarSign,
-  Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fetchAgents, type AgentInfo, type AgentListResponse } from "@/services/api";
+import { fetchAgents, type AgentInfo } from "@/services/api";
 
 interface AgentSelectorProps {
   value: string;

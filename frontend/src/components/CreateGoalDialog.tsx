@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { createGoal } from "@/services/api";
+import { useBoard } from "@/contexts/BoardContext";
 import { toast } from "sonner";
 import { Loader2, ChevronDown, ChevronRight, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ export function CreateGoalDialog({
   onOpenChange,
   onSuccess,
 }: CreateGoalDialogProps) {
+  const { currentBoard } = useBoard();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
@@ -70,6 +72,7 @@ export function CreateGoalDialog({
       await createGoal({
         title: title.trim(),
         description: description.trim() || null,
+        board_id: currentBoard?.id ?? null,
         autonomy_enabled: autonomyEnabled,
         auto_approve_tickets: autoApproveTickets,
         auto_approve_revisions: autoApproveRevisions,

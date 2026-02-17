@@ -22,7 +22,6 @@ export function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavi
   const [deleting, setDeleting] = useState(false);
 
   const isBlocked = ticket.blocked_by_ticket_id !== null;
-  const canExecute = ticket.state === TicketState.PLANNED && !isBlocked;
 
   const handleExecute = async (e: React.MouseEvent) => {
     e.stopPropagation(); // Don't open the drawer

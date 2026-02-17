@@ -48,7 +48,7 @@ export interface KeyboardNavigationOptions {
 export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
   const { shortcuts, enabled = true, target = document } = options;
   const sequenceRef = useRef<string[]>([]);
-  const sequenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const sequenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Parse key combinations
   const parseKey = useCallback((key: string): { keys: string[]; modifiers: Set<string> } => {

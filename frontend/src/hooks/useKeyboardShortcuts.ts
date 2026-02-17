@@ -16,9 +16,6 @@ interface UseKeyboardShortcutsOptions {
   scope?: string; // For scoped shortcuts (e.g., "board", "ticket-detail")
 }
 
-// Global shortcuts registry
-const globalShortcuts = new Map<string, KeyboardShortcut>();
-
 function getShortcutKey(shortcut: Omit<KeyboardShortcut, "description" | "action">): string {
   const parts: string[] = [];
   if (shortcut.ctrl) parts.push("ctrl");
@@ -53,7 +50,7 @@ export function useKeyboardShortcuts(
   shortcuts: KeyboardShortcut[],
   options: UseKeyboardShortcutsOptions = {}
 ) {
-  const { enabled = true, scope } = options;
+  const { enabled = true } = options;
   
   // Build shortcut lookup
   const shortcutMap = useMemo(() => {

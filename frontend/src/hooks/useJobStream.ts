@@ -65,8 +65,8 @@ export function useJobStream(jobId: string | null | undefined): UseJobStreamResu
   const [jobStatus, setJobStatus] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     // Skip if no job ID

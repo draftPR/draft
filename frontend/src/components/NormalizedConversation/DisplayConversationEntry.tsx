@@ -2,7 +2,6 @@
  * Main router component for displaying different types of log entries
  */
 
-import React from "react";
 import type { NormalizedLogEntry } from "@/types/logs";
 import { ThinkingCard } from "./ThinkingCard";
 import { FileChangeRenderer } from "./FileChangeRenderer";

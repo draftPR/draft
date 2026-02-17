@@ -12,6 +12,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   type ReactNode,
 } from "react";
@@ -49,9 +50,11 @@ export function BoardProvider({ children }: BoardProviderProps) {
   );
 
   // Auto-select first board if none selected or selection is stale
-  if (!currentBoard && boards.length > 0) {
-    setCurrentBoardId(boards[0].id);
-  }
+  useEffect(() => {
+    if (!currentBoard && boards.length > 0) {
+      setCurrentBoardId(boards[0].id);
+    }
+  }, [currentBoard, boards, setCurrentBoardId]);
 
   async function refreshBoards() {
     await queryClient.invalidateQueries({ queryKey: queryKeys.boards.all });

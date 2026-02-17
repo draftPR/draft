@@ -2,7 +2,6 @@
  * Component for rendering error messages
  */
 
-import React from "react";
 import { AlertCircle } from "lucide-react";
 import type { ErrorMetadata } from "@/types/logs";
 

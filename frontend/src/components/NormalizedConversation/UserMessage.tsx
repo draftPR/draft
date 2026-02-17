@@ -2,7 +2,6 @@
  * Component for rendering user messages
  */
 
-import React from "react";
 import { User } from "lucide-react";
 
 interface Props {

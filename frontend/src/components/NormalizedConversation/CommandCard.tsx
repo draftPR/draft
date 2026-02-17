@@ -2,7 +2,7 @@
  * Component for rendering command executions
  */
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { ChevronDown, Terminal, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NormalizedLogEntry, CommandRunMetadata } from "@/types/logs";
