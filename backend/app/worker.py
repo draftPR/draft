@@ -31,7 +31,9 @@ except Exception:
         def task(*args, **kwargs):
             def decorator(func):
                 return func
+
             return decorator
+
     celery_app = _DummyCelery()
 from app.database_sync import get_sync_db
 from app.exceptions import (
@@ -45,7 +47,12 @@ from app.models.job import Job, JobStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.services.config_service import ConfigService, YoloStatus
-from app.services.executor_service import ExecutorService, ExecutorMode, ExecutorType, PromptBundleBuilder
+from app.services.executor_service import (
+    ExecutorService,
+    ExecutorMode,
+    ExecutorType,
+    PromptBundleBuilder,
+)
 from app.services.log_stream_service import LogLevel, log_stream_publisher
 from app.services.cursor_log_normalizer import CursorLogNormalizer, NormalizedEntry
 from app.services.workspace_service import WorkspaceService
@@ -75,7 +82,7 @@ def get_fallback_log_path(job_id: str) -> Path:
 
 def get_current_job() -> str | None:
     """Get the current job ID for this thread."""
-    return getattr(_job_context, 'job_id', None)
+    return getattr(_job_context, "job_id", None)
 
 
 def write_log(log_path: Path, message: str, job_id: str | None = None) -> None:
@@ -164,7 +171,9 @@ def get_job_with_ticket(job_id: str) -> tuple[Job, Ticket] | None:
         return None
 
 
-def ensure_workspace_for_ticket(ticket_id: str, goal_id: str) -> tuple[Path | None, str | None]:
+def ensure_workspace_for_ticket(
+    ticket_id: str, goal_id: str
+) -> tuple[Path | None, str | None]:
     """
     Ensure a workspace exists for a ticket and return paths.
 
@@ -206,7 +215,9 @@ def get_log_path_for_job(job_id: str, worktree_path: Path | None) -> tuple[Path,
         return full_path, f"logs/{job_id}.log"
 
 
-def update_job_started(job_id: str, log_path: str, timeout_seconds: int | None = None) -> bool:
+def update_job_started(
+    job_id: str, log_path: str, timeout_seconds: int | None = None
+) -> bool:
     """Mark job as running. Returns False if job was canceled."""
     with get_sync_db() as db:
         job = db.query(Job).filter(Job.id == job_id).first()
@@ -262,7 +273,9 @@ def check_canceled(job_id: str) -> bool:
         return job is not None and job.status == JobStatus.CANCELED.value
 
 
-def get_evidence_dir(worktree_path: Path | None, job_id: str, repo_root: Path | None = None) -> Path:
+def get_evidence_dir(
+    worktree_path: Path | None, job_id: str, repo_root: Path | None = None
+) -> Path:
     """Get the directory for storing evidence files.
 
     Args:
@@ -290,10 +303,14 @@ def get_evidence_dir(worktree_path: Path | None, job_id: str, repo_root: Path | 
         try:
             common = os.path.commonpath([str(evidence_canonical), str(allowed_root)])
             if common != str(allowed_root):
-                raise ValueError(f"Evidence dir {evidence_dir} is not under {allowed_root}")
+                raise ValueError(
+                    f"Evidence dir {evidence_dir} is not under {allowed_root}"
+                )
         except ValueError as e:
             if "different drives" in str(e).lower() or "Paths don't have" in str(e):
-                raise ValueError(f"Evidence dir {evidence_dir} is not under {allowed_root}") from e
+                raise ValueError(
+                    f"Evidence dir {evidence_dir} is not under {allowed_root}"
+                ) from e
             raise
 
     evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -336,9 +353,27 @@ def run_verification_command(
 
     # Allowlist of permitted commands (prevents arbitrary code execution)
     ALLOWED_COMMANDS = {
-        "pytest", "python", "python3", "ruff", "mypy", "black", "isort",
-        "npm", "yarn", "pnpm", "node", "cargo", "rustc", "go", "make",
-        "eslint", "tsc", "jest", "vitest", "flake8", "pylint",
+        "pytest",
+        "python",
+        "python3",
+        "ruff",
+        "mypy",
+        "black",
+        "isort",
+        "npm",
+        "yarn",
+        "pnpm",
+        "node",
+        "cargo",
+        "rustc",
+        "go",
+        "make",
+        "eslint",
+        "tsc",
+        "jest",
+        "vitest",
+        "flake8",
+        "pylint",
     }
 
     try:
@@ -495,6 +530,7 @@ def create_revision_for_job(
             )
             if existing:
                 import logging
+
                 logging.getLogger(__name__).info(
                     f"Revision already exists for job {job_id}: {existing.id}"
                 )
@@ -538,6 +574,7 @@ def create_revision_for_job(
             db.rollback()
             # Log but don't fail the job
             import logging
+
             logging.getLogger(__name__).error(f"Failed to create revision: {e}")
             return None
 
@@ -611,6 +648,7 @@ def get_feedback_bundle_for_ticket(ticket_id: str) -> dict | None:
             }
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).error(f"Failed to get feedback bundle: {e}")
             return None
 
@@ -707,6 +745,7 @@ def _enqueue_verify_job_sync(ticket_id: str) -> str | None:
 
         # Enqueue the verify task
         from app.services.task_dispatch import enqueue_task
+
         task = enqueue_task("verify_ticket", args=[job_id])
 
         # Store the task ID
@@ -746,13 +785,13 @@ def run_executor_cli(
     """
     import json as json_module
     import threading
-    
+
     stdout_path = evidence_dir / f"{evidence_id}.stdout"
     stderr_path = evidence_dir / f"{evidence_id}.stderr"
-    
+
     stdout_lines: list[str] = []
     stderr_lines: list[str] = []
-    
+
     # Create normalizer if needed
     normalizer = CursorLogNormalizer(str(cwd)) if normalize_logs else None
 
@@ -772,20 +811,22 @@ def run_executor_cli(
         if stdin_content and process.stdin:
             process.stdin.write(stdin_content)
             process.stdin.close()
-        
+
         def stream_output(pipe, lines_list, is_stderr=False, stop_event=None):
             """Read and stream output line by line with stop event support."""
             try:
-                for line in iter(pipe.readline, ''):
+                for line in iter(pipe.readline, ""):
                     # Check if we should stop
                     if stop_event and stop_event.is_set():
-                        logger.debug(f"Stream thread stopping due to stop_event ({'stderr' if is_stderr else 'stdout'})")
+                        logger.debug(
+                            f"Stream thread stopping due to stop_event ({'stderr' if is_stderr else 'stdout'})"
+                        )
                         break
                     if not line:
                         break
-                    line = line.rstrip('\n')
+                    line = line.rstrip("\n")
                     lines_list.append(line)
-                    
+
                     # Stream to Redis for real-time SSE
                     if job_id:
                         try:
@@ -801,14 +842,18 @@ def run_executor_cli(
                                         "content": entry.content,
                                         "sequence": entry.sequence,
                                         "tool_name": entry.tool_name,
-                                        "action_type": entry.action_type.value if entry.action_type else None,
-                                        "tool_status": entry.tool_status.value if entry.tool_status else None,
+                                        "action_type": entry.action_type.value
+                                        if entry.action_type
+                                        else None,
+                                        "tool_status": entry.tool_status.value
+                                        if entry.tool_status
+                                        else None,
                                         "metadata": entry.metadata,
                                     }
                                     log_stream_publisher.push(
-                                        job_id, 
-                                        LogLevel.NORMALIZED, 
-                                        json_module.dumps(entry_data)
+                                        job_id,
+                                        LogLevel.NORMALIZED,
+                                        json_module.dumps(entry_data),
                                     )
                             else:
                                 log_stream_publisher.push_stdout(job_id, line)
@@ -816,7 +861,7 @@ def run_executor_cli(
                             pass  # Don't fail execution if streaming fails
             finally:
                 pipe.close()
-        
+
         # Create stop events for graceful thread termination
         stdout_stop_event = threading.Event()
         stderr_stop_event = threading.Event()
@@ -869,7 +914,9 @@ def run_executor_cli(
                 if time.time() - start_time > timeout:
                     process.kill()
                     process.wait()
-                    stdout_lines.append(f"\n[TIMEOUT] Process killed after {timeout} seconds")
+                    stdout_lines.append(
+                        f"\n[TIMEOUT] Process killed after {timeout} seconds"
+                    )
                     exit_code = -1
                     break
 
@@ -910,10 +957,10 @@ def run_executor_cli(
             logger.warning(
                 f"stderr thread for job {job_id[:8] if job_id else 'unknown'} did not stop after 5s timeout - potential resource leak"
             )
-        
+
         # Write captured output to files
-        stdout_path.write_text('\n'.join(stdout_lines))
-        stderr_path.write_text('\n'.join(stderr_lines))
+        stdout_path.write_text("\n".join(stdout_lines))
+        stderr_path.write_text("\n".join(stderr_lines))
 
         # Return relative paths for secure DB storage
         stdout_rel = str(stdout_path.relative_to(repo_root))
@@ -922,7 +969,11 @@ def run_executor_cli(
 
     except subprocess.TimeoutExpired as e:
         # Write partial output if available
-        stdout_path.write_text(e.stdout.decode() if e.stdout else f"Command timed out after {timeout} seconds")
+        stdout_path.write_text(
+            e.stdout.decode()
+            if e.stdout
+            else f"Command timed out after {timeout} seconds"
+        )
         stderr_path.write_text(e.stderr.decode() if e.stderr else "")
         stdout_rel = str(stdout_path.relative_to(repo_root))
         stderr_rel = str(stderr_path.relative_to(repo_root))
@@ -1092,10 +1143,11 @@ def capture_git_diff(
 # NO-CHANGES ANALYSIS (LLM-powered)
 # =============================================================================
 
+
 @dataclass
 class NoChangesAnalysis:
     """Result of analyzing why no code changes were produced."""
-    
+
     reason: str  # Human-readable explanation
     needs_code_changes: bool  # True if code changes are actually needed
     requires_manual_work: bool  # True if manual human intervention is required
@@ -1110,32 +1162,32 @@ def analyze_no_changes_reason(
 ) -> NoChangesAnalysis:
     """
     Analyze executor output to determine why no code changes were produced.
-    
+
     Uses LLM to understand the executor's reasoning and categorize the result:
     1. No changes needed - the task doesn't require code modifications
     2. Manual work required - needs human intervention (config, external tools, etc.)
     3. Unclear/error - couldn't determine, needs investigation
-    
+
     Args:
         ticket_title: Title of the ticket being executed
         ticket_description: Description of the ticket
         executor_stdout: The stdout output from the executor
         planner_config: Planner configuration for LLM settings
-        
+
     Returns:
         NoChangesAnalysis with categorized result
     """
     from app.services.llm_service import LLMService
     import logging
-    
+
     logger = logging.getLogger(__name__)
-    
+
     # Truncate executor output to avoid token limits
     max_output_chars = 8000
     truncated_stdout = executor_stdout[:max_output_chars]
     if len(executor_stdout) > max_output_chars:
         truncated_stdout += "\n... (output truncated)"
-    
+
     system_prompt = """You are a technical analyst reviewing why a coding agent completed a task without making any code changes.
 
 Analyze the executor output and categorize the result into ONE of these categories:
@@ -1183,18 +1235,20 @@ Analyze why no code changes were produced and categorize the result."""
             timeout=30,
         )
         data = llm_service.safe_parse_json(response.content, {})
-        
+
         category = data.get("category", "NEEDS_INVESTIGATION")
         reason = data.get("reason", "Unable to determine why no changes were produced")
         manual_work_desc = data.get("manual_work_description")
-        
+
         return NoChangesAnalysis(
             reason=reason,
             needs_code_changes=(category == "NEEDS_INVESTIGATION"),
             requires_manual_work=(category == "MANUAL_WORK_REQUIRED"),
-            manual_work_description=manual_work_desc if category == "MANUAL_WORK_REQUIRED" else None,
+            manual_work_description=manual_work_desc
+            if category == "MANUAL_WORK_REQUIRED"
+            else None,
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to analyze no-changes reason: {e}")
         # Fallback: treat as needs investigation
@@ -1215,35 +1269,37 @@ def create_manual_work_followup_sync(
 ) -> str | None:
     """
     Create a follow-up ticket for manual work that the agent cannot perform.
-    
+
     The ticket is created in PROPOSED state with a [Manual Work] prefix.
-    
+
     Args:
         parent_ticket_id: ID of the blocked ticket
         parent_ticket_title: Title of the blocked ticket
         manual_work_description: Description of the manual work needed
         goal_id: Goal ID to link the follow-up ticket to
         board_id: Optional board ID for permission scoping
-        
+
     Returns:
         The ID of the created follow-up ticket, or None if creation failed
     """
     import logging
-    
+
     logger = logging.getLogger(__name__)
-    
+
     try:
         with get_sync_db() as db:
             # Get the parent ticket for priority inheritance
-            parent_ticket = db.query(Ticket).filter(Ticket.id == parent_ticket_id).first()
+            parent_ticket = (
+                db.query(Ticket).filter(Ticket.id == parent_ticket_id).first()
+            )
             priority = parent_ticket.priority if parent_ticket else None
-            
+
             # Create follow-up ticket with [Manual Work] prefix
             followup_title = f"[Manual Work] {parent_ticket_title}"
             # Truncate if too long (max 255 chars)
             if len(followup_title) > 255:
                 followup_title = followup_title[:252] + "..."
-            
+
             followup_description = f"""This ticket requires manual human intervention that the automated agent cannot perform.
 
 **Original Ticket:** {parent_ticket_title}
@@ -1256,7 +1312,7 @@ def create_manual_work_followup_sync(
 2. Perform the required actions manually
 3. Mark this ticket as done when complete
 """
-            
+
             followup_ticket = Ticket(
                 goal_id=goal_id,
                 board_id=board_id,
@@ -1268,7 +1324,7 @@ def create_manual_work_followup_sync(
             db.add(followup_ticket)
             db.flush()
             followup_id = followup_ticket.id
-            
+
             # Create creation event for follow-up ticket
             creation_event = TicketEvent(
                 ticket_id=followup_id,
@@ -1278,14 +1334,16 @@ def create_manual_work_followup_sync(
                 actor_type=ActorType.EXECUTOR.value,
                 actor_id="execute_worker",
                 reason=f"Manual work follow-up for blocked ticket: {parent_ticket_title}",
-                payload_json=json.dumps({
-                    "parent_ticket_id": parent_ticket_id,
-                    "manual_work": True,
-                    "auto_generated": True,
-                }),
+                payload_json=json.dumps(
+                    {
+                        "parent_ticket_id": parent_ticket_id,
+                        "manual_work": True,
+                        "auto_generated": True,
+                    }
+                ),
             )
             db.add(creation_event)
-            
+
             # Create link event on the parent ticket
             link_event = TicketEvent(
                 ticket_id=parent_ticket_id,
@@ -1295,18 +1353,22 @@ def create_manual_work_followup_sync(
                 actor_type=ActorType.EXECUTOR.value,
                 actor_id="execute_worker",
                 reason=f"Created manual work follow-up ticket: {followup_title}",
-                payload_json=json.dumps({
-                    "followup_ticket_id": followup_id,
-                    "manual_work_followup": True,
-                }),
+                payload_json=json.dumps(
+                    {
+                        "followup_ticket_id": followup_id,
+                        "manual_work_followup": True,
+                    }
+                ),
             )
             db.add(link_event)
-            
+
             db.commit()
-            
-            logger.info(f"Created manual work follow-up ticket {followup_id} for blocked ticket {parent_ticket_id}")
+
+            logger.info(
+                f"Created manual work follow-up ticket {followup_id} for blocked ticket {parent_ticket_id}"
+            )
             return followup_id
-            
+
     except Exception as e:
         logger.error(f"Failed to create manual work follow-up ticket: {e}")
         return None
@@ -1315,7 +1377,7 @@ def create_manual_work_followup_sync(
 def _get_related_tickets_context_sync(ticket_id: str) -> dict | None:
     """
     Get context about related tickets for better prompt building.
-    
+
     Returns dict with:
         - dependencies: list of tickets this ticket depends on
         - completed_tickets: list of DONE tickets in the same goal
@@ -1327,46 +1389,56 @@ def _get_related_tickets_context_sync(ticket_id: str) -> dict | None:
     from app.models.goal import Goal
     from app.state_machine import TicketState
     from sqlalchemy.orm import Session
-    
+
     # Use the shared sync_engine instead of creating a new one each time
     # This prevents connection pool exhaustion
     with Session(sync_engine) as db:
         # Get the current ticket with its goal and dependencies
-        ticket = db.query(Ticket).options(
-            selectinload(Ticket.blocked_by),
-            selectinload(Ticket.goal)
-        ).filter(Ticket.id == ticket_id).first()
-        
+        ticket = (
+            db.query(Ticket)
+            .options(selectinload(Ticket.blocked_by), selectinload(Ticket.goal))
+            .filter(Ticket.id == ticket_id)
+            .first()
+        )
+
         if not ticket or not ticket.goal_id:
             return None
-        
+
         context = {
             "goal_title": ticket.goal.title if ticket.goal else None,
             "dependencies": [],
-            "completed_tickets": []
+            "completed_tickets": [],
         }
-        
+
         # Add dependency information
         if ticket.blocked_by:
-            context["dependencies"].append({
-                "title": ticket.blocked_by.title,
-                "state": ticket.blocked_by.state
-            })
-        
+            context["dependencies"].append(
+                {"title": ticket.blocked_by.title, "state": ticket.blocked_by.state}
+            )
+
         # Get completed tickets in the same goal (for context)
-        completed_tickets = db.query(Ticket).filter(
-            Ticket.goal_id == ticket.goal_id,
-            Ticket.state == TicketState.DONE.value,
-            Ticket.id != ticket_id
-        ).order_by(Ticket.created_at.asc()).limit(5).all()
-        
+        completed_tickets = (
+            db.query(Ticket)
+            .filter(
+                Ticket.goal_id == ticket.goal_id,
+                Ticket.state == TicketState.DONE.value,
+                Ticket.id != ticket_id,
+            )
+            .order_by(Ticket.created_at.asc())
+            .limit(5)
+            .all()
+        )
+
         for comp_ticket in completed_tickets:
-            context["completed_tickets"].append({
-                "title": comp_ticket.title,
-                "description": comp_ticket.description
-            })
-        
-        return context if (context["dependencies"] or context["completed_tickets"]) else None
+            context["completed_tickets"].append(
+                {"title": comp_ticket.title, "description": comp_ticket.description}
+            )
+
+        return (
+            context
+            if (context["dependencies"] or context["completed_tickets"])
+            else None
+        )
 
 
 @celery_app.task(bind=True, name="execute_ticket")
@@ -1391,7 +1463,7 @@ def execute_ticket_task(self, job_id: str) -> dict:
     """
     # Enable real-time log streaming for this job
     set_current_job(job_id)
-    
+
     try:
         return _execute_ticket_task_impl(job_id)
     finally:
@@ -1405,7 +1477,11 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # Get job and ticket info
     result = get_job_with_ticket(job_id)
     if not result:
-        return {"job_id": job_id, "status": "failed", "error": "Job or ticket not found"}
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "error": "Job or ticket not found",
+        }
 
     job, ticket = result
     goal_id = ticket.goal_id
@@ -1413,8 +1489,13 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 
     # Check if ticket is already in a terminal/blocked state - skip execution if so
     # This prevents re-execution of jobs for already-blocked tickets
-    if ticket.state in [TicketState.BLOCKED.value, TicketState.DONE.value, TicketState.ABANDONED.value]:
+    if ticket.state in [
+        TicketState.BLOCKED.value,
+        TicketState.DONE.value,
+        TicketState.ABANDONED.value,
+    ]:
         import logging
+
         logging.getLogger(__name__).info(
             f"Skipping execution for job {job_id}: ticket {ticket_id} is already in {ticket.state} state"
         )
@@ -1436,7 +1517,10 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 
     # Workspace is required for execution
     if workspace_error or not worktree_path:
-        write_log(log_path, f"ERROR: Could not create workspace: {workspace_error or 'Unknown error'}")
+        write_log(
+            log_path,
+            f"ERROR: Could not create workspace: {workspace_error or 'Unknown error'}",
+        )
         write_log(log_path, "Execution requires a valid git worktree. Failing job.")
         update_job_started(job_id, log_path_relative)
         update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
@@ -1480,7 +1564,10 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         if current_state == TicketState.EXECUTING:
             write_log(log_path, "Ticket already in 'executing' state")
         elif validate_transition(current_state, TicketState.EXECUTING):
-            write_log(log_path, f"Transitioning ticket from '{current_state.value}' to 'executing'")
+            write_log(
+                log_path,
+                f"Transitioning ticket from '{current_state.value}' to 'executing'",
+            )
             # Important: Do transition INSIDE the same db context to ensure atomicity
             current_ticket.state = TicketState.EXECUTING.value
 
@@ -1500,7 +1587,10 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             write_log(log_path, "Successfully transitioned to 'executing' state")
         else:
             # This shouldn't happen for valid workflows, but log and continue
-            write_log(log_path, f"WARNING: Cannot transition from '{current_state.value}' to 'executing' (invalid transition)")
+            write_log(
+                log_path,
+                f"WARNING: Cannot transition from '{current_state.value}' to 'executing' (invalid transition)",
+            )
             write_log(log_path, "Continuing execution anyway...")
 
     # Load configuration from the worktree (where smartkanban.yaml should be)
@@ -1513,14 +1603,14 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     if ticket.board_id:
         with get_sync_db() as db:
             from app.models.board import Board
+
             board = db.query(Board).filter(Board.id == ticket.board_id).first()
             if board and board.config:
                 board_config = board.config
 
     # Load config with board overrides applied
     config = config_service.load_config_with_board_overrides(
-        board_config=board_config,
-        use_cache=False
+        board_config=board_config, use_cache=False
     )
     execute_config = config.execute_config
     planner_config = config.planner_config
@@ -1569,11 +1659,20 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         str(worktree_path.resolve()),
         repo_root=str(main_repo_path),
     )
-    model_info = f", model={execute_config.executor_model}" if execute_config.executor_model else ""
-    write_log(log_path, f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}{model_info}")
+    model_info = (
+        f", model={execute_config.executor_model}"
+        if execute_config.executor_model
+        else ""
+    )
+    write_log(
+        log_path,
+        f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}{model_info}",
+    )
 
     if yolo_status == YoloStatus.REFUSED:
-        refusal_reason = execute_config.get_yolo_refusal_reason(repo_root=str(main_repo_path))
+        refusal_reason = execute_config.get_yolo_refusal_reason(
+            repo_root=str(main_repo_path)
+        )
         write_log(log_path, f"YOLO MODE REFUSED: {refusal_reason}")
         write_log(log_path, "Transitioning to needs_human for manual approval.")
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
@@ -1604,10 +1703,16 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             preferred=execute_config.preferred_executor,
             agent_path=planner_config.agent_path,
         )
-        write_log(log_path, f"Found executor: {executor_info.executor_type.value} ({executor_info.mode.value}) at {executor_info.path}")
+        write_log(
+            log_path,
+            f"Found executor: {executor_info.executor_type.value} ({executor_info.mode.value}) at {executor_info.path}",
+        )
     except ExecutorNotFoundError as e:
         write_log(log_path, f"ERROR: {e.message}")
-        write_log(log_path, "No code executor CLI found. Please install Claude Code CLI or Cursor CLI.")
+        write_log(
+            log_path,
+            "No code executor CLI found. Please install Claude Code CLI or Cursor CLI.",
+        )
         update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
         transition_ticket_sync(
             ticket_id,
@@ -1620,14 +1725,23 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # Check for feedback from previous revision (if this is a re-run after changes requested)
     feedback_bundle = get_feedback_bundle_for_ticket(ticket_id)
     if feedback_bundle:
-        write_log(log_path, f"Found feedback from revision #{feedback_bundle.get('revision_number', '?')}")
-        write_log(log_path, f"  - Summary: {feedback_bundle.get('summary', '')[:100]}...")
-        write_log(log_path, f"  - Comments to address: {len(feedback_bundle.get('comments', []))}")
+        write_log(
+            log_path,
+            f"Found feedback from revision #{feedback_bundle.get('revision_number', '?')}",
+        )
+        write_log(
+            log_path, f"  - Summary: {feedback_bundle.get('summary', '')[:100]}..."
+        )
+        write_log(
+            log_path,
+            f"  - Comments to address: {len(feedback_bundle.get('comments', []))}",
+        )
     else:
         write_log(log_path, "No previous revision feedback found (fresh execution)")
 
     # Check for queued follow-up prompt (from instant follow-up queue)
     from app.services.queued_message_service import queued_message_service
+
     followup_prompt = queued_message_service.get_followup_prompt(ticket_id)
     additional_context = None
     if followup_prompt:
@@ -1637,7 +1751,10 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # Get related tickets context for better prompt
     related_tickets_context = _get_related_tickets_context_sync(ticket_id)
     if related_tickets_context:
-        write_log(log_path, f"Found context: {len(related_tickets_context.get('completed_tickets', []))} completed tickets, {len(related_tickets_context.get('dependencies', []))} dependencies")
+        write_log(
+            log_path,
+            f"Found context: {len(related_tickets_context.get('completed_tickets', []))} completed tickets, {len(related_tickets_context.get('dependencies', []))} dependencies",
+        )
 
     # Build prompt bundle
     write_log(log_path, "Building prompt bundle...")
@@ -1650,7 +1767,9 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             job_variant = ExecutorVariant(job.variant)
             write_log(log_path, f"Using execution variant: {job_variant.value}")
         except ValueError:
-            write_log(log_path, f"WARNING: Invalid variant '{job.variant}', using default")
+            write_log(
+                log_path, f"WARNING: Invalid variant '{job.variant}', using default"
+            )
 
     prompt_builder = PromptBundleBuilder(worktree_path, job_id)
     prompt_file = prompt_builder.build_prompt(
@@ -1676,7 +1795,9 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # INTERACTIVE EXECUTOR (Cursor) - Hand off to user immediately
     # =========================================================================
     if executor_info.is_interactive():
-        write_log(log_path, f"Executor {executor_info.executor_type.value} is INTERACTIVE.")
+        write_log(
+            log_path, f"Executor {executor_info.executor_type.value} is INTERACTIVE."
+        )
         write_log(log_path, "Workspace and prompt bundle are ready.")
         write_log(log_path, "Transitioning to 'needs_human' for manual completion.")
         write_log(log_path, "")
@@ -1713,18 +1834,26 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # =========================================================================
     # HEADLESS EXECUTOR (Claude) - Run automatically
     # =========================================================================
-    write_log(log_path, f"Running headless executor: {executor_info.executor_type.value}...")
+    write_log(
+        log_path, f"Running headless executor: {executor_info.executor_type.value}..."
+    )
     executor_evidence_id = str(uuid.uuid4())
 
     # Check for existing session to continue (session continuity)
     from app.services.agent_session_service import get_session_service
+
     session_service = get_session_service(worktree_path)
     existing_session = session_service.get_session(ticket_id)
     session_flag = None
     if existing_session:
-        session_flag = session_service.get_continue_flag(ticket_id, executor_info.executor_type.value)
+        session_flag = session_service.get_continue_flag(
+            ticket_id, executor_info.executor_type.value
+        )
         if session_flag:
-            write_log(log_path, f"Continuing from session: {existing_session.session_id} (execution #{existing_session.execution_count + 1})")
+            write_log(
+                log_path,
+                f"Continuing from session: {existing_session.session_id} (execution #{existing_session.execution_count + 1})",
+            )
 
     # Get the command with YOLO mode and model selection
     # Returns (command, stdin_content) tuple - prompt piped via stdin to avoid ARG_MAX
@@ -1734,24 +1863,30 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         yolo_mode=yolo_enabled,
         model=execute_config.executor_model,
     )
-    
+
     # Add session continuation flag if available
     if session_flag:
         executor_command = executor_command + session_flag.split()
 
     # Log command (without full prompt content)
     if yolo_enabled:
-        write_log(log_path, f"Command: {executor_command[0]} --print --dangerously-skip-permissions <prompt>")
+        write_log(
+            log_path,
+            f"Command: {executor_command[0]} --print --dangerously-skip-permissions <prompt>",
+        )
     else:
         write_log(log_path, f"Command: {executor_command[0]} --print <prompt>")
-        write_log(log_path, "NOTE: Running in permissioned mode. Some operations may require approval.")
+        write_log(
+            log_path,
+            "NOTE: Running in permissioned mode. Some operations may require approval.",
+        )
 
     # Track execution timing for metadata
     executor_start_time = time.time()
 
     # Enable log normalization for cursor-agent (outputs JSON streaming format)
     should_normalize = executor_info.executor_type == ExecutorType.CURSOR_AGENT
-    
+
     executor_exit_code, executor_stdout_path, executor_stderr_path = run_executor_cli(
         command=executor_command,
         cwd=worktree_path,
@@ -1817,7 +1952,10 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
                 ticket_id=ticket_id,
                 agent_type=executor_info.executor_type.value,
             )
-            write_log(log_path, f"Saved session ID for future continuity: {new_session_id[:16]}...")
+            write_log(
+                log_path,
+                f"Saved session ID for future continuity: {new_session_id[:16]}...",
+            )
     except Exception as e:
         logger.debug(f"Could not extract session ID: {e}")
 
@@ -1839,11 +1977,13 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     diff_stat_evidence_id = str(uuid.uuid4())
     diff_patch_evidence_id = str(uuid.uuid4())
 
-    diff_exit_code, diff_stat_path, diff_patch_path, diff_stat, has_changes = capture_git_diff(
-        cwd=worktree_path,
-        evidence_dir=evidence_dir,
-        evidence_id=diff_stat_evidence_id,  # Used for both files with different extensions
-        repo_root=main_repo_path,
+    diff_exit_code, diff_stat_path, diff_patch_path, diff_stat, has_changes = (
+        capture_git_diff(
+            cwd=worktree_path,
+            evidence_dir=evidence_dir,
+            evidence_id=diff_stat_evidence_id,  # Used for both files with different extensions
+            repo_root=main_repo_path,
+        )
     )
 
     # Create typed evidence records for git diff
@@ -1915,14 +2055,16 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     if not has_changes:
         write_log(log_path, "Execution completed but NO CHANGES were produced.")
         write_log(log_path, "Analyzing why no code changes were made...")
-        
+
         # Read executor stdout for analysis
         try:
-            executor_stdout_content = (main_repo_path / executor_stdout_path).read_text()
+            executor_stdout_content = (
+                main_repo_path / executor_stdout_path
+            ).read_text()
         except Exception as e:
             write_log(log_path, f"Warning: Could not read executor output: {e}")
             executor_stdout_content = ""
-        
+
         # Analyze why no changes were produced using LLM
         analysis = analyze_no_changes_reason(
             ticket_title=ticket.title,
@@ -1930,13 +2072,15 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             executor_stdout=executor_stdout_content,
             planner_config=planner_config,
         )
-        
+
         write_log(log_path, f"Analysis result: {analysis.reason}")
         write_log(log_path, f"  - Needs code changes: {analysis.needs_code_changes}")
-        write_log(log_path, f"  - Requires manual work: {analysis.requires_manual_work}")
-        
+        write_log(
+            log_path, f"  - Requires manual work: {analysis.requires_manual_work}"
+        )
+
         followup_ticket_id = None
-        
+
         # Handle based on analysis result
         if analysis.requires_manual_work and analysis.manual_work_description:
             # Create a [Manual Work] follow-up ticket
@@ -1952,7 +2096,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
                 write_log(log_path, f"Created follow-up ticket: {followup_ticket_id}")
             else:
                 write_log(log_path, "Warning: Failed to create follow-up ticket")
-            
+
             # Block the original ticket with reference to manual work
             reason = f"Requires manual work: {analysis.reason}"
             payload = {
@@ -1965,7 +2109,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
                 "manual_work_followup_id": followup_ticket_id,
                 "analysis_reason": analysis.reason,
             }
-            
+
         elif not analysis.needs_code_changes:
             # No changes needed - mark as blocked with skip_followup flag
             write_log(log_path, "No code changes needed. Blocking without follow-up.")
@@ -1980,7 +2124,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
                 "skip_followup": True,  # Signal to planner to not create follow-ups
                 "analysis_reason": analysis.reason,
             }
-            
+
         else:
             # Needs investigation - use original behavior (planner may create follow-up)
             write_log(log_path, "Needs investigation. Blocking for review.")
@@ -1994,8 +2138,10 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
                 "needs_investigation": True,
                 "analysis_reason": analysis.reason,
             }
-        
-        write_log(log_path, f"Transitioning ticket to 'blocked' (reason: {reason[:100]}...)")
+
+        write_log(
+            log_path, f"Transitioning ticket to 'blocked' (reason: {reason[:100]}...)"
+        )
         transition_ticket_sync(
             ticket_id,
             TicketState.BLOCKED,
@@ -2004,7 +2150,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             actor_id="execute_worker",
         )
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
-        
+
         result_payload = {
             "job_id": job_id,
             "status": "no_changes",
@@ -2020,7 +2166,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         }
         if followup_ticket_id:
             result_payload["manual_work_followup_id"] = followup_ticket_id
-            
+
         return result_payload
 
     # Case 3: Executor succeeded with changes → verifying
@@ -2086,15 +2232,24 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
     # Get job and ticket info
     result = get_job_with_ticket(job_id)
     if not result:
-        return {"job_id": job_id, "status": "failed", "error": "Job or ticket not found"}
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "error": "Job or ticket not found",
+        }
 
     job, ticket = result
     goal_id = ticket.goal_id
     ticket_id = ticket.id
 
     # Check if ticket is already in a terminal/blocked state - skip verification if so
-    if ticket.state in [TicketState.BLOCKED.value, TicketState.DONE.value, TicketState.ABANDONED.value]:
+    if ticket.state in [
+        TicketState.BLOCKED.value,
+        TicketState.DONE.value,
+        TicketState.ABANDONED.value,
+    ]:
         import logging
+
         logging.getLogger(__name__).info(
             f"Skipping verification for job {job_id}: ticket {ticket_id} is already in {ticket.state} state"
         )
@@ -2140,14 +2295,14 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
     if ticket.board_id:
         with get_sync_db() as db:
             from app.models.board import Board
+
             board = db.query(Board).filter(Board.id == ticket.board_id).first()
             if board and board.config:
                 board_config = board.config
 
     # Load config with board overrides applied
     config = config_service.load_config_with_board_overrides(
-        board_config=board_config,
-        use_cache=False
+        board_config=board_config, use_cache=False
     )
     verify_config = config.verify_config
     verify_commands = verify_config.commands
@@ -2156,15 +2311,28 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
     repo_root = config_service.get_repo_root()
 
     write_log(log_path, f"Loaded {len(verify_commands)} verification command(s)")
-    write_log(log_path, "On success: transition to 'needs_human' (requires user approval to move to done)")
+    write_log(
+        log_path,
+        "On success: transition to 'needs_human' (requires user approval to move to done)",
+    )
 
     if not verify_commands:
-        write_log(log_path, "No verification commands configured, skipping verification.")
+        write_log(
+            log_path, "No verification commands configured, skipping verification."
+        )
         # No commands = success, always transition to needs_human for review
         write_log(log_path, "Transitioning ticket to 'needs_human' for review")
-        transition_ticket_sync(ticket_id, TicketState.NEEDS_HUMAN, reason="Verification passed (no commands configured), awaiting human approval")
+        transition_ticket_sync(
+            ticket_id,
+            TicketState.NEEDS_HUMAN,
+            reason="Verification passed (no commands configured), awaiting human approval",
+        )
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
-        return {"job_id": job_id, "status": "succeeded", "worktree": str(worktree_path) if worktree_path else None}
+        return {
+            "job_id": job_id,
+            "status": "succeeded",
+            "worktree": str(worktree_path) if worktree_path else None,
+        }
 
     # Get evidence directory (with validation against repo_root)
     evidence_dir = get_evidence_dir(worktree_path, job_id, repo_root=repo_root)
@@ -2182,7 +2350,9 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
             write_log(log_path, "Job canceled, stopping execution.")
             return {"job_id": job_id, "status": "canceled"}
 
-        write_log(log_path, f"Running command {i + 1}/{len(verify_commands)}: {command}")
+        write_log(
+            log_path, f"Running command {i + 1}/{len(verify_commands)}: {command}"
+        )
 
         # Generate evidence ID
         evidence_id = str(uuid.uuid4())
@@ -2201,12 +2371,14 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
         cmd_duration_ms = int((time.time() - cmd_start_time) * 1000)
 
         # Track command result for metadata
-        command_results.append({
-            "command": command,
-            "exit_code": exit_code,
-            "duration_ms": cmd_duration_ms,
-            "evidence_id": evidence_id,
-        })
+        command_results.append(
+            {
+                "command": command,
+                "exit_code": exit_code,
+                "duration_ms": cmd_duration_ms,
+                "evidence_id": evidence_id,
+            }
+        )
 
         # Create evidence record (typed as verification output)
         create_evidence_record(
@@ -2222,15 +2394,22 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
         evidence_records.append(evidence_id)
 
         if exit_code == 0:
-            write_log(log_path, f"Command succeeded (exit code: 0, {cmd_duration_ms}ms)")
+            write_log(
+                log_path, f"Command succeeded (exit code: 0, {cmd_duration_ms}ms)"
+            )
         else:
-            write_log(log_path, f"Command FAILED (exit code: {exit_code}, {cmd_duration_ms}ms)")
+            write_log(
+                log_path,
+                f"Command FAILED (exit code: {exit_code}, {cmd_duration_ms}ms)",
+            )
             all_succeeded = False
-            failed_commands.append({
-                "command": command,
-                "exit_code": exit_code,
-                "evidence_id": evidence_id,
-            })
+            failed_commands.append(
+                {
+                    "command": command,
+                    "exit_code": exit_code,
+                    "evidence_id": evidence_id,
+                }
+            )
             # Stop on first failure
             write_log(log_path, "Stopping verification due to failure.")
             break
@@ -2275,18 +2454,29 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
             from app.services.autonomy_service import AutonomyService
 
             with get_sync_db() as autonomy_db:
-                ticket_for_check = autonomy_db.query(Ticket).filter(Ticket.id == ticket_id).first()
+                ticket_for_check = (
+                    autonomy_db.query(Ticket).filter(Ticket.id == ticket_id).first()
+                )
                 if ticket_for_check:
                     autonomy_svc = AutonomyService()
-                    check = autonomy_svc.can_auto_approve_revision_sync(autonomy_db, ticket_for_check)
+                    check = autonomy_svc.can_auto_approve_revision_sync(
+                        autonomy_db, ticket_for_check
+                    )
                     if check.approved:
-                        write_log(log_path, f"Autonomy: auto-approving revision ({check.reason})")
+                        write_log(
+                            log_path,
+                            f"Autonomy: auto-approving revision ({check.reason})",
+                        )
                         # Transition directly to DONE, skipping NEEDS_HUMAN
                         transition_ticket_sync(
                             ticket_id,
                             TicketState.DONE,
                             reason=f"Auto-approved: verification passed ({len(verify_commands)} command(s)), {check.reason}",
-                            payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms, "auto_approved": True},
+                            payload={
+                                "evidence_ids": evidence_records,
+                                "duration_ms": verify_duration_ms,
+                                "auto_approved": True,
+                            },
                             actor_id="autonomy_service",
                         )
                         # Record audit event
@@ -2294,16 +2484,23 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
                             autonomy_db,
                             ticket_for_check,
                             action_type="approve_revision",
-                            details={"reason": check.reason, "evidence_ids": evidence_records},
+                            details={
+                                "reason": check.reason,
+                                "evidence_ids": evidence_records,
+                            },
                             from_state=TicketState.VERIFYING.value,
                             to_state=TicketState.DONE.value,
                         )
                         autonomy_db.commit()
                         auto_approved = True
                     else:
-                        write_log(log_path, f"Autonomy: not auto-approving ({check.reason})")
+                        write_log(
+                            log_path, f"Autonomy: not auto-approving ({check.reason})"
+                        )
         except Exception as e:
-            write_log(log_path, f"Autonomy check failed (falling back to NEEDS_HUMAN): {e}")
+            write_log(
+                log_path, f"Autonomy check failed (falling back to NEEDS_HUMAN): {e}"
+            )
             logger.warning(f"Autonomy check failed for ticket {ticket_id}: {e}")
 
         if not auto_approved:
@@ -2313,7 +2510,10 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
                 ticket_id,
                 TicketState.NEEDS_HUMAN,
                 reason=f"Verification passed: {len(verify_commands)} command(s) succeeded, awaiting human approval",
-                payload={"evidence_ids": evidence_records, "duration_ms": verify_duration_ms},
+                payload={
+                    "evidence_ids": evidence_records,
+                    "duration_ms": verify_duration_ms,
+                },
             )
 
         update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
@@ -2326,7 +2526,12 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
         }
     else:
         # Verification failed
-        failure_summary = "; ".join([f"'{fc['command']}' failed with exit code {fc['exit_code']}" for fc in failed_commands])
+        failure_summary = "; ".join(
+            [
+                f"'{fc['command']}' failed with exit code {fc['exit_code']}"
+                for fc in failed_commands
+            ]
+        )
         write_log(log_path, f"Verification FAILED: {failure_summary}")
         write_log(log_path, "Transitioning ticket to 'blocked'")
 
@@ -2407,6 +2612,7 @@ def planner_tick_task(self) -> dict:
         return {"status": "skipped", "reason": "Another tick in progress"}
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).error(f"Planner tick failed: {e}")
         return {"status": "error", "error": str(e)[:200]}
 
@@ -2434,7 +2640,11 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
     # Get job and ticket info
     result = get_job_with_ticket(job_id)
     if not result:
-        return {"job_id": job_id, "status": "failed", "error": "Job or ticket not found"}
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "error": "Job or ticket not found",
+        }
 
     job, ticket = result
     goal_id = ticket.goal_id
@@ -2450,7 +2660,10 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
 
     # Workspace is required
     if workspace_error or not worktree_path:
-        write_log(log_path, f"ERROR: Could not find workspace: {workspace_error or 'Unknown error'}")
+        write_log(
+            log_path,
+            f"ERROR: Could not find workspace: {workspace_error or 'Unknown error'}",
+        )
         update_job_started(job_id, log_path_relative)
         update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
         return {"job_id": job_id, "status": "failed", "error": workspace_error}
@@ -2464,8 +2677,13 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
 
     # Validate ticket is in needs_human state
     if ticket.state != TicketState.NEEDS_HUMAN.value:
-        write_log(log_path, f"ERROR: Ticket is in '{ticket.state}' state, expected 'needs_human'")
-        write_log(log_path, "Resume can only be called on tickets in 'needs_human' state.")
+        write_log(
+            log_path,
+            f"ERROR: Ticket is in '{ticket.state}' state, expected 'needs_human'",
+        )
+        write_log(
+            log_path, "Resume can only be called on tickets in 'needs_human' state."
+        )
         update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
         return {
             "job_id": job_id,
@@ -2486,11 +2704,13 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
     # Get repo root for relative path computation
     repo_root = WorkspaceService.get_repo_path()
 
-    diff_exit_code, diff_stat_path, diff_patch_path, diff_stat, has_changes = capture_git_diff(
-        cwd=worktree_path,
-        evidence_dir=evidence_dir,
-        evidence_id=diff_stat_evidence_id,
-        repo_root=repo_root,
+    diff_exit_code, diff_stat_path, diff_patch_path, diff_stat, has_changes = (
+        capture_git_diff(
+            cwd=worktree_path,
+            evidence_dir=evidence_dir,
+            evidence_id=diff_stat_evidence_id,
+            repo_root=repo_root,
+        )
     )
 
     # Create typed evidence records for git diff
@@ -2573,7 +2793,7 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
 def poll_pr_statuses():
     """
     Periodic task to poll GitHub PR statuses for tickets.
-    
+
     This task runs every 5 minutes and:
     1. Finds tickets with open PRs
     2. Checks PR status on GitHub
@@ -2582,13 +2802,13 @@ def poll_pr_statuses():
     from pathlib import Path
     from datetime import datetime
     from app.models.workspace import Workspace
-    from app.services.github_service import get_github_service
+    from app.services.git_host import get_git_host_provider
     from app.state_machine import TicketState
     import subprocess
-    
+
     # First, collect ticket info without holding DB connection during network calls
     tickets_to_check = []
-    
+
     with get_sync_db() as db:
         # Find tickets with open PRs
         tickets_with_prs = (
@@ -2599,51 +2819,51 @@ def poll_pr_statuses():
             )
             .all()
         )
-        
+
         if not tickets_with_prs:
             return {"message": "No PRs to poll", "checked": 0}
-        
+
         for ticket in tickets_with_prs:
             # Get workspace for repo path
             workspace = (
-                db.query(Workspace)
-                .filter(Workspace.ticket_id == ticket.id)
-                .first()
+                db.query(Workspace).filter(Workspace.ticket_id == ticket.id).first()
             )
-            
+
             if workspace and workspace.worktree_path:
                 repo_path = Path(workspace.worktree_path)
                 if repo_path.exists():
-                    tickets_to_check.append({
-                        "ticket_id": ticket.id,
-                        "pr_number": ticket.pr_number,
-                        "pr_state": ticket.pr_state,
-                        "pr_merged_at": ticket.pr_merged_at,
-                        "repo_path": str(repo_path),
-                    })
-    
+                    tickets_to_check.append(
+                        {
+                            "ticket_id": ticket.id,
+                            "pr_number": ticket.pr_number,
+                            "pr_state": ticket.pr_state,
+                            "pr_merged_at": ticket.pr_merged_at,
+                            "repo_path": str(repo_path),
+                        }
+                    )
+
     if not tickets_to_check:
         return {"message": "No valid tickets to poll", "checked": 0}
-    
-    github_service = get_github_service()
-    
-    # Check if GitHub CLI is available
-    if not github_service.is_available():
+
+    git_host = get_git_host_provider()
+
+    # Check if git host CLI is available
+    if not git_host.is_available():
         return {
-            "message": "GitHub CLI not available, skipping poll",
+            "message": f"{git_host.name} CLI not available, skipping poll",
             "checked": 0,
         }
-    
+
     updated_count = 0
     merged_count = 0
     errors = []
-    
+
     # Poll GitHub outside of DB session to avoid blocking
     for ticket_info in tickets_to_check:
         try:
             repo_path = Path(ticket_info["repo_path"])
             pr_number = ticket_info["pr_number"]
-            
+
             # Use synchronous subprocess call with timeout instead of asyncio.run()
             result = subprocess.run(
                 ["gh", "pr", "view", str(pr_number), "--json", "state,merged"],
@@ -2652,44 +2872,50 @@ def poll_pr_statuses():
                 text=True,
                 timeout=30,  # 30 second timeout per PR check
             )
-            
+
             if result.returncode != 0:
                 continue
-            
+
             pr_details = json.loads(result.stdout)
             ticket_info["new_state"] = pr_details.get("state", "OPEN")
             ticket_info["merged"] = pr_details.get("merged", False)
-            
+
         except subprocess.TimeoutExpired:
             errors.append(f"Timeout checking PR for ticket {ticket_info['ticket_id']}")
             continue
         except Exception as e:
-            errors.append(f"Error polling PR for ticket {ticket_info['ticket_id']}: {e}")
+            errors.append(
+                f"Error polling PR for ticket {ticket_info['ticket_id']}: {e}"
+            )
             continue
-    
+
     # Now update DB with results (quick operation)
     with get_sync_db() as db:
         for ticket_info in tickets_to_check:
             if "new_state" not in ticket_info:
                 continue  # Skip if we didn't get PR details
-            
+
             try:
-                ticket = db.query(Ticket).filter(Ticket.id == ticket_info["ticket_id"]).first()
+                ticket = (
+                    db.query(Ticket)
+                    .filter(Ticket.id == ticket_info["ticket_id"])
+                    .first()
+                )
                 if not ticket:
                     continue
-                
+
                 old_state = ticket.pr_state
                 ticket.pr_state = ticket_info["new_state"]
-                
+
                 if ticket_info.get("merged") and not ticket.pr_merged_at:
                     ticket.pr_merged_at = datetime.now()
                     merged_count += 1
-                
+
                 # Auto-transition ticket if PR was merged
                 if ticket_info.get("merged") and old_state != "MERGED":
                     ticket.state = TicketState.DONE.value
                     ticket.pr_state = "MERGED"
-                    
+
                     # Create event
                     event = TicketEvent(
                         ticket_id=ticket.id,
@@ -2701,13 +2927,13 @@ def poll_pr_statuses():
                         reason=f"PR #{ticket.pr_number} was merged",
                     )
                     db.add(event)
-                
+
                 updated_count += 1
-                
+
             except Exception as e:
                 errors.append(f"Error updating ticket {ticket_info['ticket_id']}: {e}")
                 continue
-    
+
     return {
         "message": "PR polling completed",
         "checked": len(tickets_to_check),

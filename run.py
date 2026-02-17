@@ -12,6 +12,9 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
+# Detect task backend (sqlite = no Redis needed)
+TASK_BACKEND = os.getenv("TASK_BACKEND", "sqlite").lower()
+
 # ANSI color codes for pretty output
 class Colors:
     HEADER = '\033[95m'
@@ -144,18 +147,22 @@ def check_prerequisites():
         print(f"{Colors.FAIL}✗ Node.js not found (required for frontend){Colors.ENDC}")
         checks.append(False)
     
-    # Check Redis
-    try:
-        result = subprocess.run(["redis-cli", "ping"], capture_output=True, text=True, timeout=2)
-        if "PONG" in result.stdout:
-            print(f"{Colors.OKGREEN}✓ Redis is running{Colors.ENDC}")
-            checks.append(True)
-        else:
-            print(f"{Colors.WARNING}⚠ Redis not responding (will attempt to start){Colors.ENDC}")
+    # Check Redis (only required for TASK_BACKEND=redis)
+    if TASK_BACKEND == "redis":
+        try:
+            result = subprocess.run(["redis-cli", "ping"], capture_output=True, text=True, timeout=2)
+            if "PONG" in result.stdout:
+                print(f"{Colors.OKGREEN}✓ Redis is running{Colors.ENDC}")
+                checks.append(True)
+            else:
+                print(f"{Colors.WARNING}⚠ Redis not responding (will attempt to start){Colors.ENDC}")
+                checks.append(True)  # We'll try to start it
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            print(f"{Colors.WARNING}⚠ Redis not found (will attempt to start){Colors.ENDC}")
             checks.append(True)  # We'll try to start it
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        print(f"{Colors.WARNING}⚠ Redis not found (will attempt to start){Colors.ENDC}")
-        checks.append(True)  # We'll try to start it
+    else:
+        print(f"{Colors.OKGREEN}✓ Using SQLite backend (no Redis required){Colors.ENDC}")
+        checks.append(True)
     
     # Check virtual environment
     if not VENV_DIR.exists():
@@ -273,16 +280,21 @@ def main():
     try:
         # Start services in order
         print(f"{Colors.HEADER}{Colors.BOLD}Starting services...{Colors.ENDC}\n")
-        
-        start_redis(pm)
-        time.sleep(1)
-        
+
+        if TASK_BACKEND == "redis":
+            start_redis(pm)
+            time.sleep(1)
+        else:
+            print(f"{Colors.OKCYAN}{Colors.BOLD}[SQLite]{Colors.ENDC} "
+                  f"Using SQLite backend (worker runs in-process)")
+
         start_backend(pm)
         time.sleep(3)  # Wait for backend to be ready
-        
-        start_worker(pm)
-        time.sleep(2)
-        
+
+        if TASK_BACKEND == "redis":
+            start_worker(pm)
+            time.sleep(2)
+
         start_frontend(pm)
         time.sleep(2)
         

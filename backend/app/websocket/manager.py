@@ -119,6 +119,33 @@ class ConnectionManager:
         """
         return list(self.connections.keys())
 
+    async def broadcast_board_state(self, board_id: str, board_state: dict):
+        """Broadcast board state as JSON patch to connected clients.
+
+        On first call for a board, sends a full snapshot. On subsequent calls,
+        computes and sends an RFC 6902 JSON patch. Sends nothing if no change.
+
+        Args:
+            board_id: The board ID
+            board_state: Full board state dict
+        """
+        channel = f"board:{board_id}"
+        if channel not in self.connections:
+            return
+
+        from app.websocket.state_tracker import get_tracker
+
+        tracker = get_tracker(board_id)
+
+        if not tracker.has_state:
+            message = tracker.get_snapshot_message(board_state)
+        else:
+            message = tracker.compute_patch(board_state)
+            if message is None:
+                return  # No changes
+
+        await self.broadcast(channel, message)
+
 
 # Global connection manager instance
 manager = ConnectionManager()

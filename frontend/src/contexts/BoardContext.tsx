@@ -1,10 +1,12 @@
 /**
- * BoardContext - Manages current board (project) state
+ * BoardContext - Manages current board (project) state using React Query
  */
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, useCallback, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Board } from '@/types/api';
-import { fetchBoards } from '@/services/api';
+import { useBoardsQuery } from '@/hooks/useQueries';
+import { queryKeys } from '@/hooks/queryKeys';
 
 interface BoardContextValue {
   currentBoard: Board | null;
@@ -22,61 +24,50 @@ interface BoardProviderProps {
 }
 
 export function BoardProvider({ children }: BoardProviderProps) {
+  const queryClient = useQueryClient();
   const [currentBoardId, setCurrentBoardId] = useState<string | null>(() => {
-    // Load from localStorage on mount
     return localStorage.getItem('currentBoardId');
   });
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
 
-  // Fetch boards on mount
-  useEffect(() => {
-    loadBoards();
-  }, []);
+  const { data, isLoading, error } = useBoardsQuery();
+  const boards = useMemo(() => data?.boards ?? [], [data?.boards]);
 
-  async function loadBoards() {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetchBoards();
-      setBoards(response.boards);
-
-      // Auto-select first board if none selected
-      if (!currentBoardId && response.boards.length > 0) {
-        setCurrentBoardId(response.boards[0].id);
-      }
-
-      // If selected board was deleted, clear selection
-      if (currentBoardId && !response.boards.find(b => b.id === currentBoardId)) {
-        setCurrentBoardId(response.boards[0]?.id || null);
-      }
-    } catch (err) {
-      console.error('Failed to load boards:', err);
-      setError(err instanceof Error ? err : new Error('Failed to load boards'));
-    } finally {
-      setIsLoading(false);
+  // Derive the effective board ID: auto-select first board or clear stale selection
+  const effectiveBoardId = useMemo(() => {
+    if (currentBoardId && boards.some(b => b.id === currentBoardId)) {
+      return currentBoardId;
     }
-  }
+    return boards.length > 0 ? boards[0].id : null;
+  }, [boards, currentBoardId]);
 
-  // Persist current board to localStorage
-  useEffect(() => {
-    if (currentBoardId) {
-      localStorage.setItem('currentBoardId', currentBoardId);
+  // Sync effectiveBoardId back to state + localStorage when it diverges
+  if (effectiveBoardId !== currentBoardId) {
+    setCurrentBoardId(effectiveBoardId);
+    if (effectiveBoardId) {
+      localStorage.setItem('currentBoardId', effectiveBoardId);
     } else {
       localStorage.removeItem('currentBoardId');
     }
-  }, [currentBoardId]);
+  }
 
-  const currentBoard = boards.find(b => b.id === currentBoardId) || null;
+  const currentBoard = boards.find(b => b.id === effectiveBoardId) || null;
+
+  async function refreshBoards() {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.boards.all });
+  }
+
+  const setCurrentBoard = useCallback((boardId: string) => {
+    setCurrentBoardId(boardId);
+    localStorage.setItem('currentBoardId', boardId);
+  }, []);
 
   const value: BoardContextValue = {
     currentBoard,
-    setCurrentBoard: setCurrentBoardId,
+    setCurrentBoard,
     boards,
     isLoading,
-    error,
-    refreshBoards: loadBoards,
+    error: error as Error | null,
+    refreshBoards,
   };
 
   return (

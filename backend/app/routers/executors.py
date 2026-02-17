@@ -1,15 +1,16 @@
 """Router for executor management and listing."""
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
-from typing import List, Dict, Any
 
 from app.executors.registry import ExecutorRegistry
-from app.executors.spec import ExecutorMetadata
+from app.services.config_service import ConfigService
 
 router = APIRouter(prefix="/executors", tags=["executors"])
 
 
-@router.get("/available", response_model=List[Dict[str, Any]])
+@router.get("/available", response_model=list[dict[str, Any]])
 async def list_available_executors():
     """List all available executors (both installed and not installed).
 
@@ -43,10 +44,12 @@ async def list_available_executors():
         return all_executors
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list executors: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list executors: {str(e)}"
+        )
 
 
-@router.get("/{executor_name}/metadata", response_model=Dict[str, Any])
+@router.get("/{executor_name}/metadata", response_model=dict[str, Any])
 async def get_executor_metadata(executor_name: str):
     """Get metadata for a specific executor.
 
@@ -93,12 +96,63 @@ async def check_executor_available(executor_name: str):
         adapter = ExecutorRegistry.get(executor_name)
         is_available = await adapter.is_available()
 
-        return {
-            "name": executor_name,
-            "available": is_available
-        }
+        return {"name": executor_name, "available": is_available}
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to check availability: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to check availability: {str(e)}"
+        )
+
+
+@router.get("/profiles", response_model=list[dict[str, Any]])
+async def list_executor_profiles():
+    """List all configured executor profiles from smartkanban.yaml.
+
+    Returns:
+        List of executor profile configurations
+    """
+    config_service = ConfigService()
+    profiles = config_service.get_executor_profiles()
+
+    return [
+        {
+            "name": profile.name,
+            "executor_type": profile.executor_type,
+            "timeout": profile.timeout,
+            "extra_flags": profile.extra_flags,
+            "model": profile.model,
+            "env": profile.env,
+        }
+        for profile in profiles.values()
+    ]
+
+
+@router.get("/profiles/{profile_name}", response_model=dict[str, Any])
+async def get_executor_profile(profile_name: str):
+    """Get a specific executor profile by name.
+
+    Args:
+        profile_name: Name of the profile
+
+    Returns:
+        Executor profile configuration
+    """
+    config_service = ConfigService()
+    profile = config_service.get_executor_profile(profile_name)
+
+    if not profile:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Executor profile '{profile_name}' not found",
+        )
+
+    return {
+        "name": profile.name,
+        "executor_type": profile.executor_type,
+        "timeout": profile.timeout,
+        "extra_flags": profile.extra_flags,
+        "model": profile.model,
+        "env": profile.env,
+    }

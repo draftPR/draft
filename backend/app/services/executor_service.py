@@ -16,6 +16,10 @@ class ExecutorType(str, Enum):
     CLAUDE = "claude"  # Headless executor - can run automatically
     CODEX = "codex"  # Headless executor - OpenAI Codex CLI
     GEMINI = "gemini"  # Headless executor - Google Gemini CLI
+    DROID = "droid"  # Headless executor - Droid CLI
+    QWEN = "qwen"  # Headless executor - Qwen Code CLI
+    OPENCODE = "opencode"  # Headless executor - OpenCode CLI
+    AMP = "amp"  # Headless executor - Amp (Sourcegraph) CLI
     CURSOR_AGENT = "cursor-agent"  # Headless executor - Cursor Agent CLI
     CURSOR = "cursor"  # Interactive executor - requires human completion
 
@@ -46,6 +50,10 @@ class ExecutorInfo:
             ExecutorType.CLAUDE,
             ExecutorType.CODEX,
             ExecutorType.GEMINI,
+            ExecutorType.DROID,
+            ExecutorType.QWEN,
+            ExecutorType.OPENCODE,
+            ExecutorType.AMP,
             ExecutorType.CURSOR_AGENT,
         ):
             return ExecutorMode.HEADLESS
@@ -101,7 +109,14 @@ class ExecutorInfo:
             # - --workspace: Set the working directory
             # Prompt is piped via stdin to avoid ARG_MAX limits
             prompt_content = prompt_file.read_text()
-            cmd = [self.command, "--print", "--output-format=stream-json", "--trust", "--workspace", str(worktree_path)]
+            cmd = [
+                self.command,
+                "--print",
+                "--output-format=stream-json",
+                "--trust",
+                "--workspace",
+                str(worktree_path),
+            ]
             if yolo_mode:
                 cmd.append("--force")
             return cmd, prompt_content
@@ -121,6 +136,30 @@ class ExecutorInfo:
             # - --print: Non-interactive mode that prints response and exits
             # - --yolo: ONLY if yolo_mode is enabled (skip all confirmations)
             # Prompt is piped via stdin to avoid ARG_MAX limits
+            prompt_content = prompt_file.read_text()
+            cmd = [self.command, "--print"]
+            if yolo_mode:
+                cmd.append("--yolo")
+            return cmd, prompt_content
+        elif self.executor_type == ExecutorType.DROID:
+            prompt_content = prompt_file.read_text()
+            cmd = [self.command, "--print"]
+            if yolo_mode:
+                cmd.append("--dangerously-skip-permissions")
+            return cmd, prompt_content
+        elif self.executor_type == ExecutorType.QWEN:
+            prompt_content = prompt_file.read_text()
+            cmd = [self.command, "--print"]
+            if yolo_mode:
+                cmd.append("--yolo")
+            return cmd, prompt_content
+        elif self.executor_type == ExecutorType.OPENCODE:
+            prompt_content = prompt_file.read_text()
+            cmd = [self.command, "--print"]
+            if yolo_mode:
+                cmd.append("--yolo")
+            return cmd, prompt_content
+        elif self.executor_type == ExecutorType.AMP:
             prompt_content = prompt_file.read_text()
             cmd = [self.command, "--print"]
             if yolo_mode:
@@ -159,6 +198,10 @@ class ExecutorService:
         (ExecutorType.CLAUDE, "claude"),
         (ExecutorType.CODEX, "codex"),
         (ExecutorType.GEMINI, "gemini"),
+        (ExecutorType.DROID, "droid"),
+        (ExecutorType.QWEN, "qwen"),
+        (ExecutorType.OPENCODE, "opencode"),
+        (ExecutorType.AMP, "amp"),
         (ExecutorType.CURSOR_AGENT, "cursor-agent"),
         (ExecutorType.CURSOR, "cursor"),
     ]
@@ -245,10 +288,14 @@ class ExecutorService:
         raise ExecutorNotFoundError(
             "No supported code executor CLI found. "
             "Please install one of the following:\n"
-            "  - Claude Code CLI (recommended for automation): "
+            "  - Claude Code CLI (recommended): "
             "https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview\n"
             "  - Codex CLI (OpenAI): https://github.com/openai/codex\n"
             "  - Gemini CLI (Google): https://github.com/google/gemini-cli\n"
+            "  - Droid CLI: https://github.com/anthropics/droid\n"
+            "  - Qwen Code CLI: https://github.com/QwenLM/qwen-agent\n"
+            "  - OpenCode CLI: https://github.com/opencode-ai/opencode\n"
+            "  - Amp CLI (Sourcegraph): https://github.com/sourcegraph/amp\n"
             "  - Cursor Agent CLI: Set agent_path in smartkanban.yaml\n"
             "  - Cursor CLI (interactive, opens editor): https://docs.cursor.com/cli"
         )
@@ -472,11 +519,11 @@ class PromptBundleBuilder:
             Formatted related tickets section for the prompt.
         """
         section = "\n## Related Tickets Context\n\n"
-        
+
         goal_title = related_tickets_context.get("goal_title")
         if goal_title:
             section += f"**Goal**: {goal_title}\n\n"
-        
+
         # Add completed tickets for context
         completed_tickets = related_tickets_context.get("completed_tickets", [])
         if completed_tickets:
@@ -484,24 +531,26 @@ class PromptBundleBuilder:
             section += "These tickets in the same goal have already been completed:\n\n"
             for ticket in completed_tickets:
                 section += f"- **{ticket['title']}**"
-                if ticket.get('description'):
+                if ticket.get("description"):
                     # Truncate long descriptions
-                    desc = ticket['description']
+                    desc = ticket["description"]
                     if len(desc) > 150:
                         desc = desc[:150] + "..."
                     section += f": {desc}"
                 section += "\n"
             section += "\n**Important**: Build upon this existing work. Don't recreate what's already done.\n\n"
-        
+
         # Add dependency information
         dependencies = related_tickets_context.get("dependencies", [])
         if dependencies:
             section += "### Dependencies\n\n"
-            section += "This ticket depends on the following tickets being completed:\n\n"
+            section += (
+                "This ticket depends on the following tickets being completed:\n\n"
+            )
             for dep in dependencies:
                 section += f"- **{dep['title']}** (Status: {dep['state']})\n"
             section += "\n**Note**: You can assume dependencies are complete and build upon their work.\n\n"
-        
+
         return section
 
     def _format_feedback_section(self, feedback_bundle: dict) -> str:
@@ -550,4 +599,3 @@ class PromptBundleBuilder:
         evidence_dir = self.job_dir / "evidence"
         evidence_dir.mkdir(parents=True, exist_ok=True)
         return evidence_dir
-

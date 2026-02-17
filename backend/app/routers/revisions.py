@@ -465,27 +465,28 @@ async def submit_review(
 
             if data.create_pr:
                 # Create a GitHub PR instead of merging directly
-                from app.services.github_service import get_github_service
+                from app.services.git_host import get_git_host_provider
                 from sqlalchemy import select as sql_select
                 from app.models.workspace import Workspace
                 from pathlib import Path
-                
-                github_service = get_github_service()
-                
+
                 # Get workspace to find worktree path and branch
                 workspace_result = await db.execute(
-                    sql_select(Workspace).where(Workspace.ticket_id == revision.ticket_id)
+                    sql_select(Workspace).where(
+                        Workspace.ticket_id == revision.ticket_id
+                    )
                 )
                 workspace = workspace_result.scalar_one_or_none()
-                
+
                 if workspace and workspace.worktree_path:
                     try:
-                        await github_service.ensure_authenticated()
-                        
                         repo_path = Path(workspace.worktree_path)
+                        git_host = get_git_host_provider(repo_path)
+                        await git_host.ensure_authenticated()
+
                         head_branch = workspace.branch or f"ticket-{ticket.id[:8]}"
-                        
-                        pr = await github_service.create_pr(
+
+                        pr = await git_host.create_pr(
                             repo_path=repo_path,
                             title=ticket.title,
                             body=(
@@ -496,21 +497,28 @@ async def submit_review(
                             head_branch=head_branch,
                             base_branch="main",
                         )
-                        
+
                         # Update ticket with PR information
                         from datetime import datetime
+
                         ticket.pr_number = pr.number
                         ticket.pr_url = pr.url
                         ticket.pr_state = pr.state
                         ticket.pr_created_at = datetime.now()
                         ticket.pr_head_branch = pr.head_branch
                         ticket.pr_base_branch = pr.base_branch
-                        
-                        logger.info(f"Created PR #{pr.number} for ticket {ticket.id}: {pr.url}")
+
+                        logger.info(
+                            f"Created PR #{pr.number} for ticket {ticket.id}: {pr.url}"
+                        )
                     except Exception as e:
-                        logger.warning(f"Failed to create PR for ticket {ticket.id}: {e}")
+                        logger.warning(
+                            f"Failed to create PR for ticket {ticket.id}: {e}"
+                        )
                 else:
-                    logger.warning(f"No workspace found for ticket {ticket.id}, skipping PR creation")
+                    logger.warning(
+                        f"No workspace found for ticket {ticket.id}, skipping PR creation"
+                    )
 
                 # Transition to DONE after PR creation (worktree will be kept for PR)
                 if ticket.state != TicketState.DONE.value:
@@ -542,13 +550,17 @@ async def submit_review(
                 try:
                     # Get workspace info
                     workspace_result = await db.execute(
-                        sql_select(Workspace).where(Workspace.ticket_id == revision.ticket_id)
+                        sql_select(Workspace).where(
+                            Workspace.ticket_id == revision.ticket_id
+                        )
                     )
                     workspace = workspace_result.scalar_one_or_none()
 
                     if not workspace or not workspace.is_active:
                         merge_message = "No active workspace found for ticket"
-                        logger.info(f"Skipping merge for ticket {revision.ticket_id}: {merge_message}")
+                        logger.info(
+                            f"Skipping merge for ticket {revision.ticket_id}: {merge_message}"
+                        )
                     else:
                         worktree_path = Path(workspace.worktree_path)
                         branch_name = workspace.branch_name
@@ -560,11 +572,14 @@ async def submit_review(
                         # Ensure worktree exists
                         if not worktree_path.exists():
                             merge_message = f"Worktree does not exist: {worktree_path}"
-                            logger.warning(f"Cannot merge ticket {revision.ticket_id}: {merge_message}")
+                            logger.warning(
+                                f"Cannot merge ticket {revision.ticket_id}: {merge_message}"
+                            )
                         else:
                             # Simple git merge (runs in thread pool to avoid blocking)
                             # Read merge configuration with board-level overrides
                             from app.services.config_service import ConfigService
+
                             config_service = ConfigService()
 
                             # Get board config for overrides
@@ -572,8 +587,11 @@ async def submit_review(
                             if ticket.board_id:
                                 from sqlalchemy import select as sql_select_board
                                 from app.models.board import Board
+
                                 board_result = await db.execute(
-                                    sql_select_board(Board).where(Board.id == ticket.board_id)
+                                    sql_select_board(Board).where(
+                                        Board.id == ticket.board_id
+                                    )
                                 )
                                 board = board_result.scalar_one_or_none()
                                 if board and board.config:
@@ -581,12 +599,12 @@ async def submit_review(
 
                             # Load config with board overrides applied
                             config = config_service.load_config_with_board_overrides(
-                                board_config=board_config,
-                                use_cache=False
+                                board_config=board_config, use_cache=False
                             )
                             merge_config = config.merge_config
 
                             import asyncio
+
                             merge_result = await asyncio.to_thread(
                                 git_merge_worktree_branch,
                                 repo_path=repo_path,
@@ -600,7 +618,9 @@ async def submit_review(
 
                             merge_success = merge_result.success
                             merge_message = merge_result.message
-                            logger.info(f"Merge result for ticket {revision.ticket_id}: {merge_message}")
+                            logger.info(
+                                f"Merge result for ticket {revision.ticket_id}: {merge_message}"
+                            )
 
                             # Cleanup worktree
                             if merge_success:
@@ -612,14 +632,21 @@ async def submit_review(
                                 if cleanup_success:
                                     # Mark workspace as cleaned up
                                     workspace.cleaned_up_at = datetime.now(UTC)
-                                    logger.info(f"Cleaned up worktree for ticket {revision.ticket_id}")
+                                    logger.info(
+                                        f"Cleaned up worktree for ticket {revision.ticket_id}"
+                                    )
 
                 except GitMergeError as e:
                     merge_message = f"Git merge failed: {str(e)}"
-                    logger.error(f"Merge error for ticket {revision.ticket_id}: {merge_message}")
+                    logger.error(
+                        f"Merge error for ticket {revision.ticket_id}: {merge_message}"
+                    )
                 except Exception as e:
                     merge_message = f"Unexpected merge error: {str(e)}"
-                    logger.error(f"Unexpected error during merge for ticket {revision.ticket_id}: {e}", exc_info=True)
+                    logger.error(
+                        f"Unexpected error during merge for ticket {revision.ticket_id}: {e}",
+                        exc_info=True,
+                    )
 
                 # Transition to DONE after merge attempt (even if merge failed - review was approved)
                 if ticket.state != TicketState.DONE.value:
@@ -630,7 +657,10 @@ async def submit_review(
                         reason="Revision approved by reviewer",
                         auto_verify=False,
                     )
-        elif data.decision.value == ReviewDecision.CHANGES_REQUESTED.value and data.auto_run_fix:
+        elif (
+            data.decision.value == ReviewDecision.CHANGES_REQUESTED.value
+            and data.auto_run_fix
+        ):
             # Auto-rerun caps to prevent infinite loops:
             # - Max 2 auto-reruns per revision (per source_revision_id)
             # - Max 5 total revisions per ticket overall
@@ -639,9 +669,9 @@ async def submit_review(
 
             # Check per-revision rerun cap (how many times THIS revision has been addressed)
             from sqlalchemy import select as sql_select
+
             rerun_result = await db.execute(
-                sql_select(Job)
-                .where(Job.source_revision_id == revision_id)
+                sql_select(Job).where(Job.source_revision_id == revision_id)
             )
             reruns_from_this_revision = len(list(rerun_result.scalars().all()))
 
@@ -652,7 +682,9 @@ async def submit_review(
                 )
 
             # Check per-ticket total revisions cap
-            revisions_list = await revision_service.get_revisions_for_ticket(revision.ticket_id)
+            revisions_list = await revision_service.get_revisions_for_ticket(
+                revision.ticket_id
+            )
             if len(revisions_list) >= MAX_REVISIONS_PER_TICKET:
                 raise ValidationError(
                     f"Maximum total revisions ({MAX_REVISIONS_PER_TICKET}) for this ticket reached. "
@@ -766,40 +798,46 @@ async def get_revision_timeline(
     events: list[TimelineEvent] = []
 
     # Event 1: Revision created
-    events.append(TimelineEvent(
-        id=f"rev-{revision.id}",
-        event_type="revision_created",
-        actor="agent",
-        message=f"Revision {revision.number} created by executor",
-        created_at=revision.created_at,
-        metadata={"revision_number": revision.number, "job_id": revision.job_id},
-    ))
+    events.append(
+        TimelineEvent(
+            id=f"rev-{revision.id}",
+            event_type="revision_created",
+            actor="agent",
+            message=f"Revision {revision.number} created by executor",
+            created_at=revision.created_at,
+            metadata={"revision_number": revision.number, "job_id": revision.job_id},
+        )
+    )
 
     # Event 2: Comments added
     for comment in revision.comments:
-        events.append(TimelineEvent(
-            id=f"comment-{comment.id}",
-            event_type="comment_added",
-            actor=comment.author_type,
-            message=f"Comment on {comment.file_path}:{comment.line_number}",
-            created_at=comment.created_at,
-            metadata={
-                "file_path": comment.file_path,
-                "line_number": comment.line_number,
-                "resolved": comment.resolved,
-            },
-        ))
+        events.append(
+            TimelineEvent(
+                id=f"comment-{comment.id}",
+                event_type="comment_added",
+                actor=comment.author_type,
+                message=f"Comment on {comment.file_path}:{comment.line_number}",
+                created_at=comment.created_at,
+                metadata={
+                    "file_path": comment.file_path,
+                    "line_number": comment.line_number,
+                    "resolved": comment.resolved,
+                },
+            )
+        )
 
     # Event 3: Review submitted
     if revision.review_summary:
-        events.append(TimelineEvent(
-            id=f"review-{revision.review_summary.id}",
-            event_type="review_submitted",
-            actor="human",
-            message=f"Review: {revision.review_summary.decision}",
-            created_at=revision.review_summary.created_at,
-            metadata={"decision": revision.review_summary.decision},
-        ))
+        events.append(
+            TimelineEvent(
+                id=f"review-{revision.review_summary.id}",
+                event_type="review_submitted",
+                actor="human",
+                message=f"Review: {revision.review_summary.decision}",
+                created_at=revision.review_summary.created_at,
+                metadata={"decision": revision.review_summary.decision},
+            )
+        )
 
     # Event 4: Follow-up jobs (jobs with source_revision_id = this revision)
     followup_result = await db.execute(
@@ -807,14 +845,18 @@ async def get_revision_timeline(
     )
     followup_jobs = list(followup_result.scalars().all())
     for job in followup_jobs:
-        events.append(TimelineEvent(
-            id=f"job-{job.id}",
-            event_type="job_queued" if job.status == "queued" else "job_completed",
-            actor="system",
-            message=f"Auto rerun queued (job {job.id[:8]}...)" if job.status == "queued" else f"Auto rerun {job.status}",
-            created_at=job.created_at,
-            metadata={"job_id": job.id, "job_status": job.status},
-        ))
+        events.append(
+            TimelineEvent(
+                id=f"job-{job.id}",
+                event_type="job_queued" if job.status == "queued" else "job_completed",
+                actor="system",
+                message=f"Auto rerun queued (job {job.id[:8]}...)"
+                if job.status == "queued"
+                else f"Auto rerun {job.status}",
+                created_at=job.created_at,
+                metadata={"job_id": job.id, "job_status": job.status},
+            )
+        )
 
     # Sort events by created_at
     events.sort(key=lambda e: e.created_at)
@@ -823,4 +865,3 @@ async def get_revision_timeline(
         revision_id=revision_id,
         events=events,
     )
-

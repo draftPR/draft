@@ -65,6 +65,32 @@ execute_config:
   yolo_allowlist: []
 
 # =============================================================================
+# EXECUTOR PROFILES
+# =============================================================================
+# Named profiles with per-executor overrides. Use these to configure different
+# execution strategies (e.g., fast vs thorough, different models, timeouts).
+#
+# Select a profile when running a ticket:
+#   POST /tickets/{id}/run?executor_profile=fast
+#
+# Example:
+#   executor_profiles:
+#     fast:
+#       executor_type: claude
+#       timeout: 300
+#       extra_flags: ["--model", "claude-haiku-4-5-20251001"]
+#     thorough:
+#       executor_type: claude
+#       timeout: 1200
+#       extra_flags: ["--model", "claude-opus-4-6"]
+#     codex-auto:
+#       executor_type: codex
+#       timeout: 600
+#       extra_flags: ["--full-auto"]
+
+executor_profiles: {}
+
+# =============================================================================
 # VERIFICATION CONFIGURATION
 # =============================================================================
 # Settings for the verify job that validates ticket implementations.

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   DragDropContext,
   Droppable,
@@ -6,19 +7,19 @@ import {
 } from "@hello-pangea/dnd";
 import { TicketCard } from "@/components/TicketCard";
 import { TicketDetailDrawer } from "@/components/TicketDetailDrawer";
-import { fetchBoard, transitionTicket, runPlannerStart, fetchPlannerStatus, executeTicket, fetchTicket } from "@/services/api";
+import { transitionTicket, runPlannerStart, fetchPlannerStatus, executeTicket, fetchTicket } from "@/services/api";
 import {
   type Ticket,
-  type BoardResponse,
   type PlannerStartResponse,
   type PlannerStatusResponse,
   TicketState,
   ActorType,
   COLUMN_ORDER,
   STATE_DISPLAY_NAMES,
-  PlannerActionType,
 } from "@/types/api";
 import { useBoard } from "@/contexts/BoardContext";
+import { useBoardViewQuery } from "@/hooks/useQueries";
+import { queryKeys } from "@/hooks/queryKeys";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Loader2, AlertCircle, RefreshCw, Zap, Check, X, Info, Target, Lock } from "lucide-react";
@@ -32,9 +33,7 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
   const { currentBoard } = useBoard();
-  const [board, setBoard] = useState<BoardResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [autopilotLoading, setAutopilotLoading] = useState(false);
@@ -42,7 +41,25 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
   const [showStatusPanel, setShowStatusPanel] = useState(false);
   const [healthCheckLoading, setHealthCheckLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
+
+  // Use React Query for board data with auto-refetch
+  const {
+    data: board,
+    isLoading: loading,
+    error: boardError,
+    dataUpdatedAt,
+    refetch,
+  } = useBoardViewQuery(currentBoard?.id, autoRefresh);
+
+  const error = boardError ? (boardError instanceof Error ? boardError.message : "Failed to load board") : null;
+  const lastRefreshTime = new Date(dataUpdatedAt || Date.now());
+
+  // Refetch when refreshTrigger changes
+  useEffect(() => {
+    if (refreshTrigger !== undefined) {
+      refetch();
+    }
+  }, [refreshTrigger, refetch]);
 
   // Load planner status on mount
   useEffect(() => {
@@ -53,58 +70,9 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
       });
   }, []);
 
-  // Guard to prevent overlapping auto-refresh requests
-  const isRefreshing = useRef(false);
-
-  // Load board data
-  const loadBoard = useCallback(async (silent = false) => {
-    if (!currentBoard) {
-      setLoading(false);
-      setBoard(null);
-      return;
-    }
-
-    // Skip if a silent refresh is already in-flight
-    if (silent && isRefreshing.current) return;
-
-    if (!silent) {
-      setLoading(true);
-    }
-    isRefreshing.current = true;
-    setError(null);
-    try {
-      const data = await fetchBoard(currentBoard.id);
-      setBoard(data);
-      setLastRefreshTime(new Date());
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load board";
-      setError(message);
-      if (!silent) {
-        toast.error(message);
-      }
-    } finally {
-      isRefreshing.current = false;
-      if (!silent) {
-        setLoading(false);
-      }
-    }
-  }, [currentBoard]);
-
-  // Load board when currentBoard changes or refresh is triggered
-  useEffect(() => {
-    loadBoard();
-  }, [loadBoard, refreshTrigger]);
-
-  // Auto-refresh interval - only run when a board is selected
-  useEffect(() => {
-    if (!autoRefresh || !currentBoard) return;
-
-    const intervalId = setInterval(() => {
-      loadBoard(true); // Silent refresh (skipped if already in-flight)
-    }, 3000); // Refresh every 3 seconds
-
-    return () => clearInterval(intervalId);
-  }, [autoRefresh, currentBoard, loadBoard]);
+  const loadBoard = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
 
   const handleAutopilotStart = useCallback(async () => {
     setAutopilotLoading(true);
@@ -180,32 +148,24 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
 
   const handleExecuteTicket = useCallback(async (ticket: Ticket) => {
     // Optimistic update: Move ticket to Executing column immediately
-    if (board) {
+    if (board && currentBoard) {
+      const boardKey = queryKeys.boards.view(currentBoard.id);
       const updatedTicket = { ...ticket, state: TicketState.EXECUTING };
       const newColumns = board.columns.map((col) => {
         if (col.state === ticket.state) {
-          // Remove from current column
-          return {
-            ...col,
-            tickets: col.tickets.filter((t) => t.id !== ticket.id),
-          };
+          return { ...col, tickets: col.tickets.filter((t) => t.id !== ticket.id) };
         }
         if (col.state === TicketState.EXECUTING) {
-          // Add to executing column at the top
-          return {
-            ...col,
-            tickets: [updatedTicket, ...col.tickets],
-          };
+          return { ...col, tickets: [updatedTicket, ...col.tickets] };
         }
         return col;
       });
-      setBoard({ ...board, columns: newColumns });
+      queryClient.setQueryData(boardKey, { ...board, columns: newColumns });
     }
-    
-    // Queue the job - don't immediately refresh as that overwrites the optimistic update
-    // The auto-refresh will pick up the real state when the job starts running
+
+    // Queue the job - auto-refresh will pick up the real state
     await executeTicket(ticket.id);
-  }, [board]);
+  }, [board, currentBoard, queryClient]);
 
   const handleDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result;
@@ -226,20 +186,18 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
 
     // If same column, just reorder (we don't persist order to backend in MVP)
     if (targetState === sourceState) {
-      // Optimistic reorder within column
-      if (!board) return;
-      
+      if (!board || !currentBoard) return;
+
+      const boardKey = queryKeys.boards.view(currentBoard.id);
       const newColumns = board.columns.map((col) => {
         if (col.state !== sourceState) return col;
-        
         const tickets = [...col.tickets];
         const [removed] = tickets.splice(source.index, 1);
         tickets.splice(destination.index, 0, removed);
-        
         return { ...col, tickets };
       });
-      
-      setBoard({ ...board, columns: newColumns });
+
+      queryClient.setQueryData(boardKey, { ...board, columns: newColumns });
       return;
     }
 
@@ -247,16 +205,14 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
     const sourceColumn = board?.columns.find((col) => col.state === sourceState);
     const ticket = sourceColumn?.tickets.find((t) => t.id === draggableId);
 
-    if (!ticket || !board) return;
+    if (!ticket || !board || !currentBoard) return;
 
-    // Optimistic update
+    // Optimistic update via React Query cache
+    const boardKey = queryKeys.boards.view(currentBoard.id);
     const updatedTicket = { ...ticket, state: targetState };
     const newColumns = board.columns.map((col) => {
       if (col.state === sourceState) {
-        return {
-          ...col,
-          tickets: col.tickets.filter((t) => t.id !== draggableId),
-        };
+        return { ...col, tickets: col.tickets.filter((t) => t.id !== draggableId) };
       }
       if (col.state === targetState) {
         const tickets = [...col.tickets];
@@ -266,7 +222,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
       return col;
     });
 
-    setBoard({ ...board, columns: newColumns });
+    queryClient.setQueryData(boardKey, { ...board, columns: newColumns });
 
     // Call backend to transition
     try {

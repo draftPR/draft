@@ -1,6 +1,5 @@
 """Pull Request router for GitHub integration."""
 
-import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -14,7 +13,7 @@ from app.database import get_db
 from app.exceptions import ConfigurationError
 from app.models.ticket import Ticket
 from app.models.workspace import Workspace
-from app.services.github_service import get_github_service
+from app.services.git_host import get_git_host_provider
 from app.state_machine import TicketState
 
 router = APIRouter(prefix="/pull-requests", tags=["pull-requests"])
@@ -61,7 +60,9 @@ async def create_pull_request(
     ticket = result.scalar_one_or_none()
 
     if not ticket:
-        raise HTTPException(status_code=404, detail=f"Ticket {request.ticket_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Ticket {request.ticket_id} not found"
+        )
 
     # Check if PR already exists
     if ticket.pr_number:
@@ -107,15 +108,15 @@ async def create_pull_request(
         f"Ticket ID: {ticket.id}"
     )
 
-    # Get GitHub service
-    github_service = get_github_service()
+    # Get git host provider (auto-detects GitHub vs GitLab)
+    git_host = get_git_host_provider(repo_path)
 
     try:
         # Check if authenticated
-        await github_service.ensure_authenticated()
+        await git_host.ensure_authenticated()
 
-        # Create PR
-        pr = await github_service.create_pr(
+        # Create PR/MR
+        pr = await git_host.create_pr(
             repo_path=repo_path,
             title=pr_title,
             body=pr_body,
@@ -130,10 +131,6 @@ async def create_pull_request(
         ticket.pr_created_at = datetime.now()
         ticket.pr_head_branch = pr.head_branch
         ticket.pr_base_branch = pr.base_branch
-
-        # Transition ticket to REVIEW state
-        if ticket.state == TicketState.DONE.value:
-            ticket.state = TicketState.REVIEW.value
 
         await db.commit()
         await db.refresh(ticket)
@@ -206,9 +203,7 @@ async def refresh_pr_status(
         )
 
     # Get workspace for repo path
-    result = await db.execute(
-        select(Workspace).where(Workspace.ticket_id == ticket_id)
-    )
+    result = await db.execute(select(Workspace).where(Workspace.ticket_id == ticket_id))
     workspace = result.scalar_one_or_none()
 
     if not workspace or not workspace.worktree_path:
@@ -220,8 +215,8 @@ async def refresh_pr_status(
     repo_path = Path(workspace.worktree_path)
 
     try:
-        github_service = get_github_service()
-        pr_details = await github_service.get_pr_details(repo_path, ticket.pr_number)
+        git_host = get_git_host_provider(repo_path)
+        pr_details = await git_host.get_pr_details(repo_path, ticket.pr_number)
 
         # Update ticket
         old_state = ticket.pr_state
@@ -249,4 +244,6 @@ async def refresh_pr_status(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to refresh PR status: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to refresh PR status: {str(e)}"
+        )

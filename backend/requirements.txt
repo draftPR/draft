@@ -11,6 +11,7 @@ httpx>=0.25.0
 litellm>=1.0.0
 boto3>=1.42.0  # AWS SDK for Bedrock LLM support
 sse-starlette>=2.0.0  # Server-Sent Events for real-time log streaming
+jsonpatch>=1.33  # RFC 6902 JSON Patch for incremental WebSocket updates
 langgraph>=0.2.0  # State machine agent framework for UDAR
 langchain-core>=0.3.0  # Core abstractions for LangGraph
 langchain-community>=0.3.0  # Community tools (optional)

@@ -1,4 +1,4 @@
-.PHONY: setup setup-backend setup-frontend run dev dev-backend dev-frontend dev-worker redis db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean
+.PHONY: setup setup-backend setup-frontend run run-redis dev dev-backend dev-frontend dev-worker redis db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean
 
 # Default target
 help:
@@ -10,7 +10,8 @@ help:
 	@echo "  make setup-frontend - Install Node.js dependencies"
 	@echo ""
 	@echo "Quick Start:"
-	@echo "  make run            - 🚀 Start all services with ONE COMMAND (like npx vibe-kanban)"
+	@echo "  make run            - 🚀 Start all services (SQLite backend, no Redis needed)"
+	@echo "  make run-redis      - Start all services with Redis backend (requires Redis)"
 	@echo "  ./run.py            - Alternative: run the launcher script directly"
 	@echo ""
 	@echo "Development (Manual):"
@@ -48,10 +49,15 @@ setup-frontend:
 	cd frontend && npm install
 	@echo "✓ Frontend setup complete!"
 
-# Quick start - one command to run everything
+# Quick start - one command to run everything (SQLite backend, no Redis needed)
 run:
-	@echo "🚀 Starting Alma Kanban..."
-	@python3 run.py
+	@echo "🚀 Starting Alma Kanban (SQLite backend)..."
+	@TASK_BACKEND=sqlite python3 run.py
+
+# Run with Redis backend (requires Redis to be running)
+run-redis:
+	@echo "🚀 Starting Alma Kanban (Redis backend)..."
+	@TASK_BACKEND=redis python3 run.py
 
 # Development targets (manual)
 dev-backend:

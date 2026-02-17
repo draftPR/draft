@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { applyPatch } from 'fast-json-patch';
+import { queryKeys } from './queryKeys';
 
 /**
  * WebSocket URL configuration
@@ -8,10 +11,12 @@ const WS_HOST = import.meta.env.VITE_BACKEND_URL?.replace(/^https?:\/\//, '') ||
 const WS_URL = `${WS_PROTOCOL}//${WS_HOST}`;
 
 export interface BoardUpdateMessage {
-  type: 'ticket_update' | 'job_created' | 'job_completed' | 'subscribed';
+  type: 'ticket_update' | 'job_created' | 'job_completed' | 'subscribed' | 'snapshot' | 'patch';
   ticket_id?: string;
   job_id?: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
+  ops?: Array<{ op: string; path: string; value?: unknown; from?: string }>;
+  seq?: number;
   timestamp?: string;
   board_id?: string;
   channel?: string;
@@ -65,6 +70,7 @@ export interface UseBoardUpdatesResult {
  * ```
  */
 export function useBoardUpdates(boardId: string | null | undefined): UseBoardUpdatesResult {
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected');
   const [lastUpdate, setLastUpdate] = useState<BoardUpdateMessage | null>(null);
   const [updates, setUpdates] = useState<BoardUpdateMessage[]>([]);
@@ -73,6 +79,7 @@ export function useBoardUpdates(boardId: string | null | undefined): UseBoardUpd
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const listenersRef = useRef<Set<BoardUpdateListener>>(new Set());
+  const lastSeqRef = useRef<number>(0);
 
   const subscribe = useCallback((listener: BoardUpdateListener) => {
     listenersRef.current.add(listener);
@@ -159,6 +166,54 @@ export function useBoardUpdates(boardId: string | null | undefined): UseBoardUpd
             setUpdates((prev) => [...prev, message]);
           }
 
+          // Handle JSON Patch protocol messages
+          if (boardId) {
+            const boardKey = queryKeys.boards.view(boardId);
+
+            if (message.type === 'snapshot' && message.data) {
+              // Full state snapshot — replace cache directly
+              queryClient.setQueryData(boardKey, message.data);
+              lastSeqRef.current = message.seq ?? 0;
+            } else if (message.type === 'patch' && message.ops) {
+              // Incremental patch — apply to cached data
+              const expectedSeq = lastSeqRef.current + 1;
+              if (message.seq !== undefined && message.seq !== expectedSeq) {
+                // Sequence gap — request resync
+                console.warn(`Patch seq gap: expected ${expectedSeq}, got ${message.seq}. Requesting resync.`);
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: 'resync' }));
+                }
+              } else {
+                const current = queryClient.getQueryData(boardKey);
+                if (current) {
+                  try {
+                    const patched = applyPatch(
+                      structuredClone(current),
+                      message.ops,
+                      false, // don't validate
+                      false, // don't mutate
+                    ).newDocument;
+                    queryClient.setQueryData(boardKey, patched);
+                    lastSeqRef.current = message.seq ?? lastSeqRef.current + 1;
+                  } catch (patchErr) {
+                    console.warn('Failed to apply JSON patch, requesting resync:', patchErr);
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(JSON.stringify({ type: 'resync' }));
+                    }
+                  }
+                } else {
+                  // No cached data to patch — request resync
+                  if (wsRef.current?.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({ type: 'resync' }));
+                  }
+                }
+              }
+            } else if (message.type !== 'subscribed') {
+              // Legacy event messages — invalidate cache
+              queryClient.invalidateQueries({ queryKey: boardKey });
+            }
+          }
+
           // Notify all listeners
           listenersRef.current.forEach((listener) => {
             try {
@@ -187,6 +242,7 @@ export function useBoardUpdates(boardId: string | null | undefined): UseBoardUpd
         wsRef.current.close(1000, 'Component unmounted');
       }
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boardId]);
 
   return {

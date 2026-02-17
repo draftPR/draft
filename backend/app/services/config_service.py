@@ -57,7 +57,9 @@ class ExecuteConfig:
     timeout: int = 600  # seconds (default 10 minutes)
     preferred_executor: str = "claude"  # "claude" (headless) or "cursor" (interactive)
     yolo_mode: bool = False  # DANGEROUS: skip permissions prompts (opt-in only)
-    yolo_allowlist: list[str] = field(default_factory=list)  # REQUIRED when yolo_mode=true
+    yolo_allowlist: list[str] = field(
+        default_factory=list
+    )  # REQUIRED when yolo_mode=true
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ExecuteConfig":
@@ -69,7 +71,9 @@ class ExecuteConfig:
             yolo_allowlist=data.get("yolo_allowlist") or [],
         )
 
-    def check_yolo_status(self, worktree_path: str, repo_root: str | None = None) -> YoloStatus:
+    def check_yolo_status(
+        self, worktree_path: str, repo_root: str | None = None
+    ) -> YoloStatus:
         """Check YOLO mode status for a given worktree.
 
         Safety Policy:
@@ -152,7 +156,7 @@ class ExecuteConfig:
 @dataclass
 class VerifyConfig:
     """Configuration for verify jobs.
-    
+
     Note: After verification passes, tickets always transition to 'needs_human'
     for user review. Only when the user approves the revision does it move to 'done'.
     The on_success field is kept for backwards compatibility but is ignored.
@@ -220,13 +224,15 @@ class AutonomyConfig:
     """Configuration for full autonomy mode safety rails."""
 
     max_diff_lines: int = 500
-    sensitive_file_patterns: list[str] = field(default_factory=lambda: [
-        "**/.env*",
-        "**/*.pem",
-        "**/*.key",
-        "**/secrets/**",
-        "**/credentials*",
-    ])
+    sensitive_file_patterns: list[str] = field(
+        default_factory=lambda: [
+            "**/.env*",
+            "**/*.pem",
+            "**/*.key",
+            "**/secrets/**",
+            "**/credentials*",
+        ]
+    )
     require_verification_pass: bool = True
 
     @classmethod
@@ -241,7 +247,8 @@ class AutonomyConfig:
         ]
         return cls(
             max_diff_lines=data.get("max_diff_lines", 500),
-            sensitive_file_patterns=data.get("sensitive_file_patterns") or default_patterns,
+            sensitive_file_patterns=data.get("sensitive_file_patterns")
+            or default_patterns,
             require_verification_pass=data.get("require_verification_pass", True),
         )
 
@@ -297,8 +304,12 @@ class UDARConfig:
         """Create a config instance from a dictionary."""
         return cls(
             enabled=data.get("enabled", False),
-            enable_incremental_replanning=data.get("enable_incremental_replanning", False),
-            max_self_correction_iterations=data.get("max_self_correction_iterations", 1),
+            enable_incremental_replanning=data.get(
+                "enable_incremental_replanning", False
+            ),
+            max_self_correction_iterations=data.get(
+                "max_self_correction_iterations", 1
+            ),
             enable_llm_validation=data.get("enable_llm_validation", False),
             replan_batch_size=data.get("replan_batch_size", 5),
             replan_significance_threshold=data.get("replan_significance_threshold", 10),
@@ -344,11 +355,13 @@ class PlannerConfig:
 
     # Blocker reasons that should NOT trigger follow-ups
     # These are typically prompt/requirements issues, not new tickets
-    skip_followup_reasons: list[str] = field(default_factory=lambda: [
-        "no changes produced",
-        "no changes",
-        "empty diff",
-    ])
+    skip_followup_reasons: list[str] = field(
+        default_factory=lambda: [
+            "no changes produced",
+            "no changes",
+            "empty diff",
+        ]
+    )
 
     def get_agent_path(self) -> str:
         """Get the expanded agent path."""
@@ -358,7 +371,11 @@ class PlannerConfig:
     def from_dict(cls, data: dict[str, Any]) -> "PlannerConfig":
         """Create a config instance from a dictionary."""
         features_data = data.get("features", {})
-        features = PlannerFeaturesConfig.from_dict(features_data) if features_data else PlannerFeaturesConfig()
+        features = (
+            PlannerFeaturesConfig.from_dict(features_data)
+            if features_data
+            else PlannerFeaturesConfig()
+        )
 
         udar_data = data.get("udar", {})
         udar = UDARConfig.from_dict(udar_data) if udar_data else UDARConfig()
@@ -375,7 +392,45 @@ class PlannerConfig:
             agent_path=data.get("agent_path", "~/.local/bin/cursor-agent"),
             max_followups_per_ticket=data.get("max_followups_per_ticket", 2),
             max_followups_per_tick=data.get("max_followups_per_tick", 3),
-            skip_followup_reasons=data.get("skip_followup_reasons") or default_skip_reasons,
+            skip_followup_reasons=data.get("skip_followup_reasons")
+            or default_skip_reasons,
+        )
+
+
+@dataclass
+class ExecutorProfile:
+    """A named executor profile with configurable settings.
+
+    Profiles allow per-executor overrides in smartkanban.yaml:
+
+        executor_profiles:
+          fast:
+            executor_type: claude
+            timeout: 300
+            extra_flags: ["--model", "claude-sonnet-4-5-20250929"]
+          thorough:
+            executor_type: claude
+            timeout: 1200
+            extra_flags: ["--model", "claude-opus-4-6"]
+    """
+
+    name: str
+    executor_type: str = "claude"
+    timeout: int = 600
+    extra_flags: list[str] = field(default_factory=list)
+    model: str | None = None
+    env: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, name: str, data: dict[str, Any]) -> "ExecutorProfile":
+        """Create a profile from a dictionary."""
+        return cls(
+            name=name,
+            executor_type=data.get("executor_type", "claude"),
+            timeout=data.get("timeout", 600),
+            extra_flags=data.get("extra_flags") or [],
+            model=data.get("model"),
+            env=data.get("env") or {},
         )
 
 
@@ -432,17 +487,22 @@ class SmartKanbanConfig:
     cleanup_config: CleanupConfig = field(default_factory=CleanupConfig)
     merge_config: MergeConfig = field(default_factory=MergeConfig)
     autonomy_config: AutonomyConfig = field(default_factory=AutonomyConfig)
+    executor_profiles: dict[str, ExecutorProfile] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SmartKanbanConfig":
         """Create a config instance from a dictionary."""
         # Parse project config
         project_data = data.get("project", {})
-        project = ProjectConfig.from_dict(project_data) if project_data else ProjectConfig()
+        project = (
+            ProjectConfig.from_dict(project_data) if project_data else ProjectConfig()
+        )
 
         # Parse execute config
         execute_data = data.get("execute_config", {})
-        execute_config = ExecuteConfig.from_dict(execute_data) if execute_data else ExecuteConfig()
+        execute_config = (
+            ExecuteConfig.from_dict(execute_data) if execute_data else ExecuteConfig()
+        )
 
         # Parse verify config (with legacy fallbacks)
         verify_data = data.get("verify_config", {})
@@ -460,19 +520,39 @@ class SmartKanbanConfig:
 
         # Parse planner config
         planner_data = data.get("planner_config", {})
-        planner_config = PlannerConfig.from_dict(planner_data) if planner_data else PlannerConfig()
+        planner_config = (
+            PlannerConfig.from_dict(planner_data) if planner_data else PlannerConfig()
+        )
 
         # Parse cleanup config
         cleanup_data = data.get("cleanup_config", {})
-        cleanup_config = CleanupConfig.from_dict(cleanup_data) if cleanup_data else CleanupConfig()
+        cleanup_config = (
+            CleanupConfig.from_dict(cleanup_data) if cleanup_data else CleanupConfig()
+        )
 
         # Parse merge config
         merge_data = data.get("merge_config", {})
-        merge_config = MergeConfig.from_dict(merge_data) if merge_data else MergeConfig()
+        merge_config = (
+            MergeConfig.from_dict(merge_data) if merge_data else MergeConfig()
+        )
 
         # Parse autonomy config
         autonomy_data = data.get("autonomy_config", {})
-        autonomy_config = AutonomyConfig.from_dict(autonomy_data) if autonomy_data else AutonomyConfig()
+        autonomy_config = (
+            AutonomyConfig.from_dict(autonomy_data)
+            if autonomy_data
+            else AutonomyConfig()
+        )
+
+        # Parse executor profiles
+        profiles_data = data.get("executor_profiles", {})
+        executor_profiles = {}
+        if isinstance(profiles_data, dict):
+            for profile_name, profile_data in profiles_data.items():
+                if isinstance(profile_data, dict):
+                    executor_profiles[profile_name] = ExecutorProfile.from_dict(
+                        profile_name, profile_data
+                    )
 
         return cls(
             project=project,
@@ -482,6 +562,7 @@ class SmartKanbanConfig:
             cleanup_config=cleanup_config,
             merge_config=merge_config,
             autonomy_config=autonomy_config,
+            executor_profiles=executor_profiles,
         )
 
     # Convenience properties for backwards compatibility
@@ -493,7 +574,7 @@ class SmartKanbanConfig:
     @property
     def auto_transition_on_success(self) -> bool:
         """Get auto-transition setting (legacy accessor).
-        
+
         DEPRECATED: Always returns False. Tickets must be approved by user
         to transition from needs_human to done.
         """
@@ -569,7 +650,7 @@ class ConfigService:
 
     def get_verify_on_success(self) -> str:
         """Get the target state when verification succeeds.
-        
+
         Always returns 'needs_human' - user must approve to move to done.
         """
         return "needs_human"
@@ -606,3 +687,11 @@ class ConfigService:
     def get_autonomy_config(self) -> AutonomyConfig:
         """Get the autonomy configuration."""
         return self.load_config().autonomy_config
+
+    def get_executor_profiles(self) -> dict[str, ExecutorProfile]:
+        """Get all configured executor profiles."""
+        return self.load_config().executor_profiles
+
+    def get_executor_profile(self, name: str) -> ExecutorProfile | None:
+        """Get a specific executor profile by name."""
+        return self.load_config().executor_profiles.get(name)

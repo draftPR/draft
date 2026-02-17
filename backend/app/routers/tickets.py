@@ -67,10 +67,10 @@ async def get_ticket(
 ) -> TicketDetailResponse:
     """Get a ticket by its ID with full context."""
     from app.state_machine import TicketState as TS
-    
+
     service = TicketService(db)
     ticket = await service.get_ticket_by_id(ticket_id)
-    
+
     # Determine if ticket is blocked by an incomplete dependency
     is_blocked = False
     blocked_by_title = None
@@ -133,6 +133,7 @@ async def delete_ticket(
         await service._cleanup_workspace_async(ticket_id)
     except Exception as e:
         import logging
+
         logger = logging.getLogger(__name__)
         logger.warning(f"Failed to cleanup workspace for ticket {ticket_id}: {e}")
 
@@ -152,15 +153,15 @@ async def bulk_accept_tickets(
 ) -> BulkAcceptResponse:
     """
     Bulk accept proposed tickets, transitioning them from 'proposed' to 'planned'.
-    
+
     Validation rules:
     - All tickets must exist
     - All tickets must be in 'proposed' state
     - If goal_id is provided, all tickets must belong to that goal
-    
+
     The operation is atomic: if any ticket fails validation, none are accepted.
     This prevents partial acceptance which causes UI confusion.
-    
+
     If queue_first=true:
     - The FIRST ticket in the request order (ticket_ids[0]) will be queued
     - Request order is deterministic and matches UI selection order
@@ -169,46 +170,52 @@ async def bulk_accept_tickets(
     - Returns queued_job_id and queued_ticket_id for traceability
     """
     from app.models.ticket import Ticket
-    
+
     service = TicketService(db)
     job_service = JobService(db)
     rejected: list[BulkAcceptResult] = []
-    
+
     # Phase 1: Pre-validation - fetch all tickets and validate
     # Preserve request order by using a list, not a dict
     tickets_to_accept: list[Ticket] = []
-    
+
     for ticket_id in data.ticket_ids:
         try:
             ticket = await service.get_ticket_by_id(ticket_id)
         except Exception:
-            rejected.append(BulkAcceptResult(
-                ticket_id=ticket_id,
-                success=False,
-                error="Ticket not found",
-            ))
+            rejected.append(
+                BulkAcceptResult(
+                    ticket_id=ticket_id,
+                    success=False,
+                    error="Ticket not found",
+                )
+            )
             continue
-        
+
         # Validate state
         if ticket.state != TicketState.PROPOSED.value:
-            rejected.append(BulkAcceptResult(
-                ticket_id=ticket_id,
-                success=False,
-                error=f"Ticket is in '{ticket.state}' state, not 'proposed'",
-            ))
+            rejected.append(
+                BulkAcceptResult(
+                    ticket_id=ticket_id,
+                    success=False,
+                    error=f"Ticket is in '{ticket.state}' state, not 'proposed'",
+                )
+            )
             continue
-        
+
         # Validate goal ownership if goal_id provided
         if data.goal_id and ticket.goal_id != data.goal_id:
-            rejected.append(BulkAcceptResult(
-                ticket_id=ticket_id,
-                success=False,
-                error=f"Ticket belongs to goal '{ticket.goal_id}', not '{data.goal_id}'",
-            ))
+            rejected.append(
+                BulkAcceptResult(
+                    ticket_id=ticket_id,
+                    success=False,
+                    error=f"Ticket belongs to goal '{ticket.goal_id}', not '{data.goal_id}'",
+                )
+            )
             continue
-        
+
         tickets_to_accept.append(ticket)
-    
+
     # If any tickets were rejected, don't accept any (atomic operation)
     if rejected:
         return BulkAcceptResponse(
@@ -219,12 +226,12 @@ async def bulk_accept_tickets(
             queued_job_id=None,
             queued_ticket_id=None,
         )
-    
+
     # Phase 2: Accept all validated tickets within transaction
     # Note: SQLAlchemy async session auto-commits at the end of the request handler
     # unless we explicitly use db.begin() or db.rollback()
     accepted_ids: list[str] = []
-    
+
     for ticket in tickets_to_accept:
         try:
             await service.transition_ticket(
@@ -237,22 +244,24 @@ async def bulk_accept_tickets(
             accepted_ids.append(ticket.id)
         except Exception as e:
             # This shouldn't happen after pre-validation, but handle it
-            rejected.append(BulkAcceptResult(
-                ticket_id=ticket.id,
-                success=False,
-                error=str(e),
-            ))
+            rejected.append(
+                BulkAcceptResult(
+                    ticket_id=ticket.id,
+                    success=False,
+                    error=str(e),
+                )
+            )
             # Rollback will happen automatically on exception
             raise
-    
+
     # Commit transitions before queueing job
     await db.commit()
-    
+
     # Phase 3: Queue first ticket if requested (after commit)
     # This ensures the worker sees the updated ticket state
     queued_job_id: str | None = None
     queued_ticket_id: str | None = None
-    
+
     if data.queue_first and accepted_ids:
         # Use first ticket in request order (deterministic)
         first_ticket_id = accepted_ids[0]
@@ -265,10 +274,11 @@ async def bulk_accept_tickets(
             # Don't fail the whole operation if queueing fails
             # Tickets are already accepted at this point
             import logging
+
             logging.getLogger(__name__).warning(
                 f"Failed to queue job for ticket {first_ticket_id}: {e}"
             )
-    
+
     return BulkAcceptResponse(
         accepted_ids=accepted_ids,
         rejected=rejected,
@@ -351,6 +361,7 @@ async def get_ticket_events(
 )
 async def execute_ticket(
     ticket_id: str,
+    executor_profile: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> JobCreateResponse:
     """
@@ -366,22 +377,38 @@ async def execute_ticket(
     The ticket will transition to EXECUTING when the job starts,
     then to VERIFYING or BLOCKED based on the outcome.
 
+    Pass `executor_profile` query param to use a named profile from
+    smartkanban.yaml (e.g., `?executor_profile=fast`).
+
     For automated execution of all planned tickets, use `/planner/start`.
     """
     from app.state_machine import validate_transition
-    
+
+    # Validate executor profile if specified
+    if executor_profile:
+        from app.services.config_service import ConfigService
+
+        config_service = ConfigService()
+        profile = config_service.get_executor_profile(executor_profile)
+        if not profile:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown executor profile: '{executor_profile}'. "
+                f"Available: {list(config_service.get_executor_profiles().keys())}",
+            )
+
     ticket_service = TicketService(db)
     ticket = await ticket_service.get_ticket_by_id(ticket_id)
-    
+
     # Validate ticket can transition to EXECUTING
     current_state = ticket.state_enum
     if not validate_transition(current_state, TicketState.EXECUTING):
         raise HTTPException(
             status_code=400,
             detail=f"Cannot execute ticket in '{current_state.value}' state. "
-                   f"Ticket must be in PLANNED, NEEDS_HUMAN, or DONE state.",
+            f"Ticket must be in PLANNED, NEEDS_HUMAN, or DONE state.",
         )
-    
+
     job_service = JobService(db)
     job = await job_service.create_job(ticket_id, JobKind.EXECUTE)
 
@@ -652,29 +679,29 @@ async def bulk_update_priority(
     from app.schemas.planner import MAX_P0_PER_REQUEST, PriorityBucket
     from app.services.board_service import BoardService
     from fastapi.responses import JSONResponse
-    
+
     # AUTHORIZATION: Verify board exists
     board_service = BoardService(db)
     try:
         await board_service.get_board_by_id(request.board_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    
+
     # Verify goal belongs to board
     try:
         await board_service.verify_goal_in_board(request.goal_id, request.board_id)
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
-    
+
     results: list[BulkPriorityUpdateResult] = []
     updated_count = 0
     failed_count = 0
-    
+
     # Identify P0 assignments
     p0_updates = [u for u in request.updates if u.priority_bucket == PriorityBucket.P0]
     p0_count = len(p0_updates)
     p0_ticket_ids = [u.ticket_id for u in p0_updates]
-    
+
     # P0 safety checks with structured error
     if p0_count > 0:
         if not request.allow_p0:
@@ -701,7 +728,7 @@ async def bulk_update_priority(
                     "resolution": f"Split into multiple requests with at most {MAX_P0_PER_REQUEST} P0 assignments each.",
                 },
             )
-    
+
     # Track before/after for audit logging
     changes_log = []
 
@@ -736,20 +763,24 @@ async def bulk_update_priority(
 
         # Record before state for audit
         old_priority = ticket.priority
-        old_bucket = priority_to_bucket(old_priority) if old_priority else PriorityBucket.P2
+        old_bucket = (
+            priority_to_bucket(old_priority) if old_priority else PriorityBucket.P2
+        )
 
         # Update priority
         new_priority = bucket_to_priority(update.priority_bucket)
         ticket.priority = new_priority
-        
-        changes_log.append({
-            "ticket_id": ticket.id,
-            "ticket_title": ticket.title,
-            "old_bucket": old_bucket.value,
-            "new_bucket": update.priority_bucket.value,
-            "old_priority": old_priority,
-            "new_priority": new_priority,
-        })
+
+        changes_log.append(
+            {
+                "ticket_id": ticket.id,
+                "ticket_title": ticket.title,
+                "old_bucket": old_bucket.value,
+                "new_bucket": update.priority_bucket.value,
+                "old_priority": old_priority,
+                "new_priority": new_priority,
+            }
+        )
 
         results.append(
             BulkPriorityUpdateResult(
@@ -764,14 +795,22 @@ async def bulk_update_priority(
     # Create audit event for all changes
     if updated_count > 0 and changes_log:
         # Count direction of changes
-        up_count = sum(1 for c in changes_log if c["new_priority"] > (c["old_priority"] or 0))
-        down_count = sum(1 for c in changes_log if c["new_priority"] < (c["old_priority"] or 0))
-        to_p0_count = sum(1 for c in changes_log if c["new_bucket"] == "P0" and c["old_bucket"] != "P0")
-        
+        up_count = sum(
+            1 for c in changes_log if c["new_priority"] > (c["old_priority"] or 0)
+        )
+        down_count = sum(
+            1 for c in changes_log if c["new_priority"] < (c["old_priority"] or 0)
+        )
+        to_p0_count = sum(
+            1
+            for c in changes_log
+            if c["new_bucket"] == "P0" and c["old_bucket"] != "P0"
+        )
+
         # Log the bulk update event (one per goal, includes all ticket changes)
         # Get first ticket's ID for the event
         first_ticket_id = changes_log[0]["ticket_id"]
-        
+
         event = TicketEvent(
             ticket_id=first_ticket_id,
             event_type="priority_bulk_updated",
@@ -780,15 +819,17 @@ async def bulk_update_priority(
             actor_type=ActorType.HUMAN.value,
             actor_id="bulk_priority_update",
             reason=f"Bulk priority update: {updated_count} tickets ({up_count} up, {down_count} down, {to_p0_count} to P0)",
-            payload_json=json.dumps({
-                "goal_id": request.goal_id,
-                "total_updated": updated_count,
-                "up_count": up_count,
-                "down_count": down_count,
-                "to_p0_count": to_p0_count,
-                "allow_p0": request.allow_p0,
-                "changes": changes_log,
-            }),
+            payload_json=json.dumps(
+                {
+                    "goal_id": request.goal_id,
+                    "total_updated": updated_count,
+                    "up_count": up_count,
+                    "down_count": down_count,
+                    "to_p0_count": to_p0_count,
+                    "allow_p0": request.allow_p0,
+                    "changes": changes_log,
+                }
+            ),
         )
         db.add(event)
 
@@ -811,11 +852,13 @@ from app.services.queued_message_service import queued_message_service, QueuedMe
 
 class QueueMessageRequest(BaseModel):
     """Request to queue a follow-up message."""
+
     message: str = Field(..., description="The follow-up prompt to execute next")
 
 
 class QueueStatusResponse(BaseModel):
     """Response showing queue status for a ticket."""
+
     status: str = Field(..., description="Queue status: 'empty' or 'queued'")
     message: str | None = Field(None, description="The queued message (if any)")
     queued_at: str | None = Field(None, description="When the message was queued")
@@ -832,20 +875,20 @@ async def queue_message(
     db: AsyncSession = Depends(get_db),
 ) -> QueueStatusResponse:
     """Queue a follow-up message to be executed after the current job finishes.
-    
+
     This enables a faster iteration loop for individual developers:
     - While the agent is working on one task, you can type the next instruction
     - When the current execution completes, the queued message auto-executes
     - Only one message can be queued at a time (new message replaces old)
-    
+
     Similar to vibe-kanban's queued message feature.
     """
     # Verify ticket exists
     service = TicketService(db)
     await service.get_ticket_by_id(ticket_id)
-    
+
     queued = queued_message_service.queue_message(ticket_id, data.message)
-    
+
     return QueueStatusResponse(
         status="queued",
         message=queued.message,
@@ -863,22 +906,22 @@ async def get_queue_status(
     db: AsyncSession = Depends(get_db),
 ) -> QueueStatusResponse:
     """Get the current queue status for a ticket.
-    
+
     Returns the queued message if one exists, or empty status.
     """
     # Verify ticket exists
     service = TicketService(db)
     await service.get_ticket_by_id(ticket_id)
-    
+
     queued = queued_message_service.get_queued(ticket_id)
-    
+
     if queued:
         return QueueStatusResponse(
             status="queued",
             message=queued.message,
             queued_at=queued.queued_at.isoformat(),
         )
-    
+
     return QueueStatusResponse(status="empty", message=None, queued_at=None)
 
 
@@ -892,15 +935,15 @@ async def cancel_queued_message(
     db: AsyncSession = Depends(get_db),
 ) -> QueueStatusResponse:
     """Cancel/remove a queued message for a ticket.
-    
+
     Returns empty status after cancellation.
     """
     # Verify ticket exists
     service = TicketService(db)
     await service.get_ticket_by_id(ticket_id)
-    
+
     queued_message_service.cancel_queued(ticket_id)
-    
+
     return QueueStatusResponse(status="empty", message=None, queued_at=None)
 
 
@@ -920,6 +963,7 @@ import uuid as uuid_module
 
 class AgentLogEntry(BaseModel):
     """A single normalized log entry from agent execution."""
+
     id: str
     job_id: str
     sequence: int
@@ -933,6 +977,7 @@ class AgentLogEntry(BaseModel):
 
 class JobExecutionSummary(BaseModel):
     """Summary of a job's execution for display."""
+
     job_id: str
     job_kind: str
     job_status: str
@@ -945,6 +990,7 @@ class JobExecutionSummary(BaseModel):
 
 class TicketAgentLogsResponse(BaseModel):
     """Response containing all agent execution logs for a ticket."""
+
     ticket_id: str
     ticket_title: str
     total_entries: int
@@ -952,14 +998,16 @@ class TicketAgentLogsResponse(BaseModel):
     executions: list[JobExecutionSummary] = Field(default_factory=list)
 
 
-def parse_agent_output(content: str, job_id: str, timestamp: str) -> list[AgentLogEntry]:
+def parse_agent_output(
+    content: str, job_id: str, timestamp: str
+) -> list[AgentLogEntry]:
     """
     Parse agent stdout content into structured log entries.
-    
+
     Supports two formats:
     1. cursor-agent JSON streaming (lines starting with {"type":...)
     2. Claude-style output with <thinking> blocks
-    
+
     Extracts:
     - Thinking blocks
     - Assistant messages
@@ -968,138 +1016,152 @@ def parse_agent_output(content: str, job_id: str, timestamp: str) -> list[AgentL
     """
     entries: list[AgentLogEntry] = []
     seq = 0
-    
+
     if not content or not content.strip():
         return entries
-    
+
     # Check if this is cursor-agent JSON streaming format
-    lines = content.strip().split('\n')
+    lines = content.strip().split("\n")
     first_line = lines[0].strip() if lines else ""
-    
+
     if first_line.startswith('{"type":'):
         # Parse cursor-agent JSON streaming format
         return parse_cursor_json_output(content, job_id, timestamp)
-    
+
     # Fall back to Claude-style parsing
     # Check for thinking blocks (Claude style)
-    thinking_pattern = re.compile(r'<thinking>(.*?)</thinking>', re.DOTALL)
+    thinking_pattern = re.compile(r"<thinking>(.*?)</thinking>", re.DOTALL)
     thinking_matches = thinking_pattern.findall(content)
-    
+
     for thinking in thinking_matches:
         if thinking.strip():
-            entries.append(AgentLogEntry(
+            entries.append(
+                AgentLogEntry(
+                    id=str(uuid_module.uuid4()),
+                    job_id=job_id,
+                    sequence=seq,
+                    timestamp=timestamp,
+                    entry_type="thinking",
+                    content=thinking.strip(),
+                    metadata={"collapsed": True},
+                    collapsed=True,
+                    highlight=False,
+                )
+            )
+            seq += 1
+
+    # Remove thinking blocks from content for further parsing
+    content_without_thinking = thinking_pattern.sub("", content)
+
+    # Check for todo lists (look for patterns like "- [ ]" or numbered items with checkmarks)
+    todo_pattern = re.compile(
+        r"(?:^|\n)(?:[-*]\s*\[[ xX✓✗]\].*?(?:\n|$))+", re.MULTILINE
+    )
+    todo_match = todo_pattern.search(content_without_thinking)
+
+    if todo_match:
+        todos_text = todo_match.group(0).strip()
+        entries.append(
+            AgentLogEntry(
                 id=str(uuid_module.uuid4()),
                 job_id=job_id,
                 sequence=seq,
                 timestamp=timestamp,
-                entry_type="thinking",
-                content=thinking.strip(),
-                metadata={"collapsed": True},
-                collapsed=True,
+                entry_type="todo_list",
+                content=todos_text,
+                metadata={"todos": parse_todos_from_text(todos_text)},
+                collapsed=False,
                 highlight=False,
-            ))
-            seq += 1
-    
-    # Remove thinking blocks from content for further parsing
-    content_without_thinking = thinking_pattern.sub('', content)
-    
-    # Check for todo lists (look for patterns like "- [ ]" or numbered items with checkmarks)
-    todo_pattern = re.compile(r'(?:^|\n)(?:[-*]\s*\[[ xX✓✗]\].*?(?:\n|$))+', re.MULTILINE)
-    todo_match = todo_pattern.search(content_without_thinking)
-    
-    if todo_match:
-        todos_text = todo_match.group(0).strip()
-        entries.append(AgentLogEntry(
-            id=str(uuid_module.uuid4()),
-            job_id=job_id,
-            sequence=seq,
-            timestamp=timestamp,
-            entry_type="todo_list",
-            content=todos_text,
-            metadata={"todos": parse_todos_from_text(todos_text)},
-            collapsed=False,
-            highlight=False,
-        ))
+            )
+        )
         seq += 1
-    
+
     # The main content is the assistant's response
     # Clean up the content and treat it as the main message
     main_content = content_without_thinking.strip()
-    
+
     if main_content:
-        entries.append(AgentLogEntry(
-            id=str(uuid_module.uuid4()),
-            job_id=job_id,
-            sequence=seq,
-            timestamp=timestamp,
-            entry_type="assistant_message",
-            content=main_content,
-            metadata={},
-            collapsed=False,
-            highlight=False,
-        ))
+        entries.append(
+            AgentLogEntry(
+                id=str(uuid_module.uuid4()),
+                job_id=job_id,
+                sequence=seq,
+                timestamp=timestamp,
+                entry_type="assistant_message",
+                content=main_content,
+                metadata={},
+                collapsed=False,
+                highlight=False,
+            )
+        )
         seq += 1
-    
+
     return entries
 
 
-def parse_cursor_json_output(content: str, job_id: str, timestamp: str) -> list[AgentLogEntry]:
+def parse_cursor_json_output(
+    content: str, job_id: str, timestamp: str
+) -> list[AgentLogEntry]:
     """
     Parse cursor-agent JSON streaming output into structured log entries.
-    
+
     Handles JSON lines with types: system, user, assistant, thinking, tool_call, result
     """
     import json
-    
+
     entries: list[AgentLogEntry] = []
     seq = 0
-    
+
     # Coalescing state for streaming messages
     current_thinking = ""
     current_assistant = ""
-    
-    for line in content.strip().split('\n'):
+
+    for line in content.strip().split("\n"):
         line = line.strip()
         if not line:
             continue
-        
+
         try:
             data = json.loads(line)
         except json.JSONDecodeError:
             # Non-JSON line - skip or treat as system message
-            if line and not line.startswith('{'):
-                entries.append(AgentLogEntry(
-                    id=str(uuid_module.uuid4()),
-                    job_id=job_id,
-                    sequence=seq,
-                    timestamp=timestamp,
-                    entry_type="system_message",
-                    content=line,
-                    metadata={},
-                    collapsed=False,
-                    highlight=False,
-                ))
+            if line and not line.startswith("{"):
+                entries.append(
+                    AgentLogEntry(
+                        id=str(uuid_module.uuid4()),
+                        job_id=job_id,
+                        sequence=seq,
+                        timestamp=timestamp,
+                        entry_type="system_message",
+                        content=line,
+                        metadata={},
+                        collapsed=False,
+                        highlight=False,
+                    )
+                )
                 seq += 1
             continue
-        
+
         msg_type = data.get("type", "")
-        
+
         if msg_type == "system":
             model = data.get("model")
             if model:
-                entries.append(AgentLogEntry(
-                    id=str(uuid_module.uuid4()),
-                    job_id=job_id,
-                    sequence=seq,
-                    timestamp=timestamp,
-                    entry_type="system_message",
-                    content=f"🤖 Model: {model}",
-                    metadata={"model": model},
-                    collapsed=False,
-                    highlight=False,
-                ))
+                entries.append(
+                    AgentLogEntry(
+                        id=str(uuid_module.uuid4()),
+                        job_id=job_id,
+                        sequence=seq,
+                        timestamp=timestamp,
+                        entry_type="system_message",
+                        content=f"🤖 Model: {model}",
+                        metadata={"model": model},
+                        collapsed=False,
+                        highlight=False,
+                    )
+                )
                 seq += 1
-        
+
         elif msg_type == "thinking":
             subtype = data.get("subtype", "")
             if subtype == "delta":
@@ -1107,20 +1169,22 @@ def parse_cursor_json_output(content: str, job_id: str, timestamp: str) -> list[
                 current_thinking += text
             elif subtype == "completed":
                 if current_thinking:
-                    entries.append(AgentLogEntry(
-                        id=str(uuid_module.uuid4()),
-                        job_id=job_id,
-                        sequence=seq,
-                        timestamp=timestamp,
-                        entry_type="thinking",
-                        content=current_thinking,
-                        metadata={"collapsed": True},
-                        collapsed=True,
-                        highlight=False,
-                    ))
+                    entries.append(
+                        AgentLogEntry(
+                            id=str(uuid_module.uuid4()),
+                            job_id=job_id,
+                            sequence=seq,
+                            timestamp=timestamp,
+                            entry_type="thinking",
+                            content=current_thinking,
+                            metadata={"collapsed": True},
+                            collapsed=True,
+                            highlight=False,
+                        )
+                    )
                     seq += 1
                     current_thinking = ""
-        
+
         elif msg_type == "assistant":
             message = data.get("message", {})
             content_parts = message.get("content", [])
@@ -1130,75 +1194,85 @@ def parse_cursor_json_output(content: str, job_id: str, timestamp: str) -> list[
                     text += part.get("text", "")
                 elif isinstance(part, str):
                     text += part
-            
+
             if text:
                 current_assistant += text
-        
+
         elif msg_type == "tool_call":
             subtype = data.get("subtype", "")
             tool_call = data.get("tool_call", {})
-            
+
             # Parse tool type and content
             tool_name, content_text = _parse_cursor_tool_call(tool_call)
-            
+
             if subtype == "started":
-                entries.append(AgentLogEntry(
-                    id=str(uuid_module.uuid4()),
-                    job_id=job_id,
-                    sequence=seq,
-                    timestamp=timestamp,
-                    entry_type="tool_call",
-                    content=content_text,
-                    metadata={"tool_name": tool_name, "status": "started"},
-                    collapsed=False,
-                    highlight=False,
-                ))
+                entries.append(
+                    AgentLogEntry(
+                        id=str(uuid_module.uuid4()),
+                        job_id=job_id,
+                        sequence=seq,
+                        timestamp=timestamp,
+                        entry_type="tool_call",
+                        content=content_text,
+                        metadata={"tool_name": tool_name, "status": "started"},
+                        collapsed=False,
+                        highlight=False,
+                    )
+                )
                 seq += 1
             elif subtype == "completed":
                 result_text = _extract_cursor_tool_result(tool_call)
-                entries.append(AgentLogEntry(
-                    id=str(uuid_module.uuid4()),
-                    job_id=job_id,
-                    sequence=seq,
-                    timestamp=timestamp,
-                    entry_type="tool_call",
-                    content=f"{content_text}\n→ {result_text}" if result_text else content_text,
-                    metadata={"tool_name": tool_name, "status": "completed"},
-                    collapsed=False,
-                    highlight=False,
-                ))
+                entries.append(
+                    AgentLogEntry(
+                        id=str(uuid_module.uuid4()),
+                        job_id=job_id,
+                        sequence=seq,
+                        timestamp=timestamp,
+                        entry_type="tool_call",
+                        content=f"{content_text}\n→ {result_text}"
+                        if result_text
+                        else content_text,
+                        metadata={"tool_name": tool_name, "status": "completed"},
+                        collapsed=False,
+                        highlight=False,
+                    )
+                )
                 seq += 1
-    
+
     # Flush any remaining assistant content
     if current_assistant:
-        entries.append(AgentLogEntry(
-            id=str(uuid_module.uuid4()),
-            job_id=job_id,
-            sequence=seq,
-            timestamp=timestamp,
-            entry_type="assistant_message",
-            content=current_assistant,
-            metadata={},
-            collapsed=False,
-            highlight=False,
-        ))
+        entries.append(
+            AgentLogEntry(
+                id=str(uuid_module.uuid4()),
+                job_id=job_id,
+                sequence=seq,
+                timestamp=timestamp,
+                entry_type="assistant_message",
+                content=current_assistant,
+                metadata={},
+                collapsed=False,
+                highlight=False,
+            )
+        )
         seq += 1
-    
+
     # Flush any remaining thinking content
     if current_thinking:
-        entries.append(AgentLogEntry(
-            id=str(uuid_module.uuid4()),
-            job_id=job_id,
-            sequence=seq,
-            timestamp=timestamp,
-            entry_type="thinking",
-            content=current_thinking,
-            metadata={"collapsed": True},
-            collapsed=True,
-            highlight=False,
-        ))
+        entries.append(
+            AgentLogEntry(
+                id=str(uuid_module.uuid4()),
+                job_id=job_id,
+                sequence=seq,
+                timestamp=timestamp,
+                entry_type="thinking",
+                content=current_thinking,
+                metadata={"collapsed": True},
+                collapsed=True,
+                highlight=False,
+            )
+        )
         seq += 1
-    
+
     return entries
 
 
@@ -1213,7 +1287,7 @@ def _parse_cursor_tool_call(tool_call: dict) -> tuple[str, str]:
             if "/" in path:
                 path = path.split("/", 1)[1]  # Remove UUID prefix
         return "read_file", f"📖 Read: {path}"
-    
+
     if "editToolCall" in tool_call:
         args = tool_call["editToolCall"].get("args", {})
         path = args.get("path", "unknown")
@@ -1222,33 +1296,40 @@ def _parse_cursor_tool_call(tool_call: dict) -> tuple[str, str]:
             if "/" in path:
                 path = path.split("/", 1)[1]
         return "edit_file", f"✏️ Edit: {path}"
-    
+
     if "lsToolCall" in tool_call:
         args = tool_call["lsToolCall"].get("args", {})
         path = args.get("path", ".")
         return "list_dir", f"📁 List: {path}"
-    
+
     if "globToolCall" in tool_call:
         args = tool_call["globToolCall"].get("args", {})
         pattern = args.get("globPattern", "*")
         return "glob", f"🔍 Glob: {pattern}"
-    
+
     if "grepToolCall" in tool_call:
         args = tool_call["grepToolCall"].get("args", {})
         pattern = args.get("pattern", "")
         return "grep", f"🔍 Grep: {pattern}"
-    
+
     if "shellToolCall" in tool_call:
         args = tool_call["shellToolCall"].get("args", {})
         command = args.get("command", "")
         return "shell", f"💻 Shell: {command}"
-    
+
     return "unknown", f"🔧 Tool call"
 
 
 def _extract_cursor_tool_result(tool_call: dict) -> str:
     """Extract a summary of cursor-agent tool result."""
-    for key in ["readToolCall", "editToolCall", "lsToolCall", "globToolCall", "grepToolCall", "shellToolCall"]:
+    for key in [
+        "readToolCall",
+        "editToolCall",
+        "lsToolCall",
+        "globToolCall",
+        "grepToolCall",
+        "shellToolCall",
+    ]:
         if key in tool_call:
             result = tool_call[key].get("result", {})
             if "success" in result:
@@ -1274,23 +1355,25 @@ def _extract_cursor_tool_result(tool_call: dict) -> str:
 def parse_todos_from_text(text: str) -> list[dict]:
     """Parse todo items from text into structured format."""
     todos = []
-    lines = text.split('\n')
-    
+    lines = text.split("\n")
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        
+
         # Match "- [ ] task" or "- [x] task" patterns
-        match = re.match(r'^[-*]\s*\[([xX✓ ])\]\s*(.+)$', line)
+        match = re.match(r"^[-*]\s*\[([xX✓ ])\]\s*(.+)$", line)
         if match:
-            checked = match.group(1).lower() in ('x', '✓')
+            checked = match.group(1).lower() in ("x", "✓")
             content = match.group(2).strip()
-            todos.append({
-                "content": content,
-                "completed": checked,
-            })
-    
+            todos.append(
+                {
+                    "content": content,
+                    "completed": checked,
+                }
+            )
+
     return todos
 
 
@@ -1306,35 +1389,35 @@ async def get_ticket_agent_logs(
 ) -> TicketAgentLogsResponse:
     """
     Get all agent execution logs for a ticket across all jobs.
-    
+
     This provides a complete view of the agent's chain of thought, tool calls,
     file edits, and other actions taken during ticket execution.
-    
+
     Like vibe-kanban's execution_process_logs, this allows users to:
     - Review the agent's reasoning process
     - See what tools were used and why
     - Debug issues with ticket execution
     - Understand how the agent approached the task
-    
+
     Reads from Evidence stdout files (actual agent output) rather than
     orchestrator logs.
-    
+
     Args:
         ticket_id: The ticket ID
-        include_entries: If True (default), include full log entries. 
+        include_entries: If True (default), include full log entries.
                         If False, only return summary info.
-    
+
     Returns:
         All agent conversation/output grouped by job execution.
     """
     from sqlalchemy.orm import selectinload
     from app.models.board import Board
     import os
-    
+
     # Verify ticket exists and get title
     service = TicketService(db)
     ticket = await service.get_ticket_by_id(ticket_id)
-    
+
     # Get repo root from the ticket's board (authoritative source)
     repo_root = None
     if ticket.board_id:
@@ -1344,7 +1427,7 @@ async def get_ticket_agent_logs(
         board = board_result.scalar_one_or_none()
         if board and board.repo_root:
             repo_root = Path(board.repo_root)
-    
+
     # Fallback to environment or cwd
     if repo_root is None or not repo_root.exists():
         git_repo_path = os.environ.get("GIT_REPO_PATH")
@@ -1352,7 +1435,7 @@ async def get_ticket_agent_logs(
             repo_root = Path(git_repo_path)
         else:
             repo_root = Path.cwd()
-    
+
     # Get all jobs for this ticket with their evidence
     result = await db.execute(
         select(Job)
@@ -1361,42 +1444,45 @@ async def get_ticket_agent_logs(
         .order_by(Job.created_at.desc())
     )
     jobs = list(result.scalars().all())
-    
+
     executions: list[JobExecutionSummary] = []
     total_entries = 0
-    
+
     for job in jobs:
         # Calculate duration if job is finished
         duration = None
         if job.started_at and job.finished_at:
             duration = (job.finished_at - job.started_at).total_seconds()
-        
-        timestamp = job.started_at.isoformat() if job.started_at else job.created_at.isoformat()
-        
+
+        timestamp = (
+            job.started_at.isoformat() if job.started_at else job.created_at.isoformat()
+        )
+
         # Build entries from Evidence stdout files
         entries: list[AgentLogEntry] = []
-        
+
         if include_entries:
             # Get executor evidence (the actual agent output)
             executor_evidence = [
-                ev for ev in job.evidence 
+                ev
+                for ev in job.evidence
                 if ev.kind == EvidenceKind.EXECUTOR_STDOUT.value
             ]
-            
+
             for ev in executor_evidence:
                 if ev.stdout_path:
                     try:
                         # Resolve the stdout path - try multiple locations
                         stdout_path = repo_root / ev.stdout_path
-                        
+
                         # If not found at repo root, try relative to cwd
                         if not stdout_path.exists():
                             stdout_path = Path.cwd() / ev.stdout_path
-                        
+
                         # If still not found, try absolute path
-                        if not stdout_path.exists() and ev.stdout_path.startswith('/'):
+                        if not stdout_path.exists() and ev.stdout_path.startswith("/"):
                             stdout_path = Path(ev.stdout_path)
-                        
+
                         if stdout_path.exists():
                             content = stdout_path.read_text()
                             if content.strip():
@@ -1405,31 +1491,35 @@ async def get_ticket_agent_logs(
                                 entries.extend(parsed)
                         else:
                             # File not found - add info entry
-                            entries.append(AgentLogEntry(
+                            entries.append(
+                                AgentLogEntry(
+                                    id=str(uuid_module.uuid4()),
+                                    job_id=job.id,
+                                    sequence=0,
+                                    timestamp=timestamp,
+                                    entry_type="system_message",
+                                    content=f"Agent output file not found: {ev.stdout_path}",
+                                    metadata={"repo_root": str(repo_root)},
+                                    collapsed=False,
+                                    highlight=False,
+                                )
+                            )
+                    except Exception as e:
+                        # If we can't read the file, add an error entry
+                        entries.append(
+                            AgentLogEntry(
                                 id=str(uuid_module.uuid4()),
                                 job_id=job.id,
                                 sequence=0,
                                 timestamp=timestamp,
-                                entry_type="system_message",
-                                content=f"Agent output file not found: {ev.stdout_path}",
-                                metadata={"repo_root": str(repo_root)},
+                                entry_type="error",
+                                content=f"Could not read agent output: {str(e)}",
+                                metadata={},
                                 collapsed=False,
-                                highlight=False,
-                            ))
-                    except Exception as e:
-                        # If we can't read the file, add an error entry
-                        entries.append(AgentLogEntry(
-                            id=str(uuid_module.uuid4()),
-                            job_id=job.id,
-                            sequence=0,
-                            timestamp=timestamp,
-                            entry_type="error",
-                            content=f"Could not read agent output: {str(e)}",
-                            metadata={},
-                            collapsed=False,
-                            highlight=True,
-                        ))
-            
+                                highlight=True,
+                            )
+                        )
+
             # If no executor evidence, try to get from normalized logs as fallback
             if not entries:
                 # Fallback to normalized_logs table
@@ -1439,33 +1529,39 @@ async def get_ticket_agent_logs(
                     .order_by(NormalizedLogEntry.sequence)
                 )
                 logs = list(logs_result.scalars().all())
-                
+
                 for log in logs:
-                    entries.append(AgentLogEntry(
-                        id=log.id,
-                        job_id=log.job_id,
-                        sequence=log.sequence,
-                        timestamp=log.timestamp.isoformat() if log.timestamp else "",
-                        entry_type=log.entry_type.value if log.entry_type else "",
-                        content=log.content,
-                        metadata=log.entry_metadata or {},
-                        collapsed=log.collapsed or False,
-                        highlight=log.highlight or False,
-                    ))
-        
+                    entries.append(
+                        AgentLogEntry(
+                            id=log.id,
+                            job_id=log.job_id,
+                            sequence=log.sequence,
+                            timestamp=log.timestamp.isoformat()
+                            if log.timestamp
+                            else "",
+                            entry_type=log.entry_type.value if log.entry_type else "",
+                            content=log.content,
+                            metadata=log.entry_metadata or {},
+                            collapsed=log.collapsed or False,
+                            highlight=log.highlight or False,
+                        )
+                    )
+
         total_entries += len(entries)
-        
-        executions.append(JobExecutionSummary(
-            job_id=job.id,
-            job_kind=job.kind,
-            job_status=job.status,
-            started_at=job.started_at.isoformat() if job.started_at else None,
-            finished_at=job.finished_at.isoformat() if job.finished_at else None,
-            duration_seconds=duration,
-            entry_count=len(entries),
-            entries=entries,
-        ))
-    
+
+        executions.append(
+            JobExecutionSummary(
+                job_id=job.id,
+                job_kind=job.kind,
+                job_status=job.status,
+                started_at=job.started_at.isoformat() if job.started_at else None,
+                finished_at=job.finished_at.isoformat() if job.finished_at else None,
+                duration_seconds=duration,
+                entry_count=len(entries),
+                entries=entries,
+            )
+        )
+
     return TicketAgentLogsResponse(
         ticket_id=ticket_id,
         ticket_title=ticket.title,
