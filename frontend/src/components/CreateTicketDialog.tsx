@@ -22,6 +22,7 @@ import { createTicket, fetchGoals } from "@/services/api";
 import { ActorType, type Goal } from "@/types/api";
 import { toast } from "sonner";
 import { Loader2, AlertCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface CreateTicketDialogProps {
   open: boolean;
@@ -43,6 +44,7 @@ export function CreateTicketDialog({
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Fetch goals when dialog opens
   useEffect(() => {
@@ -69,13 +71,11 @@ export function CreateTicketDialog({
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    if (!goalId) {
-      toast.error("Please select a goal");
-      return;
-    }
-
-    if (!title.trim()) {
-      toast.error("Title is required");
+    const newErrors: Record<string, string> = {};
+    if (!goalId) newErrors.goal = "Please select a goal";
+    if (!title.trim()) newErrors.title = "Title is required";
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
 
@@ -105,6 +105,7 @@ export function CreateTicketDialog({
     setTitle("");
     setDescription("");
     setPriority("");
+    setErrors({});
   };
 
   const handleOpenChange = (isOpen: boolean) => {
@@ -145,8 +146,8 @@ export function CreateTicketDialog({
                   No goals found. Please create a goal first.
                 </div>
               ) : (
-                <Select value={goalId} onValueChange={setGoalId} disabled={loading}>
-                  <SelectTrigger id="ticket-goal">
+                <Select value={goalId} onValueChange={(v) => { setGoalId(v); setErrors((prev) => { const next = { ...prev }; delete next.goal; return next; }); }} disabled={loading}>
+                  <SelectTrigger id="ticket-goal" className={cn(errors.goal && "border-destructive")}>
                     <SelectValue placeholder="Select a goal..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -158,6 +159,7 @@ export function CreateTicketDialog({
                   </SelectContent>
                 </Select>
               )}
+              {errors.goal && <p className="text-xs text-destructive mt-1">{errors.goal}</p>}
             </div>
 
             {/* Title */}
@@ -167,9 +169,11 @@ export function CreateTicketDialog({
                 id="ticket-title"
                 placeholder="Enter ticket title..."
                 value={title}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setTitle(e.target.value); setErrors((prev) => { const next = { ...prev }; delete next.title; return next; }); }}
                 disabled={loading}
+                className={cn(errors.title && "border-destructive")}
               />
+              {errors.title && <p className="text-xs text-destructive mt-1">{errors.title}</p>}
             </div>
 
             {/* Description */}

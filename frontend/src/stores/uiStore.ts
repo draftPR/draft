@@ -13,7 +13,6 @@ interface UIState {
   queueStatusOpen: boolean;
   debugPanelOpen: boolean;
   dashboardOpen: boolean;
-  settingsOpen: boolean;
   shortcutsHelpOpen: boolean;
   repoDiscoveryOpen: boolean;
 
@@ -23,7 +22,6 @@ interface UIState {
   setQueueStatusOpen: (open: boolean) => void;
   setDebugPanelOpen: (open: boolean) => void;
   setDashboardOpen: (open: boolean) => void;
-  setSettingsOpen: (open: boolean) => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setRepoDiscoveryOpen: (open: boolean) => void;
   toggleDebugPanel: () => void;
@@ -36,7 +34,6 @@ export const useUIStore = create<UIState>((set) => ({
   queueStatusOpen: false,
   debugPanelOpen: false,
   dashboardOpen: false,
-  settingsOpen: false,
   shortcutsHelpOpen: false,
   repoDiscoveryOpen: false,
 
@@ -46,7 +43,6 @@ export const useUIStore = create<UIState>((set) => ({
   setQueueStatusOpen: (open) => set({ queueStatusOpen: open }),
   setDebugPanelOpen: (open) => set({ debugPanelOpen: open }),
   setDashboardOpen: (open) => set({ dashboardOpen: open }),
-  setSettingsOpen: (open) => set({ settingsOpen: open }),
   setShortcutsHelpOpen: (open) => set({ shortcutsHelpOpen: open }),
   setRepoDiscoveryOpen: (open) => set({ repoDiscoveryOpen: open }),
   toggleDebugPanel: () =>

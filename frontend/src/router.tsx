@@ -11,8 +11,8 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import { AppLayout } from "@/layouts/AppLayout";
 
-// Lazy-load route components for code splitting
-import { KanbanBoard } from "@/components/KanbanBoard";
+import { BoardLayout } from "@/components/BoardLayout";
+import { SettingsPage } from "@/pages/SettingsPage";
 
 export const router = createBrowserRouter([
   {
@@ -21,15 +21,15 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <KanbanBoard />,
+        element: <BoardLayout />,
       },
       {
         path: "boards/:boardId",
-        element: <KanbanBoard />,
+        element: <BoardLayout />,
       },
       {
         path: "boards/:boardId/tickets/:ticketId",
-        element: <KanbanBoard />,
+        element: <BoardLayout />,
       },
       {
         path: "settings",
@@ -42,15 +42,3 @@ export const router = createBrowserRouter([
     ],
   },
 ]);
-
-/**
- * Placeholder settings page -- will be expanded in Phase 6.
- */
-function SettingsPage() {
-  return (
-    <div className="p-8">
-      <h2 className="text-2xl font-bold mb-4">Settings</h2>
-      <p className="text-muted-foreground">Settings page coming soon.</p>
-    </div>
-  );
-}

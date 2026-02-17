@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { createGoal } from "@/services/api";
 import { toast } from "sonner";
 import { Loader2, ChevronDown, ChevronRight, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface CreateGoalDialogProps {
   open: boolean;
@@ -30,6 +31,7 @@ export function CreateGoalDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [showAutonomy, setShowAutonomy] = useState(false);
 
   // Autonomy settings
@@ -59,7 +61,7 @@ export function CreateGoalDialog({
     e.preventDefault();
 
     if (!title.trim()) {
-      toast.error("Title is required");
+      setErrors({ title: "Title is required" });
       return;
     }
 
@@ -92,6 +94,7 @@ export function CreateGoalDialog({
   const resetForm = () => {
     setTitle("");
     setDescription("");
+    setErrors({});
     setShowAutonomy(false);
     setAutonomyEnabled(false);
     setAutoApproveTickets(false);
@@ -127,10 +130,12 @@ export function CreateGoalDialog({
                 id="goal-title"
                 placeholder="Enter goal title..."
                 value={title}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setTitle(e.target.value); setErrors((prev) => { const next = { ...prev }; delete next.title; return next; }); }}
                 disabled={loading}
                 autoFocus
+                className={cn(errors.title && "border-destructive")}
               />
+              {errors.title && <p className="text-xs text-destructive mt-1">{errors.title}</p>}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="goal-description">Description</Label>

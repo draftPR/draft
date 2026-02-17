@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { CheckCircle, XCircle, Clock, Terminal, FileEdit, Zap } from 'lucide-react';
+import { EmptyState } from '@/components/EmptyState';
 import type { Action } from '../../hooks/useTicketEvidence';
 
 interface ActionTimelineProps {
@@ -12,8 +13,8 @@ export function ActionTimeline({ actions }: ActionTimelineProps) {
   if (!actions || actions.length === 0) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          No actions recorded yet
+        <CardContent>
+          <EmptyState icon={Zap} title="No actions recorded" description="Agent actions will appear here during execution" />
         </CardContent>
       </Card>
     );

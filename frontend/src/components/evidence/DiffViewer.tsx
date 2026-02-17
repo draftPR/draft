@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { ChevronDown, ChevronRight, File, Plus, Minus } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, FileCode, Plus, Minus } from 'lucide-react';
+import { EmptyState } from '@/components/EmptyState';
 import type { FileDiff } from '../../hooks/useTicketEvidence';
 
 interface DiffViewerProps {
@@ -40,8 +41,8 @@ export function DiffViewer({ diffs, diffStat }: DiffViewerProps) {
   if (!diffs || diffs.length === 0) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          No file changes recorded
+        <CardContent>
+          <EmptyState icon={FileCode} title="No file changes" description="Diffs will appear after the agent makes code changes" />
         </CardContent>
       </Card>
     );

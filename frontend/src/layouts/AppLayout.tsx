@@ -17,9 +17,10 @@ import { GoalsListDialog } from "@/components/GoalsListDialog";
 import { QueueStatusDialog } from "@/components/QueueStatusDialog";
 import { DebugPanel } from "@/components/DebugPanel";
 import { SprintDashboard } from "@/components/SprintDashboard";
-import { SettingsPanel } from "@/components/SettingsPanel";
 import { KeyboardShortcutsHelp } from "@/components/KeyboardShortcutsHelp";
 import { WelcomeWalkthrough } from "@/components/WelcomeWalkthrough";
+import { NotificationCenter } from "@/components/NotificationCenter";
+import { useNotificationBridge } from "@/hooks/useNotificationBridge";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -104,6 +105,9 @@ export function AppLayout() {
     setCurrentBoardId(boards[0].id);
   }
 
+  // Notification bridge
+  useNotificationBridge(currentBoard?.id);
+
   const [generatingTestData, setGeneratingTestData] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -118,7 +122,6 @@ export function AppLayout() {
     onRefresh: refreshBoard,
     onGoToBoard: () => {
       ui.setDashboardOpen(false);
-      ui.setSettingsOpen(false);
       navigate("/");
     },
     onHelp: () => ui.setShortcutsHelpOpen(true),
@@ -232,6 +235,7 @@ export function AppLayout() {
                 <Plus className="h-4 w-4 mr-1.5" />
                 New Ticket
               </Button>
+              <NotificationCenter />
               <Button
                 variant="ghost"
                 size="sm"
@@ -306,13 +310,6 @@ export function AppLayout() {
       <Dialog open={ui.dashboardOpen} onOpenChange={ui.setDashboardOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <SprintDashboard />
-        </DialogContent>
-      </Dialog>
-
-      {/* Settings Dialog */}
-      <Dialog open={ui.settingsOpen} onOpenChange={ui.setSettingsOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
-          <SettingsPanel />
         </DialogContent>
       </Dialog>
 

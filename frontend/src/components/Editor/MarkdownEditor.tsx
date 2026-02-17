@@ -1,13 +1,22 @@
 /**
- * MarkdownEditor -- TipTap-based markdown editor for ticket descriptions.
+ * MarkdownEditor -- TipTap-based rich markdown editor for ticket descriptions.
  *
- * Stores content as plain markdown (no schema change needed).
- * Supports basic formatting: headings, bold, italic, code, lists, links.
+ * Supports: headings, bold, italic, code, code blocks (syntax highlighted),
+ * lists, task lists, tables, links, blockquotes.
  */
 
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { Table } from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
+import Link from "@tiptap/extension-link";
+import TaskList from "@tiptap/extension-task-list";
+import TaskItem from "@tiptap/extension-task-item";
+import { common, createLowlight } from "lowlight";
 import { useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +28,39 @@ import {
   Heading2,
   Undo,
   Redo,
+  CodeSquare,
+  Quote,
+  ListTodo,
+  Link as LinkIcon,
+  Table as TableIcon,
 } from "lucide-react";
+
+const lowlight = createLowlight(common);
+
+function ToolbarButton({
+  onClick,
+  active,
+  children,
+  title,
+}: {
+  onClick: () => void;
+  active?: boolean;
+  children: React.ReactNode;
+  title: string;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={active ? "secondary" : "ghost"}
+      size="sm"
+      onClick={onClick}
+      className="h-7 w-7 p-0"
+      title={title}
+    >
+      {children}
+    </Button>
+  );
+}
 
 interface MarkdownEditorProps {
   value: string;
@@ -42,52 +83,57 @@ export function MarkdownEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [2, 3] },
+        codeBlock: false, // replaced by CodeBlockLowlight
       }),
       Placeholder.configure({
         placeholder,
+      }),
+      CodeBlockLowlight.configure({
+        lowlight,
+      }),
+      Table.configure({
+        resizable: false,
+      }),
+      TableRow,
+      TableCell,
+      TableHeader,
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: {
+          class: "text-primary underline underline-offset-2",
+        },
+      }),
+      TaskList,
+      TaskItem.configure({
+        nested: true,
       }),
     ],
     content: value,
     editable,
     onUpdate: ({ editor }) => {
-      // Convert to plain text with markdown-like formatting
-      // TipTap stores as HTML internally, we extract text
-      onChange(editor.getText());
+      onChange(editor.getHTML());
     },
   });
 
   // Sync external value changes
   useEffect(() => {
-    if (editor && value !== editor.getText()) {
+    if (editor && value !== editor.getHTML()) {
       editor.commands.setContent(value || "");
     }
   }, [editor, value]);
 
-  const ToolbarButton = useCallback(
-    ({
-      onClick,
-      active,
-      children,
-      title,
-    }: {
-      onClick: () => void;
-      active?: boolean;
-      children: React.ReactNode;
-      title: string;
-    }) => (
-      <Button
-        type="button"
-        variant={active ? "secondary" : "ghost"}
-        size="sm"
-        onClick={onClick}
-        className="h-7 w-7 p-0"
-        title={title}
-      >
-        {children}
-      </Button>
-    ),
-    [],
-  );
+  const handleLinkInsert = useCallback(() => {
+    if (!editor) return;
+    const url = window.prompt("Enter URL:");
+    if (url) {
+      editor.chain().focus().setLink({ href: url }).run();
+    }
+  }, [editor]);
+
+  const handleTableInsert = useCallback(() => {
+    if (!editor) return;
+    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  }, [editor]);
 
   if (!editor) return null;
 
@@ -95,7 +141,7 @@ export function MarkdownEditor({
     <div className={`border border-border rounded-md ${className}`}>
       {/* Toolbar */}
       {editable && (
-        <div className="flex items-center gap-0.5 px-2 py-1 border-b border-border bg-muted/30">
+        <div className="flex items-center gap-0.5 px-2 py-1 border-b border-border bg-muted/30 flex-wrap">
           <ToolbarButton
             onClick={() =>
               editor.chain().focus().toggleHeading({ level: 2 }).run()
@@ -130,6 +176,23 @@ export function MarkdownEditor({
           <div className="w-px h-4 bg-border mx-1" />
 
           <ToolbarButton
+            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+            active={editor.isActive("codeBlock")}
+            title="Code block"
+          >
+            <CodeSquare className="h-3.5 w-3.5" />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            active={editor.isActive("blockquote")}
+            title="Blockquote"
+          >
+            <Quote className="h-3.5 w-3.5" />
+          </ToolbarButton>
+
+          <div className="w-px h-4 bg-border mx-1" />
+
+          <ToolbarButton
             onClick={() => editor.chain().focus().toggleBulletList().run()}
             active={editor.isActive("bulletList")}
             title="Bullet list"
@@ -144,6 +207,29 @@ export function MarkdownEditor({
             title="Numbered list"
           >
             <ListOrdered className="h-3.5 w-3.5" />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleTaskList().run()}
+            active={editor.isActive("taskList")}
+            title="Task list"
+          >
+            <ListTodo className="h-3.5 w-3.5" />
+          </ToolbarButton>
+
+          <div className="w-px h-4 bg-border mx-1" />
+
+          <ToolbarButton
+            onClick={handleLinkInsert}
+            active={editor.isActive("link")}
+            title="Insert link"
+          >
+            <LinkIcon className="h-3.5 w-3.5" />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={handleTableInsert}
+            title="Insert table"
+          >
+            <TableIcon className="h-3.5 w-3.5" />
           </ToolbarButton>
 
           <div className="w-px h-4 bg-border mx-1" />

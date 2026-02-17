@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
-import { CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, AlertCircle, FlaskConical } from 'lucide-react';
+import { EmptyState } from '@/components/EmptyState';
 import type { TestResult } from '../../hooks/useTicketEvidence';
 
 interface TestResultsProps {
@@ -26,8 +27,8 @@ export function TestResults({ results }: TestResultsProps) {
   if (!results || results.length === 0) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          No test results available
+        <CardContent>
+          <EmptyState icon={FlaskConical} title="No test results" description="Tests will appear here after verification runs" />
         </CardContent>
       </Card>
     );

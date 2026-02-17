@@ -65,6 +65,8 @@ import { CreatePRButton } from "@/components/PullRequest/CreatePRButton";
 import { PRStatusBadge } from "@/components/PullRequest/PRStatusBadge";
 import { AgentActivityLog } from "@/components/AgentActivityLog";
 import { BlockingIndicator } from "@/components/BlockingIndicator";
+import { EmptyState } from "@/components/EmptyState";
+import { TicketDetailSkeleton } from "@/components/skeletons/TicketDetailSkeleton";
 
 interface TicketDetailDrawerProps {
   ticket: Ticket | null;
@@ -362,7 +364,7 @@ export function TicketDetailDrawer({
         <div className="mt-8 space-y-10">
           {/* Description Section */}
           <div className="space-y-3">
-            <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase">
+            <h3 className="section-label">
               Description
             </h3>
             <p className="text-[13px] leading-relaxed text-foreground">
@@ -377,7 +379,7 @@ export function TicketDetailDrawer({
           {/* State and Priority Section */}
           <div className="grid grid-cols-2 gap-8">
             <div className="space-y-3">
-              <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase">
+              <h3 className="section-label">
                 State
               </h3>
               <p className="text-[13px] text-foreground">
@@ -385,7 +387,7 @@ export function TicketDetailDrawer({
               </p>
             </div>
             <div className="space-y-3">
-              <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase">
+              <h3 className="section-label">
                 Priority
               </h3>
               <p className={cn("text-[13px] font-medium", priority.color)}>
@@ -397,7 +399,7 @@ export function TicketDetailDrawer({
           {/* Dependencies Section */}
           {(ticket.blocked_by_ticket_id || dependents.length > 0) && (
             <div className="space-y-4">
-              <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
+              <h3 className="section-label flex items-center gap-2">
                 <GitBranch className="h-3.5 w-3.5" />
                 Dependencies
               </h3>
@@ -473,15 +475,13 @@ export function TicketDetailDrawer({
           {/* Review Changes Section - shown for reviewable states */}
           {canShowRevisions && (
             <div className="space-y-4">
-              <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
+              <h3 className="section-label flex items-center gap-2">
                 <GitPullRequest className="h-3.5 w-3.5" />
                 Code Changes
               </h3>
 
               {revisionsLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
+                <TicketDetailSkeleton />
               ) : revisions.length > 0 ? (
                 <div className="space-y-3">
                   <p className="text-[13px] text-muted-foreground">
@@ -502,9 +502,7 @@ export function TicketDetailDrawer({
                   </Button>
                 </div>
               ) : (
-                <p className="text-[13px] text-muted-foreground italic">
-                  No revisions available yet
-                </p>
+                <EmptyState icon={GitPullRequest} title="No revisions yet" description="Revisions are created when the agent executes changes" />
               )}
             </div>
           )}
@@ -512,7 +510,7 @@ export function TicketDetailDrawer({
           {/* Worktree & Merge Section */}
           {mergeStatus && (
             <div className="space-y-4">
-              <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
+              <h3 className="section-label flex items-center gap-2">
                 <FolderGit className="h-3.5 w-3.5" />
                 Worktree & Merge
               </h3>
@@ -580,16 +578,14 @@ export function TicketDetailDrawer({
                   )}
                 </div>
               ) : (
-                <p className="text-[13px] text-muted-foreground italic">
-                  No active worktree
-                </p>
+                <EmptyState icon={FolderGit} title="No active worktree" description="A worktree is created when execution starts" compact />
               )}
             </div>
           )}
 
           {/* Agent Activity - shows live streaming and persisted logs */}
           <div className="space-y-4">
-            <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
+            <h3 className="section-label flex items-center gap-2">
               <Activity className="h-3.5 w-3.5" />
               Agent Activity
               {jobs.some(j => j.status === JobStatus.RUNNING) && (
@@ -607,15 +603,13 @@ export function TicketDetailDrawer({
 
           {/* Verification Evidence Section */}
           <div className="space-y-4">
-            <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase flex items-center gap-2">
+            <h3 className="section-label flex items-center gap-2">
               <FlaskConical className="h-3.5 w-3.5" />
               Verification Evidence
             </h3>
 
             {evidenceLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
+              <TicketDetailSkeleton />
             ) : (
               <EvidenceList evidence={evidence} />
             )}
@@ -623,23 +617,19 @@ export function TicketDetailDrawer({
 
           {/* Event Timeline Section */}
           <div className="space-y-4">
-            <h3 className="text-[11px] font-semibold text-muted-foreground/80 tracking-wide uppercase">
+            <h3 className="section-label">
               Event History
             </h3>
 
             {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
+              <TicketDetailSkeleton />
             ) : error ? (
               <div className="flex items-center gap-2 text-destructive py-6">
                 <AlertCircle className="h-4 w-4" />
                 <span className="text-[13px]">{error}</span>
               </div>
             ) : events.length === 0 ? (
-              <p className="text-[13px] text-muted-foreground italic py-6">
-                No events recorded
-              </p>
+              <EmptyState icon={Activity} title="No events recorded" description="Events are logged as the ticket moves through states" />
             ) : (
               <div className="space-y-4">
                 {events.map((event) => (

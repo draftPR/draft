@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { DollarSign, TrendingUp, Zap, Database } from 'lucide-react';
+import { EmptyState } from '@/components/EmptyState';
 import type { CostBreakdown as CostData } from '../../hooks/useTicketEvidence';
 
 interface CostBreakdownProps {
@@ -12,8 +13,8 @@ export function CostBreakdown({ cost }: CostBreakdownProps) {
   if (!cost || cost.total_usd === 0) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          No cost data available
+        <CardContent>
+          <EmptyState icon={DollarSign} title="No cost data" description="Cost tracking will appear after AI agent runs" />
         </CardContent>
       </Card>
     );

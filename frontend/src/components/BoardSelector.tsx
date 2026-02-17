@@ -10,18 +10,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function BoardSelector() {
   const { currentBoard, boards, setCurrentBoard, isLoading } = useBoard();
 
   if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        <span>Loading projects...</span>
-      </div>
-    );
+    return <Skeleton className="h-9 w-[220px]" />;
   }
 
   if (boards.length === 0) {

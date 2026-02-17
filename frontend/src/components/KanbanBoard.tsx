@@ -6,8 +6,9 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd";
 import { TicketCard } from "@/components/TicketCard";
-import { TicketDetailDrawer } from "@/components/TicketDetailDrawer";
-import { transitionTicket, runPlannerStart, fetchPlannerStatus, executeTicket, fetchTicket } from "@/services/api";
+import { runPlannerStart, fetchPlannerStatus } from "@/services/api";
+import { useTransitionTicket, useExecuteTicket } from "@/hooks/useMutations";
+import { useTicketSelectionStore } from "@/stores/ticketStore";
 import {
   type Ticket,
   type PlannerStartResponse,
@@ -22,7 +23,9 @@ import { useBoardViewQuery } from "@/hooks/useQueries";
 import { queryKeys } from "@/hooks/queryKeys";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Loader2, AlertCircle, RefreshCw, Zap, Check, X, Info, Target, Lock } from "lucide-react";
+import { KanbanBoardSkeleton } from "@/components/skeletons/KanbanBoardSkeleton";
+import { EmptyState } from "@/components/EmptyState";
+import { Loader2, AlertCircle, RefreshCw, Zap, Check, X, Info, Target, Lock, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -34,8 +37,9 @@ interface KanbanBoardProps {
 export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
   const { currentBoard } = useBoard();
   const queryClient = useQueryClient();
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const transitionMutation = useTransitionTicket(currentBoard?.id);
+  const executeMutation = useExecuteTicket(currentBoard?.id);
+  const { selectTicket } = useTicketSelectionStore();
   const [autopilotLoading, setAutopilotLoading] = useState(false);
   const [plannerStatus, setPlannerStatus] = useState<PlannerStatusResponse | null>(null);
   const [showStatusPanel, setShowStatusPanel] = useState(false);
@@ -131,41 +135,16 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
   }, [loadBoard]);
 
   const handleTicketClick = (ticket: Ticket) => {
-    setSelectedTicket(ticket);
-    setDrawerOpen(true);
+    selectTicket(ticket.id);
   };
 
-  const handleNavigateToBlocker = useCallback(async (ticketId: string) => {
-    try {
-      const blockerTicket = await fetchTicket(ticketId);
-      setSelectedTicket(blockerTicket);
-      setDrawerOpen(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load blocker ticket";
-      toast.error(message);
-    }
-  }, []);
+  const handleNavigateToBlocker = useCallback((ticketId: string) => {
+    selectTicket(ticketId);
+  }, [selectTicket]);
 
   const handleExecuteTicket = useCallback(async (ticket: Ticket) => {
-    // Optimistic update: Move ticket to Executing column immediately
-    if (board && currentBoard) {
-      const boardKey = queryKeys.boards.view(currentBoard.id);
-      const updatedTicket = { ...ticket, state: TicketState.EXECUTING };
-      const newColumns = board.columns.map((col) => {
-        if (col.state === ticket.state) {
-          return { ...col, tickets: col.tickets.filter((t) => t.id !== ticket.id) };
-        }
-        if (col.state === TicketState.EXECUTING) {
-          return { ...col, tickets: [updatedTicket, ...col.tickets] };
-        }
-        return col;
-      });
-      queryClient.setQueryData(boardKey, { ...board, columns: newColumns });
-    }
-
-    // Queue the job - auto-refresh will pick up the real state
-    await executeTicket(ticket.id);
-  }, [board, currentBoard, queryClient]);
+    await executeMutation.mutateAsync(ticket.id);
+  }, [executeMutation]);
 
   const handleDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result;
@@ -207,37 +186,20 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
 
     if (!ticket || !board || !currentBoard) return;
 
-    // Optimistic update via React Query cache
-    const boardKey = queryKeys.boards.view(currentBoard.id);
-    const updatedTicket = { ...ticket, state: targetState };
-    const newColumns = board.columns.map((col) => {
-      if (col.state === sourceState) {
-        return { ...col, tickets: col.tickets.filter((t) => t.id !== draggableId) };
-      }
-      if (col.state === targetState) {
-        const tickets = [...col.tickets];
-        tickets.splice(destination.index, 0, updatedTicket);
-        return { ...col, tickets };
-      }
-      return col;
-    });
-
-    queryClient.setQueryData(boardKey, { ...board, columns: newColumns });
-
-    // Call backend to transition
+    // Use optimistic mutation hook
     try {
-      await transitionTicket(draggableId, {
-        to_state: targetState,
-        actor_type: ActorType.HUMAN,
-        reason: `Moved from ${STATE_DISPLAY_NAMES[sourceState]} to ${STATE_DISPLAY_NAMES[targetState]}`,
+      await transitionMutation.mutateAsync({
+        ticketId: draggableId,
+        data: {
+          to_state: targetState,
+          actor_type: ActorType.HUMAN,
+          reason: `Moved from ${STATE_DISPLAY_NAMES[sourceState]} to ${STATE_DISPLAY_NAMES[targetState]}`,
+        },
       });
       toast.success(`Ticket moved to ${STATE_DISPLAY_NAMES[targetState]}`);
     } catch (err) {
-      // Revert on error
       const message = err instanceof Error ? err.message : "Failed to move ticket";
       toast.error(message);
-      // Reload board to get correct state
-      loadBoard();
     }
   };
 
@@ -265,14 +227,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
   }
 
   if (loading && !board) {
-    return (
-      <div className="flex items-center justify-center h-[calc(100vh-200px)]">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading board...</p>
-        </div>
-      </div>
-    );
+    return <KanbanBoardSkeleton />;
   }
 
   if (error && !board) {
@@ -601,7 +556,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
                               index={index}
                               onClick={handleTicketClick}
                               onExecute={handleExecuteTicket}
-                              onDelete={() => loadBoard(true)}
+                              onDelete={() => loadBoard()}
                               onNavigateToBlocker={handleNavigateToBlocker}
                             />
                           ))}
@@ -609,9 +564,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
                         </div>
                         
                         {tickets.length === 0 && !snapshot.isDraggingOver && (
-                          <div className="flex items-center justify-center h-[100px] text-xs text-muted-foreground">
-                            
-                          </div>
+                          <EmptyState icon={Inbox} title="No tickets" compact />
                         )}
                       </div>
                     )}
@@ -623,12 +576,6 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
         </div>
       </DragDropContext>
 
-      <TicketDetailDrawer
-        ticket={selectedTicket}
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        onNavigateToTicket={handleNavigateToBlocker}
-      />
     </>
   );
 }

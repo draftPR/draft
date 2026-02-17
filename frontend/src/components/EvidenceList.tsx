@@ -11,8 +11,10 @@ import {
   ChevronDown,
   ChevronRight,
   Terminal,
+  FlaskConical,
   Loader2,
 } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
 
 interface EvidenceItemProps {
   evidence: Evidence;
@@ -168,9 +170,11 @@ interface EvidenceListProps {
 export function EvidenceList({ evidence }: EvidenceListProps) {
   if (evidence.length === 0) {
     return (
-      <p className="text-[13px] text-muted-foreground italic py-4">
-        No verification evidence recorded
-      </p>
+      <EmptyState
+        icon={FlaskConical}
+        title="No verification evidence"
+        description="Evidence will appear after verification commands run"
+      />
     );
   }
 

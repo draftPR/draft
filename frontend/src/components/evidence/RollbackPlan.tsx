@@ -13,7 +13,9 @@ import {
   ArrowLeft,
   Copy,
   Check,
+  RotateCcw,
 } from 'lucide-react';
+import { EmptyState } from '@/components/EmptyState';
 import type { RollbackStep } from '../../hooks/useTicketEvidence';
 
 interface RollbackPlanProps {
@@ -32,8 +34,8 @@ export function RollbackPlan({ steps }: RollbackPlanProps) {
   if (!steps || steps.length === 0) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          No rollback plan available
+        <CardContent>
+          <EmptyState icon={RotateCcw} title="No rollback plan" description="A rollback plan will be generated after execution" />
         </CardContent>
       </Card>
     );

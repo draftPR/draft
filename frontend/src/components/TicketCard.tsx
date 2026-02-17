@@ -85,7 +85,7 @@ export function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavi
               "cursor-pointer transition-all duration-300 ease-in-out",
               "bg-card border border-border rounded",
               "px-2 py-2 text-xs",
-              "hover:shadow-md hover:border-foreground/20 hover:scale-[1.02]",
+              "hover:shadow-md hover:border-foreground/20 hover:scale-[1.02] hover:-translate-y-0.5",
               "transform-gpu",
               isBlocked && "opacity-70 border-amber-500/50",
               snapshot.isDragging && "shadow-xl opacity-90 rotate-2 scale-105 ring-2 ring-primary/20"
@@ -113,7 +113,7 @@ export function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavi
                     onClick={handleExecute}
                     disabled={executing || isBlocked}
                     className={cn(
-                      "p-1 rounded transition-colors",
+                      "p-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                       isBlocked
                         ? "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-600"
                         : "bg-emerald-100 hover:bg-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 dark:text-emerald-400",
@@ -134,7 +134,7 @@ export function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavi
                   onClick={handleDelete}
                   disabled={deleting}
                   className={cn(
-                    "p-1 rounded transition-colors",
+                    "p-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                     "bg-red-100 hover:bg-red-200 text-red-700",
                     "dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-400",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
