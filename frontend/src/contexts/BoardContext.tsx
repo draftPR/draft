@@ -1,12 +1,25 @@
 /**
- * BoardContext - Manages current board (project) state using React Query
+ * BoardContext - Compatibility wrapper around Zustand boardStore.
+ *
+ * Delegates to useBoardStore for board selection state.
+ * Server state (board list) still comes from React Query via useQueries.
+ *
+ * Components can use either:
+ *   - useBoard() (this context, for backwards compatibility)
+ *   - useBoardStore() + useBoardsQuery() (direct, preferred for new code)
  */
 
-import { createContext, useContext, useState, useMemo, useCallback, ReactNode } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import type { Board } from '@/types/api';
-import { useBoardsQuery } from '@/hooks/useQueries';
-import { queryKeys } from '@/hooks/queryKeys';
+import {
+  createContext,
+  useContext,
+  useMemo,
+  type ReactNode,
+} from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { Board } from "@/types/api";
+import { useBoardsQuery } from "@/hooks/useQueries";
+import { queryKeys } from "@/hooks/queryKeys";
+import { useBoardStore, selectCurrentBoard } from "@/stores/boardStore";
 
 interface BoardContextValue {
   currentBoard: Board | null;
@@ -25,45 +38,28 @@ interface BoardProviderProps {
 
 export function BoardProvider({ children }: BoardProviderProps) {
   const queryClient = useQueryClient();
-  const [currentBoardId, setCurrentBoardId] = useState<string | null>(() => {
-    return localStorage.getItem('currentBoardId');
-  });
+  const { currentBoardId, setCurrentBoardId } = useBoardStore();
 
   const { data, isLoading, error } = useBoardsQuery();
   const boards = useMemo(() => data?.boards ?? [], [data?.boards]);
 
-  // Derive the effective board ID: auto-select first board or clear stale selection
-  const effectiveBoardId = useMemo(() => {
-    if (currentBoardId && boards.some(b => b.id === currentBoardId)) {
-      return currentBoardId;
-    }
-    return boards.length > 0 ? boards[0].id : null;
-  }, [boards, currentBoardId]);
+  const currentBoard = useMemo(
+    () => selectCurrentBoard(boards, currentBoardId),
+    [boards, currentBoardId],
+  );
 
-  // Sync effectiveBoardId back to state + localStorage when it diverges
-  if (effectiveBoardId !== currentBoardId) {
-    setCurrentBoardId(effectiveBoardId);
-    if (effectiveBoardId) {
-      localStorage.setItem('currentBoardId', effectiveBoardId);
-    } else {
-      localStorage.removeItem('currentBoardId');
-    }
+  // Auto-select first board if none selected or selection is stale
+  if (!currentBoard && boards.length > 0) {
+    setCurrentBoardId(boards[0].id);
   }
-
-  const currentBoard = boards.find(b => b.id === effectiveBoardId) || null;
 
   async function refreshBoards() {
     await queryClient.invalidateQueries({ queryKey: queryKeys.boards.all });
   }
 
-  const setCurrentBoard = useCallback((boardId: string) => {
-    setCurrentBoardId(boardId);
-    localStorage.setItem('currentBoardId', boardId);
-  }, []);
-
   const value: BoardContextValue = {
     currentBoard,
-    setCurrentBoard,
+    setCurrentBoard: setCurrentBoardId,
     boards,
     isLoading,
     error: error as Error | null,
@@ -71,19 +67,18 @@ export function BoardProvider({ children }: BoardProviderProps) {
   };
 
   return (
-    <BoardContext.Provider value={value}>
-      {children}
-    </BoardContext.Provider>
+    <BoardContext.Provider value={value}>{children}</BoardContext.Provider>
   );
 }
 
 /**
- * Hook to access board context
+ * Hook to access board context (backwards compatible).
+ * Prefer using useBoardStore() + useBoardsQuery() directly in new code.
  */
 export function useBoard() {
   const context = useContext(BoardContext);
   if (!context) {
-    throw new Error('useBoard must be used within BoardProvider');
+    throw new Error("useBoard must be used within BoardProvider");
   }
   return context;
 }

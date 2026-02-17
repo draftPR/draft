@@ -26,6 +26,9 @@ async def job_output_stream(websocket: WebSocket, job_id: str):
     Clients subscribe to this endpoint to receive real-time updates about
     job execution, including stdout/stderr output and status changes.
 
+    Subscribes to the in-memory log broadcaster so terminal output from
+    the worker is forwarded to the WebSocket in real-time.
+
     Args:
         websocket: The WebSocket connection
         job_id: The job ID to stream updates for
@@ -38,8 +41,57 @@ async def job_output_stream(websocket: WebSocket, job_id: str):
             "timestamp": str # ISO format timestamp
         }
     """
+    import asyncio
+
+    from app.services.log_stream_service import LogLevel, log_stream_service
+
     channel = f"job:{job_id}"
     await manager.connect(websocket, channel)
+
+    # Background task to forward log stream messages to WebSocket
+    async def _forward_logs():
+        try:
+            async for msg in log_stream_service.subscribe(job_id):
+                try:
+                    if msg.level == LogLevel.FINISHED:
+                        await websocket.send_json({
+                            "type": "complete",
+                            "content": "",
+                            "timestamp": msg.timestamp.isoformat(),
+                        })
+                        return
+                    elif msg.level in (LogLevel.STDOUT, LogLevel.STDERR):
+                        await websocket.send_json({
+                            "type": "output",
+                            "content": msg.content,
+                            "timestamp": msg.timestamp.isoformat(),
+                        })
+                    elif msg.level == LogLevel.ERROR:
+                        await websocket.send_json({
+                            "type": "error",
+                            "content": msg.content,
+                            "timestamp": msg.timestamp.isoformat(),
+                        })
+                    elif msg.level == LogLevel.PROGRESS:
+                        await websocket.send_json({
+                            "type": "status",
+                            "content": msg.content,
+                            "status": msg.stage or "running",
+                            "progress_pct": msg.progress_pct,
+                            "timestamp": msg.timestamp.isoformat(),
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "output",
+                            "content": msg.content,
+                            "timestamp": msg.timestamp.isoformat(),
+                        })
+                except Exception:
+                    return  # WebSocket closed
+        except asyncio.CancelledError:
+            pass
+
+    forward_task = asyncio.create_task(_forward_logs())
 
     try:
         # Keep connection alive and handle client messages
@@ -63,6 +115,11 @@ async def job_output_stream(websocket: WebSocket, job_id: str):
     except Exception as e:
         logger.error(f"WebSocket error on job stream {job_id}: {e}", exc_info=True)
     finally:
+        forward_task.cancel()
+        try:
+            await forward_task
+        except asyncio.CancelledError:
+            pass
         await manager.disconnect(websocket, channel)
 
 

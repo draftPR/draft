@@ -142,6 +142,40 @@ class ExecutorAdapter(ABC):
         metadata = self.get_metadata()
         return capability in metadata.capabilities
 
+    async def check_availability(self) -> Dict[str, any]:
+        """Return detailed availability diagnostics.
+
+        Returns:
+            Dict with keys:
+              - available (bool): Whether executor is ready
+              - cli_found (bool): Whether CLI binary was found
+              - version (str|None): Detected CLI version
+              - issues (list[str]): Problems preventing use
+              - setup_instructions (str): How to install/configure
+
+        Default implementation delegates to is_available().
+        Override for richer diagnostics.
+        """
+        available = await self.is_available()
+        metadata = self.get_metadata()
+        return {
+            "available": available,
+            "cli_found": available,
+            "version": metadata.agent_version,
+            "issues": [] if available else ["CLI not found in PATH"],
+            "setup_instructions": self.get_setup_instructions(),
+        }
+
+    def get_setup_instructions(self) -> str:
+        """Return human-readable setup instructions for this executor.
+
+        Returns:
+            Markdown-formatted setup guide.
+        """
+        metadata = self.get_metadata()
+        url = metadata.documentation_url or ""
+        return f"Install {metadata.display_name}. See {url}" if url else f"Install {metadata.display_name}."
+
     async def validate_config(self, config: Dict) -> bool:
         """Validate executor-specific configuration.
 

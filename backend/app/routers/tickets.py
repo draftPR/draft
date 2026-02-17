@@ -1,6 +1,7 @@
 """API router for Ticket endpoints."""
 
 import json
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -600,6 +601,76 @@ async def get_ticket_evidence(
         evidence=evidence_responses,
         total=len(evidence_responses),
     )
+
+
+@router.get(
+    "/{ticket_id}/worktree/tree",
+    summary="Get file tree for a ticket's worktree",
+)
+async def get_worktree_tree(
+    ticket_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the directory structure of a ticket's worktree.
+
+    Used by the frontend FileTree component to browse files
+    in the ticket's isolated workspace.
+    """
+    from pathlib import Path
+
+    from app.models.board import Board
+    from app.models.workspace import Workspace
+    from app.services.worktree_file_service import build_file_tree
+
+    # Verify ticket exists
+    service = TicketService(db)
+    ticket = await service.get_ticket_by_id(ticket_id)
+
+    # Find the workspace for this ticket
+    result = await db.execute(
+        select(Workspace).where(Workspace.ticket_id == ticket_id)
+    )
+    workspace = result.scalar_one_or_none()
+
+    if not workspace or not workspace.worktree_path:
+        raise HTTPException(
+            status_code=404,
+            detail="No worktree found for this ticket",
+        )
+
+    worktree_path = Path(workspace.worktree_path)
+
+    # If the worktree path is relative, resolve it against the board's repo root
+    if not worktree_path.is_absolute():
+        repo_root = None
+        if ticket.board_id:
+            board_result = await db.execute(
+                select(Board).where(Board.id == ticket.board_id)
+            )
+            board = board_result.scalar_one_or_none()
+            if board and board.repo_root:
+                repo_root = Path(board.repo_root)
+
+        if repo_root is None:
+            git_repo_path = os.environ.get("GIT_REPO_PATH")
+            repo_root = Path(git_repo_path) if git_repo_path else Path.cwd()
+
+        worktree_path = repo_root / worktree_path
+
+    if not worktree_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Worktree directory does not exist on disk",
+        )
+
+    tree = build_file_tree(str(worktree_path))
+    if tree is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Could not build file tree",
+        )
+
+    return tree
 
 
 @router.get(

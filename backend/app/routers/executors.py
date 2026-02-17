@@ -106,6 +106,38 @@ async def check_executor_available(executor_name: str):
         )
 
 
+@router.get("/{executor_name}/setup")
+async def get_executor_setup(executor_name: str):
+    """Get setup instructions and availability diagnostics for an executor.
+
+    Returns detailed information about whether the executor is installed,
+    what issues exist, and how to set it up.
+
+    Args:
+        executor_name: Name of the executor
+
+    Returns:
+        Dict with availability diagnostics and setup instructions
+    """
+    try:
+        adapter = ExecutorRegistry.get(executor_name)
+        diagnostics = await adapter.check_availability()
+        metadata = adapter.get_metadata()
+
+        return {
+            "name": metadata.name,
+            "display_name": metadata.display_name,
+            **diagnostics,
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to check setup: {str(e)}"
+        )
+
+
 @router.get("/profiles", response_model=list[dict[str, Any]])
 async def list_executor_profiles():
     """List all configured executor profiles from smartkanban.yaml.

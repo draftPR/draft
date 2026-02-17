@@ -1,21 +1,21 @@
 """GitHub Copilot CLI adapter."""
 
 import asyncio
-import shutil
 import os
-from typing import AsyncIterator
+import shutil
+from collections.abc import AsyncIterator
 
+from app.executors.registry import ExecutorRegistry
 from app.executors.spec import (
-    ExecutorAdapter,
-    ExecutorMetadata,
-    ExecutorCapability,
     ExecutionRequest,
     ExecutionResult,
-    ExecutorNotFoundError,
+    ExecutorAdapter,
+    ExecutorCapability,
     ExecutorInvocationError,
-    ExecutorTimeoutError
+    ExecutorMetadata,
+    ExecutorNotFoundError,
+    ExecutorTimeoutError,
 )
-from app.executors.registry import ExecutorRegistry
 
 
 @ExecutorRegistry.register("copilot")
@@ -61,10 +61,70 @@ class CopilotAdapter(ExecutorAdapter):
                 )
                 stdout, _ = await process.communicate()
                 return b"copilot" in stdout.lower()
-            except:
+            except Exception:
                 return False
 
         return has_copilot
+
+    async def check_availability(self) -> dict:
+        """Return detailed availability diagnostics."""
+        has_gh = shutil.which("gh")
+        has_copilot_cli = shutil.which("copilot")
+        issues = []
+        version = None
+        copilot_ext_installed = False
+
+        if not has_gh and not has_copilot_cli:
+            issues.append("Neither 'gh' CLI nor 'copilot' CLI found in PATH")
+        elif has_gh:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "gh", "extension", "list",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+                if b"copilot" in stdout.lower():
+                    copilot_ext_installed = True
+                else:
+                    issues.append("GitHub Copilot extension not installed in gh CLI")
+            except Exception:
+                issues.append("Could not check gh extensions")
+
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "gh", "--version",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+                version = stdout.decode().strip().split("\n")[0]
+            except Exception:
+                pass
+
+        return {
+            "available": copilot_ext_installed or has_copilot_cli is not None,
+            "cli_found": has_gh is not None or has_copilot_cli is not None,
+            "cli_path": has_gh or has_copilot_cli,
+            "version": version,
+            "copilot_extension_installed": copilot_ext_installed,
+            "issues": issues,
+            "setup_instructions": self.get_setup_instructions(),
+        }
+
+    def get_setup_instructions(self) -> str:
+        return (
+            "## Install GitHub Copilot CLI\n\n"
+            "1. Install the GitHub CLI:\n"
+            "```bash\n"
+            "brew install gh  # macOS\n"
+            "```\n\n"
+            "2. Install the Copilot extension:\n"
+            "```bash\n"
+            "gh extension install github/gh-copilot\n"
+            "```\n\n"
+            "Docs: https://githubnext.com/projects/copilot-cli/"
+        )
 
     async def execute(self, request: ExecutionRequest) -> ExecutionResult:
         """Execute using GitHub Copilot CLI."""
@@ -103,11 +163,11 @@ class CopilotAdapter(ExecutorAdapter):
                 duration_seconds=0.0
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
-            raise ExecutorTimeoutError(f"Copilot execution timed out after {request.timeout_seconds}s")
+            raise ExecutorTimeoutError(f"Copilot execution timed out after {request.timeout_seconds}s") from None
         except Exception as e:
-            raise ExecutorInvocationError(f"Copilot execution failed: {str(e)}")
+            raise ExecutorInvocationError(f"Copilot execution failed: {str(e)}") from e
 
     async def stream_output(self, request: ExecutionRequest) -> AsyncIterator[str]:
         """Stream output in real-time."""

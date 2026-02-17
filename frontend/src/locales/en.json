@@ -1,0 +1,117 @@
+{
+  "app": {
+    "title": "Alma Kanban",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "close": "Close",
+    "confirm": "Confirm",
+    "search": "Search...",
+    "noResults": "No results found"
+  },
+  "board": {
+    "title": "Board",
+    "createBoard": "Create Board",
+    "selectBoard": "Select a board",
+    "noBoards": "No boards yet",
+    "settings": "Board Settings",
+    "refresh": "Refresh"
+  },
+  "ticket": {
+    "create": "Create Ticket",
+    "edit": "Edit Ticket",
+    "title": "Title",
+    "description": "Description",
+    "state": "State",
+    "priority": "Priority",
+    "assignee": "Assignee",
+    "noTickets": "No tickets in this column",
+    "dragHint": "Drag to reorder",
+    "execute": "Execute",
+    "verify": "Verify",
+    "approve": "Approve",
+    "reject": "Reject",
+    "abandon": "Abandon",
+    "viewDetails": "View Details",
+    "viewLogs": "View Logs",
+    "queueMessage": "Queue Follow-up",
+    "dependencies": "Dependencies",
+    "blockedBy": "Blocked by"
+  },
+  "goal": {
+    "create": "Create Goal",
+    "edit": "Edit Goal",
+    "title": "Goal Title",
+    "description": "Goal Description",
+    "generateTickets": "Generate Tickets",
+    "noGoals": "No goals yet",
+    "budget": "Budget",
+    "progress": "Progress"
+  },
+  "job": {
+    "running": "Running",
+    "queued": "Queued",
+    "succeeded": "Succeeded",
+    "failed": "Failed",
+    "canceled": "Canceled",
+    "viewOutput": "View Output",
+    "cancel": "Cancel Job",
+    "duration": "Duration"
+  },
+  "executor": {
+    "select": "Select Executor",
+    "available": "Available",
+    "unavailable": "Not Available",
+    "setup": "Setup Required",
+    "configure": "Configure"
+  },
+  "state": {
+    "proposed": "Proposed",
+    "planned": "Planned",
+    "executing": "Executing",
+    "verifying": "Verifying",
+    "needs_human": "Needs Human",
+    "blocked": "Blocked",
+    "done": "Done",
+    "abandoned": "Abandoned"
+  },
+  "column": {
+    "backlog": "Backlog",
+    "todo": "To Do",
+    "inProgress": "In Progress",
+    "review": "Review",
+    "done": "Done"
+  },
+  "review": {
+    "approve": "Approve",
+    "requestChanges": "Request Changes",
+    "comment": "Add Comment",
+    "viewDiff": "View Diff",
+    "noRevisions": "No revisions yet"
+  },
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "executors": "Executors",
+    "verification": "Verification",
+    "planner": "Planner",
+    "advanced": "Advanced"
+  },
+  "terminal": {
+    "title": "Terminal",
+    "connecting": "Connecting...",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "clear": "Clear",
+    "selectJob": "Select a job to view output"
+  },
+  "fileTree": {
+    "title": "Files",
+    "loading": "Loading files...",
+    "noWorktree": "No worktree found for this ticket.",
+    "error": "Failed to load file tree"
+  }
+}

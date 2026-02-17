@@ -1,0 +1,71 @@
+# =============================================================================
+# Alma Kanban - Production Docker Compose
+# =============================================================================
+# Usage:
+#   docker compose up              # SQLite backend (default, no Redis needed)
+#   docker compose --profile redis up  # Redis backend (for multi-worker)
+# =============================================================================
+
+services:
+  # ----------- API + Worker (SQLite backend) -----------
+  api:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - alma-data:/app/data
+      - alma-logs:/app/logs
+      # Mount the host repo for worktree operations (optional)
+      - ${GIT_REPO_PATH:-.}:/repo:rw
+    environment:
+      - TASK_BACKEND=${TASK_BACKEND:-sqlite}
+      - DATABASE_URL=sqlite+aiosqlite:///./data/alma.db
+      - GIT_REPO_PATH=/repo
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ----------- Nginx (serves built frontend + reverse proxy) -----------
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ----------- Redis (optional, only with --profile redis) -----------
+  redis:
+    image: redis:7-alpine
+    profiles:
+      - redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  alma-data:
+  alma-logs:
+  redis-data:

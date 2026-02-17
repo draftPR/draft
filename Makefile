@@ -1,4 +1,4 @@
-.PHONY: setup setup-backend setup-frontend run run-redis dev dev-backend dev-frontend dev-worker redis db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean
+.PHONY: setup setup-backend setup-frontend run run-redis dev dev-backend dev-frontend dev-worker redis db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean generate-types
 
 # Default target
 help:
@@ -30,6 +30,9 @@ help:
 	@echo "  make format         - Format code in both frontend and backend"
 	@echo "  make format-backend - Format Python code with ruff"
 	@echo "  make format-frontend- Format TypeScript code with Prettier"
+	@echo ""
+	@echo "Type Generation:"
+	@echo "  make generate-types - Generate TypeScript types from backend OpenAPI spec"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean          - Remove build artifacts and caches"
@@ -97,6 +100,14 @@ format-backend:
 
 format-frontend:
 	cd frontend && npm run format
+
+# Type generation
+generate-types:
+	@echo "Generating TypeScript types from OpenAPI spec..."
+	cd backend && . venv/bin/activate && python scripts/extract_openapi.py /tmp/alma-openapi.json
+	cd frontend && npx openapi-typescript /tmp/alma-openapi.json -o src/types/generated.ts
+	@rm -f /tmp/alma-openapi.json
+	@echo "Generated frontend/src/types/generated.ts"
 
 # Clean targets
 clean:

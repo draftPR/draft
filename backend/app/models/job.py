@@ -103,6 +103,11 @@ class Job(Base):
         nullable=True,
         index=True,
     )
+    # Session ID for executor session resume (e.g. Claude --resume)
+    session_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
     # Health monitoring fields
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(
         DateTime,

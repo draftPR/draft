@@ -50,6 +50,48 @@ class CodexAdapter(ExecutorAdapter):
         """Check if codex CLI is installed."""
         return shutil.which("codex") is not None
 
+    async def check_availability(self) -> dict:
+        """Return detailed availability diagnostics."""
+        cli_path = shutil.which("codex")
+        issues = []
+        version = None
+
+        if not cli_path:
+            issues.append("Codex CLI not found in PATH")
+        else:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "codex", "--version",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+                version = stdout.decode().strip()
+            except Exception:
+                issues.append("Could not detect Codex CLI version")
+
+        return {
+            "available": cli_path is not None,
+            "cli_found": cli_path is not None,
+            "cli_path": cli_path,
+            "version": version,
+            "issues": issues,
+            "setup_instructions": self.get_setup_instructions(),
+        }
+
+    def get_setup_instructions(self) -> str:
+        return (
+            "## Install OpenAI Codex CLI\n\n"
+            "```bash\n"
+            "npm install -g @openai/codex\n"
+            "```\n\n"
+            "Then authenticate:\n"
+            "```bash\n"
+            "export OPENAI_API_KEY=your-key\n"
+            "```\n\n"
+            "Docs: https://github.com/openai/codex"
+        )
+
     async def execute(self, request: ExecutionRequest) -> ExecutionResult:
         """Execute using Codex CLI."""
         if not await self.is_available():

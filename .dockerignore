@@ -1,0 +1,39 @@
+# Version control
+.git
+.gitignore
+
+# Python
+backend/venv
+backend/.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+backend/.ruff_cache
+backend/.pytest_cache
+backend/.mypy_cache
+backend/celerybeat-schedule*
+backend/logs/
+
+# Node
+frontend/node_modules
+frontend/dist
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+.smartkanban/
+*.db
+*.sqlite3
+
+# Docs
+*.md
+!README.md
+LICENSE

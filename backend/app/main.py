@@ -48,6 +48,23 @@ from app.routers.websocket import router as websocket_router
 
 load_dotenv()
 
+# Initialize Sentry error tracking (only if SENTRY_DSN is set)
+_sentry_dsn = os.getenv("SENTRY_DSN")
+if _sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            environment=os.getenv("SENTRY_ENVIRONMENT", "development"),
+            traces_sample_rate=0.1,
+            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+        )
+    except ImportError:
+        pass  # sentry-sdk not installed, skip
+
 APP_NAME = "Alma Kanban"
 APP_VERSION = "0.1.0"
 

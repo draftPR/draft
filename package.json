@@ -1,0 +1,37 @@
+{
+  "name": "alma-kanban",
+  "version": "0.1.0",
+  "description": "AI-powered local-first kanban board that uses AI agents to automatically implement tickets",
+  "bin": {
+    "alma-kanban": "bin/alma-kanban.js"
+  },
+  "keywords": [
+    "kanban",
+    "ai",
+    "coding-agent",
+    "project-management",
+    "claude",
+    "autopilot"
+  ],
+  "author": "Alma Kanban Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alma-kanban/alma-kanban"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "backend/",
+    "frontend/dist/",
+    "run.py",
+    "Makefile",
+    "!backend/venv",
+    "!backend/__pycache__",
+    "!backend/.ruff_cache",
+    "!backend/.pytest_cache",
+    "!backend/tests"
+  ]
+}

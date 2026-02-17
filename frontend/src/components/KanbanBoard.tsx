@@ -31,7 +31,7 @@ interface KanbanBoardProps {
   refreshTrigger?: number;
 }
 
-export function KanbanBoard({ refreshTrigger }: KanbanBoardProps) {
+export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
   const { currentBoard } = useBoard();
   const queryClient = useQueryClient();
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);

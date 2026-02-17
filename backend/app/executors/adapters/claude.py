@@ -56,6 +56,48 @@ class ClaudeAdapter(ExecutorAdapter):
         """Check if claude CLI is installed."""
         return shutil.which("claude") is not None
 
+    async def check_availability(self) -> dict:
+        """Return detailed availability diagnostics."""
+        cli_path = shutil.which("claude")
+        issues = []
+        version = None
+
+        if not cli_path:
+            issues.append("Claude Code CLI not found in PATH")
+        else:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "claude", "--version",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+                version = stdout.decode().strip()
+            except Exception:
+                issues.append("Could not detect Claude Code version")
+
+        return {
+            "available": cli_path is not None,
+            "cli_found": cli_path is not None,
+            "cli_path": cli_path,
+            "version": version,
+            "issues": issues,
+            "setup_instructions": self.get_setup_instructions(),
+        }
+
+    def get_setup_instructions(self) -> str:
+        return (
+            "## Install Claude Code\n\n"
+            "```bash\n"
+            "npm install -g @anthropic-ai/claude-code\n"
+            "```\n\n"
+            "Then authenticate:\n"
+            "```bash\n"
+            "claude auth login\n"
+            "```\n\n"
+            "Docs: https://docs.anthropic.com/claude-code"
+        )
+
     async def execute(self, request: ExecutionRequest) -> ExecutionResult:
         """Execute using Claude Code CLI."""
         if not await self.is_available():
