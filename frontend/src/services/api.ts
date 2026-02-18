@@ -35,6 +35,9 @@ import type {
   MergeStatusResponse,
   OrchestratorLogEntry,
   OrchestratorLogsResponse,
+  PlannerConfigResponse,
+  PlannerConfigUpdate,
+  PlannerHealthResponse,
   PlannerStartRequest,
   PlannerStartResponse,
   PlannerStatusResponse,
@@ -132,6 +135,23 @@ export async function updateGlobalSettings(settings: Record<string, any>): Promi
     method: "PUT",
     body: JSON.stringify(settings),
   });
+}
+
+// ==================== Planner Config API ====================
+
+export async function fetchPlannerConfig(): Promise<PlannerConfigResponse> {
+  return apiFetch<PlannerConfigResponse>("/settings/planner");
+}
+
+export async function updatePlannerConfig(data: PlannerConfigUpdate): Promise<PlannerConfigResponse> {
+  return apiFetch<PlannerConfigResponse>("/settings/planner", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function checkPlannerHealth(): Promise<PlannerHealthResponse> {
+  return apiFetch<PlannerHealthResponse>("/settings/planner/check");
 }
 
 const API_BASE = config.backendBaseUrl;

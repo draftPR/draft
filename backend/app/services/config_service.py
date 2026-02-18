@@ -257,19 +257,19 @@ class AutonomyConfig:
 class PlannerFeaturesConfig:
     """Feature flags for the planner."""
 
-    auto_execute: bool = True
+    auto_execute: bool = False
     propose_followups: bool = True
     generate_reflections: bool = True
-    validate_tickets: bool = True
+    validate_tickets: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PlannerFeaturesConfig":
         """Create a config instance from a dictionary."""
         return cls(
-            auto_execute=data.get("auto_execute", True),
+            auto_execute=data.get("auto_execute", False),
             propose_followups=data.get("propose_followups", True),
             generate_reflections=data.get("generate_reflections", True),
-            validate_tickets=data.get("validate_tickets", True),
+            validate_tickets=data.get("validate_tickets", False),
         )
 
 
@@ -338,7 +338,7 @@ class PlannerConfig:
     - skip_followup_reasons: Blocker reasons that should NOT trigger follow-ups
     """
 
-    model: str = "gpt-4o-mini"
+    model: str = "cli/claude"
     max_tokens_reflection: int = 300
     max_tokens_followup: int = 500
     timeout: int = 30
@@ -346,8 +346,8 @@ class PlannerConfig:
     udar: UDARConfig = field(default_factory=UDARConfig)
 
     # Agent path for ticket generation (cursor-agent or claude CLI)
-    # Supports ~ for home directory expansion
-    agent_path: str = "~/.local/bin/cursor-agent"
+    # Auto-detected from PATH; set full path to override
+    agent_path: str = "claude"
 
     # Follow-up caps to prevent spam
     max_followups_per_ticket: int = 2  # Total follow-ups for any blocked ticket
@@ -383,13 +383,13 @@ class PlannerConfig:
         default_skip_reasons = ["no changes produced", "no changes", "empty diff"]
 
         return cls(
-            model=data.get("model", "gpt-4o-mini"),
+            model=data.get("model", "cli/claude"),
             max_tokens_reflection=data.get("max_tokens_reflection", 300),
             max_tokens_followup=data.get("max_tokens_followup", 500),
             timeout=data.get("timeout", 30),
             features=features,
             udar=udar,
-            agent_path=data.get("agent_path", "~/.local/bin/cursor-agent"),
+            agent_path=data.get("agent_path", "claude"),
             max_followups_per_ticket=data.get("max_followups_per_ticket", 2),
             max_followups_per_tick=data.get("max_followups_per_tick", 3),
             skip_followup_reasons=data.get("skip_followup_reasons")
@@ -598,6 +598,20 @@ class ConfigService:
         if repo_path is None:
             repo_path = os.environ.get("GIT_REPO_PATH", ".")
         self.repo_path = Path(repo_path)
+
+        # If config file not found at repo_path, try to find it by walking up
+        # to the git repo root (handles CWD being a subdirectory like backend/)
+        if not (self.repo_path / self.CONFIG_FILENAME).exists():
+            try:
+                import subprocess
+                git_root = subprocess.run(
+                    ["git", "rev-parse", "--show-toplevel"],
+                    capture_output=True, text=True, timeout=5,
+                ).stdout.strip()
+                if git_root and (Path(git_root) / self.CONFIG_FILENAME).exists():
+                    self.repo_path = Path(git_root)
+            except Exception:
+                pass
 
     @property
     def config_path(self) -> Path:

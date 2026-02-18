@@ -1147,23 +1147,143 @@ Now analyze the codebase and generate the JSON."""
     def _call_agent_for_tickets(
         self, prompt: str, repo_root: Path, stream_callback=None
     ) -> str:
+        """Call CLI agent or LLM API to generate tickets.
+
+        When model is "cli/claude" (or any cli/* prefix), uses CLI only.
+        Otherwise tries CLI first, then falls back to LLM API.
+
+        Args:
+            prompt: The prompt for ticket generation.
+            repo_root: Path to the repository.
+            stream_callback: Optional callback for streaming output.
+
+        Returns:
+            The agent's response text.
+
+        Raises:
+            ValueError: If neither CLI nor LLM API is available.
+        """
+        # Always try CLI first, fall back to LLM API on failure
+        try:
+            return self._call_cli_for_tickets(prompt, repo_root, stream_callback)
+        except (ValueError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+            logger.warning(f"CLI agent failed ({e}), falling back to LLM API")
+            if stream_callback:
+                stream_callback(f"[CLI unavailable: {e}. Using LLM API...]")
+            return self._call_llm_for_tickets(prompt, repo_root, stream_callback)
+
+    def _get_llm_for_api_fallback(self) -> "LLMService":
+        """Get an LLM service suitable for API calls.
+
+        If the current model is CLI-based (cli/*), detects available API
+        credentials and creates a temporary LLMService with a real model.
+
+        Returns:
+            LLMService configured for API calls.
+
+        Raises:
+            ValueError: If no API credentials are available.
+        """
+        import os
+
+        # If model is already an API model, use existing LLM service
+        if not self.config.model.startswith("cli/"):
+            return self.llm
+
+        # CLI model — detect available API keys and pick a model
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            api_model = "anthropic/claude-sonnet-4-5-20250929"
+        elif os.environ.get("OPENAI_API_KEY"):
+            api_model = "gpt-4o-mini"
+        elif os.environ.get("AWS_ACCESS_KEY_ID"):
+            api_model = "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"
+        else:
+            raise ValueError(
+                "CLI agent unavailable (nested session) and no LLM API credentials found. "
+                "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or AWS credentials in backend/.env, "
+                "or turn off 'Same as executor' in Settings and pick an API model."
+            )
+
+        from dataclasses import replace
+
+        fallback_config = replace(self.config, model=api_model)
+        logger.info(f"CLI fallback: using API model {api_model}")
+        return LLMService(fallback_config)
+
+    def _call_llm_for_tickets(
+        self, prompt: str, repo_root: Path, stream_callback=None
+    ) -> str:
+        """Generate tickets using LLM API (fallback when CLI unavailable).
+
+        Args:
+            prompt: The prompt for ticket generation.
+            repo_root: Path to the repository.
+            stream_callback: Optional callback for streaming output.
+
+        Returns:
+            The LLM's response text containing JSON tickets.
+
+        Raises:
+            ValueError: If LLM is not configured or API call fails.
+        """
+        llm = self._get_llm_for_api_fallback()
+
+        if stream_callback:
+            stream_callback("[Generating tickets via LLM API...]")
+
+        # Gather repo context for the LLM
+        try:
+            context = self.context_gatherer.gather(repo_root=repo_root)
+            context_summary = context.to_prompt_string()[:8000]
+        except Exception as e:
+            logger.warning(f"Failed to gather repo context: {e}")
+            context_summary = f"Repository at: {repo_root}"
+
+        system_prompt = self._build_goal_system_prompt()
+        messages = [
+            {"role": "user", "content": f"{context_summary}\n\n{prompt}"},
+        ]
+
+        try:
+            response = llm.call_completion(
+                messages=messages,
+                max_tokens=4000,
+                system_prompt=system_prompt,
+                json_mode=True,
+                timeout=60,
+            )
+            logger.info(f"LLM API response length: {len(response.content)} chars")
+            if stream_callback:
+                stream_callback("[LLM API response received]")
+            return response.content
+        except Exception as e:
+            raise ValueError(
+                f"LLM API call failed: {e}. "
+                "Please verify your LLM credentials in Settings."
+            )
+
+    def _call_cli_for_tickets(
+        self, prompt: str, repo_root: Path, stream_callback=None
+    ) -> str:
         """Call the agent CLI to generate tickets.
 
         Args:
             prompt: The prompt for ticket generation.
             repo_root: Path to the repository.
+            stream_callback: Optional callback for streaming output.
 
         Returns:
             The agent's response text.
 
         Raises:
             ValueError: If no agent is available or agent fails.
+            FileNotFoundError: If agent command not found.
         """
         import os
 
         # Get agent path from config
         agent_path = self.config.get_agent_path()
-        
+
         if os.path.exists(agent_path):
             logger.info(f"Using agent from config: {agent_path}")
             # Determine if it's cursor-agent style (needs --workspace) or claude style
@@ -1198,6 +1318,14 @@ Now analyze the codebase and generate the JSON."""
 
         # Run the agent
         logger.info(f"Running agent command: {cmd[0]} (cwd={repo_root})")
+
+        # Strip Claude Code session env vars to avoid "nested session" errors
+        # when spawning claude CLI from within a Claude Code session
+        clean_env = {
+            k: v for k, v in os.environ.items()
+            if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
+        }
+
         try:
             if stream_callback:
                 # Stream output line by line for real-time feedback
@@ -1208,6 +1336,7 @@ Now analyze the codebase and generate the JSON."""
                     stderr=subprocess.PIPE,
                     text=True,
                     bufsize=1,  # Line buffered
+                    env=clean_env,
                 )
 
                 output_lines = []
@@ -1244,6 +1373,7 @@ Now analyze the codebase and generate the JSON."""
                     capture_output=True,
                     text=True,
                     timeout=120,  # 2 minute timeout for ticket generation
+                    env=clean_env,
                 )
 
                 if result.returncode != 0:

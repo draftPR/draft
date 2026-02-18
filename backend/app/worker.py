@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import select
 import subprocess
 import threading
@@ -795,6 +796,13 @@ def run_executor_cli(
     # Create normalizer if needed
     normalizer = CursorLogNormalizer(str(cwd)) if normalize_logs else None
 
+    # Strip Claude Code session env vars to avoid "nested session" errors
+    # when spawning claude CLI from within a Claude Code session
+    clean_env = {
+        k: v for k, v in os.environ.items()
+        if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
+    }
+
     try:
         # Use Popen for real-time streaming instead of blocking run()
         process = subprocess.Popen(
@@ -805,6 +813,7 @@ def run_executor_cli(
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,  # Line buffered
+            env=clean_env,
         )
 
         # Write stdin content and close to signal EOF

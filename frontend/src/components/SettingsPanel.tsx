@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -21,6 +21,11 @@ import {
   Keyboard,
   Save,
   Rocket,
+  Cpu,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Info,
 } from "lucide-react";
 import {
   getPreferredEditor,
@@ -31,6 +36,12 @@ import {
 import { AgentSelector } from "./AgentSelector";
 import { useWalkthrough } from "@/hooks/useWalkthrough";
 import { playSound } from "@/services/soundNotifications";
+import {
+  fetchPlannerConfig,
+  updatePlannerConfig,
+  checkPlannerHealth,
+} from "@/services/api";
+import type { PlannerHealthResponse } from "@/types/api";
 
 export interface BudgetSettings {
   daily: number;
@@ -309,6 +320,348 @@ export function WelcomeTutorialCard() {
             }}
           >
             Reset
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ── Planner / LLM Configuration Card ── */
+
+const API_MODEL_PRESETS = [
+  {
+    label: "Anthropic Claude Sonnet 4.5",
+    value: "anthropic/claude-sonnet-4-5-20250929",
+    provider: "anthropic",
+    description: "Claude Sonnet 4.5 via direct Anthropic API",
+  },
+  {
+    label: "Anthropic Claude Haiku 4.5",
+    value: "anthropic/claude-haiku-4-5-20251001",
+    provider: "anthropic",
+    description: "Fast and cost-effective via direct Anthropic API",
+  },
+  {
+    label: "AWS Bedrock — Claude Sonnet 4.5",
+    value: "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
+    provider: "bedrock",
+    description: "Claude Sonnet 4.5 via AWS Bedrock",
+  },
+  {
+    label: "AWS Bedrock — Claude Haiku 4.5",
+    value: "bedrock/anthropic.claude-haiku-4-5-20251001-v1:0",
+    provider: "bedrock",
+    description: "Claude Haiku 4.5 via AWS Bedrock",
+  },
+  {
+    label: "OpenAI GPT-4o",
+    value: "gpt-4o",
+    provider: "openai",
+    description: "OpenAI's flagship model",
+  },
+  {
+    label: "OpenAI GPT-4o Mini",
+    value: "gpt-4o-mini",
+    provider: "openai",
+    description: "Fast and affordable",
+  },
+];
+
+function getProviderFromModel(model: string): string {
+  if (model === "cli/claude" || model.startsWith("cli/")) return "cli";
+  if (model.startsWith("anthropic/")) return "anthropic";
+  if (model.startsWith("bedrock/")) return "bedrock";
+  if (model.startsWith("gpt")) return "openai";
+  return "custom";
+}
+
+function getSetupInstructions(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "Set ANTHROPIC_API_KEY in backend/.env";
+    case "openai":
+      return "Set OPENAI_API_KEY in backend/.env";
+    case "bedrock":
+      return "Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in backend/.env";
+    default:
+      return "Set the appropriate API key for your model provider in backend/.env";
+  }
+}
+
+export function PlannerSettingsCard({
+  onDirty,
+}: {
+  onDirty?: () => void;
+}) {
+  const [model, setModel] = useState("");
+  const [agentPath, setAgentPath] = useState("");
+  const [health, setHealth] = useState<PlannerHealthResponse | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const isSameAsExecutor = model.startsWith("cli/");
+
+  // Load planner config on mount
+  useEffect(() => {
+    fetchPlannerConfig()
+      .then((cfg) => {
+        setModel(cfg.model);
+        setAgentPath(cfg.agent_path);
+        setLoaded(true);
+      })
+      .catch((err) => {
+        console.error("Failed to load planner config:", err);
+        setLoaded(true);
+      });
+  }, []);
+
+  // Auto-check health on load
+  useEffect(() => {
+    if (loaded && model) {
+      checkPlannerHealth()
+        .then(setHealth)
+        .catch(() => setHealth({ status: "offline", model, error: "Failed to connect" }));
+    }
+  }, [loaded]);
+
+  const runHealthCheck = useCallback(async () => {
+    setChecking(true);
+    setHealth(null);
+    try {
+      const result = await checkPlannerHealth();
+      setHealth(result);
+    } catch (err) {
+      setHealth({ status: "offline", model, error: String(err) });
+    } finally {
+      setChecking(false);
+    }
+  }, [model]);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    try {
+      const updated = await updatePlannerConfig({ model, agent_path: agentPath });
+      setModel(updated.model);
+      setAgentPath(updated.agent_path);
+      playSound("success");
+      // Re-check health after saving
+      runHealthCheck();
+    } catch (err) {
+      console.error("Failed to save planner config:", err);
+    } finally {
+      setSaving(false);
+    }
+  }, [model, agentPath, runHealthCheck]);
+
+  const handleToggle = useCallback((useSameAsExecutor: boolean) => {
+    if (useSameAsExecutor) {
+      setModel("cli/claude");
+    } else {
+      // Default to first API preset
+      setModel(API_MODEL_PRESETS[0].value);
+    }
+    setHealth(null);
+    onDirty?.();
+  }, [onDirty]);
+
+  const provider = getProviderFromModel(model);
+  const selectedPreset = API_MODEL_PRESETS.find((p) => p.value === model);
+  const isPreset = !!selectedPreset;
+
+  if (!loaded) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="section-header flex items-center gap-2">
+          <Cpu className="h-5 w-5" />
+          Planner LLM
+        </CardTitle>
+        <CardDescription>
+          Configure the LLM used for ticket generation, follow-ups, and reflections
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Same as executor toggle */}
+        <div className="flex items-center justify-between">
+          <div>
+            <Label htmlFor="same-as-executor">Same as executor</Label>
+            <p className="text-xs text-muted-foreground">
+              Use the same Claude Code CLI as your execution agent
+            </p>
+          </div>
+          <Switch
+            id="same-as-executor"
+            checked={isSameAsExecutor}
+            onCheckedChange={handleToggle}
+          />
+        </div>
+
+        {/* Details panel — matches AgentDetails style */}
+        {isSameAsExecutor ? (
+          /* Same-as-executor: simple status panel */
+          <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+            <div className="flex items-center gap-2 text-sm">
+              {checking ? (
+                <Badge variant="outline">
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  Checking...
+                </Badge>
+              ) : health?.status === "online" ? (
+                <Badge variant="default">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Available
+                </Badge>
+              ) : health?.status === "offline" ? (
+                <Badge variant="destructive">
+                  <XCircle className="h-3 w-3 mr-1" />
+                  Not Installed
+                </Badge>
+              ) : (
+                <Badge variant="outline">
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  Checking...
+                </Badge>
+              )}
+              <span className="text-muted-foreground">
+                Uses the same Claude Code CLI as ticket execution — no extra API key needed
+              </span>
+            </div>
+
+            {health?.status === "offline" && (
+              <div className="mt-1 p-2 bg-background rounded border text-sm space-y-1">
+                <p className="font-medium flex items-center gap-1 text-xs">
+                  <Info className="h-3.5 w-3.5" />
+                  Setup required
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Install Claude Code CLI or turn off this toggle to use an API model instead.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Custom model: model picker + status */
+          <>
+            <div className="space-y-2">
+              <Label>LLM Model</Label>
+              <Select
+                value={isPreset ? model : "__custom__"}
+                onValueChange={(v) => {
+                  if (v !== "__custom__") {
+                    setModel(v);
+                    onDirty?.();
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a model">
+                    {selectedPreset && (
+                      <div className="flex items-center gap-2">
+                        <Cpu className="h-4 w-4" />
+                        <span>{selectedPreset.label}</span>
+                      </div>
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {API_MODEL_PRESETS.map((preset) => (
+                    <SelectItem key={preset.value} value={preset.value}>
+                      <div className="flex items-center gap-2">
+                        <Cpu className="h-4 w-4" />
+                        <span>{preset.label}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__custom__">
+                    <div className="flex items-center gap-2">
+                      <Settings className="h-4 w-4" />
+                      <span>Custom model...</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              {!isPreset && (
+                <Input
+                  placeholder="e.g., bedrock/arn:aws:bedrock:us-east-2:..."
+                  value={model}
+                  onChange={(e) => {
+                    setModel(e.target.value);
+                    onDirty?.();
+                  }}
+                />
+              )}
+            </div>
+
+            <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+              <div className="flex items-center gap-2 text-sm">
+                {checking ? (
+                  <Badge variant="outline">
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    Checking...
+                  </Badge>
+                ) : health?.status === "online" ? (
+                  <Badge variant="default">
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Available
+                  </Badge>
+                ) : health?.status === "offline" ? (
+                  <Badge variant="destructive">
+                    <XCircle className="h-3 w-3 mr-1" />
+                    Not Connected
+                  </Badge>
+                ) : (
+                  <Badge variant="outline">
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    Checking...
+                  </Badge>
+                )}
+                <span className="text-muted-foreground">
+                  {selectedPreset?.description ?? `Custom model via ${provider}`}
+                </span>
+              </div>
+
+              {health?.status === "offline" && (
+                <div className="mt-1 p-2 bg-background rounded border text-sm space-y-1">
+                  <p className="font-medium flex items-center gap-1 text-xs">
+                    <Info className="h-3.5 w-3.5" />
+                    Setup required
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {getSetupInstructions(provider)}. Then restart the backend.
+                  </p>
+                  {health.error && (
+                    <p className="text-xs text-muted-foreground font-mono break-all">
+                      {health.error.slice(0, 150)}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={runHealthCheck}
+            disabled={checking}
+          >
+            {checking ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+            Test Connection
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+            Save
           </Button>
         </div>
       </CardContent>

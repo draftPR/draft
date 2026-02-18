@@ -193,14 +193,17 @@ autonomy_config:
 
 planner_config:
   # Agent CLI path for ticket generation (cursor-agent or claude)
-  # Supports ~ for home directory expansion
-  agent_path: "~/.local/bin/cursor-agent"
+  # Auto-detected from PATH; set full path to override (e.g., "~/.local/bin/cursor-agent")
+  agent_path: "claude"
 
-  # LLM model to use via LiteLLM (supports OpenAI, Anthropic, AWS Bedrock, etc.)
-  # For AWS Bedrock inference profiles, use format: "bedrock/<inference-profile-arn>"
-  # Examples: "gpt-4o-mini", "gpt-4o", "bedrock/arn:aws:bedrock:us-east-2:...:inference-profile/..."
-  # AWS credentials should be set in .env (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME)
-  model: "bedrock/arn:aws:bedrock:us-east-2:486893719511:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+  # LLM model for the planner.
+  # Default: "cli/claude" — uses the same Claude Code CLI as the executor (no API key needed).
+  # To use an API model instead, change in Settings > Executors or set here:
+  #   Direct Anthropic API:  "anthropic/claude-sonnet-4-5-20250929"  (requires ANTHROPIC_API_KEY)
+  #   AWS Bedrock:           "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"  (requires AWS credentials)
+  #   Bedrock inf. profile:  "bedrock/arn:aws:bedrock:us-east-2:...:inference-profile/..."
+  #   OpenAI:                "gpt-4o-mini" or "gpt-4o"  (requires OPENAI_API_KEY)
+  model: "cli/claude"
 
   # Maximum tokens for LLM responses
   max_tokens_reflection: 300

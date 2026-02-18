@@ -487,6 +487,24 @@ export interface TicketAgentLogsResponse {
 export type PRStatus = components["schemas"]["PRStatusResponse"];
 export type CreatePRRequest = components["schemas"]["CreatePRRequest"];
 
+// --- Planner config types ---
+export interface PlannerConfigResponse {
+  model: string;
+  agent_path: string;
+  timeout: number;
+}
+
+export interface PlannerConfigUpdate {
+  model?: string;
+  agent_path?: string;
+}
+
+export interface PlannerHealthResponse {
+  status: "online" | "offline";
+  model: string;
+  error?: string;
+}
+
 // ==================== Frontend-Only Constants ====================
 
 export const PRIORITY_BUCKET_VALUES: Record<PriorityBucket, number> = {

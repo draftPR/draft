@@ -8,6 +8,7 @@ import {
   BudgetSettingsCard,
   KeyboardShortcutsCard,
   WelcomeTutorialCard,
+  PlannerSettingsCard,
   type BudgetSettings,
   loadBudgetSettings,
   saveBudgetSettings,
@@ -85,6 +86,7 @@ export function SettingsPage() {
             defaultAgent={defaultAgent}
             onAgentChange={(v) => { setDefaultAgent(v); setHasChanges(true); }}
           />
+          <PlannerSettingsCard onDirty={() => setHasChanges(true)} />
         </TabsContent>
 
         <TabsContent value="budget" className="space-y-6 mt-4">
