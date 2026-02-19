@@ -90,9 +90,9 @@ class SQLiteWorker:
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get a SQLite connection with WAL mode."""
-        conn = sqlite3.connect(_DB_PATH, timeout=10)
+        conn = sqlite3.connect(_DB_PATH, timeout=30)
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA busy_timeout=30000")
         return conn
 
     def _poll_loop(self) -> None:
@@ -242,17 +242,70 @@ def setup_worker() -> SQLiteWorker:
 
     def execute_ticket_wrapper(job_id: str) -> dict:
         """Wrapper that sets up streaming context for execute_ticket."""
-        from app.worker import set_current_job, stream_finished
+        from app.worker import (
+            set_current_job, stream_finished, update_job_finished,
+            get_job_with_ticket, transition_ticket_sync,
+        )
+        from app.models.job import JobStatus
+        from app.state_machine import TicketState
         set_current_job(job_id)
         try:
             return _execute_ticket_task_impl(job_id)
+        except Exception as e:
+            logger.error(
+                f"execute_ticket crashed for job {job_id}: {e}", exc_info=True
+            )
+            try:
+                update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
+            except Exception:
+                pass
+            try:
+                result = get_job_with_ticket(job_id)
+                if result:
+                    _, ticket = result
+                    transition_ticket_sync(
+                        ticket.id,
+                        TicketState.BLOCKED,
+                        reason=f"Execution crashed: {e}",
+                        actor_id="execute_worker",
+                    )
+            except Exception:
+                pass
+            return {"job_id": job_id, "status": "failed", "error": str(e)}
         finally:
             stream_finished(job_id)
             set_current_job(None)
 
     def verify_ticket_wrapper(job_id: str) -> dict:
         """Wrapper for verify_ticket."""
-        return _verify_ticket_task_impl(job_id)
+        from app.worker import (
+            update_job_finished, get_job_with_ticket, transition_ticket_sync,
+        )
+        from app.models.job import JobStatus
+        from app.state_machine import TicketState
+        try:
+            return _verify_ticket_task_impl(job_id)
+        except Exception as e:
+            logger.error(
+                f"verify_ticket crashed for job {job_id}: {e}", exc_info=True
+            )
+            try:
+                update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
+            except Exception:
+                pass
+            try:
+                result = get_job_with_ticket(job_id)
+                if result:
+                    _, ticket = result
+                    transition_ticket_sync(
+                        ticket.id,
+                        TicketState.BLOCKED,
+                        reason=f"Verification crashed: {e}",
+                        actor_id="verify_worker",
+                    )
+            except Exception:
+                pass
+            return {"job_id": job_id, "status": "failed", "error": str(e)}
 
     def resume_ticket_wrapper(job_id: str) -> dict:
         """Wrapper for resume_ticket."""

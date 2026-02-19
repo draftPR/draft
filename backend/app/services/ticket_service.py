@@ -235,11 +235,17 @@ class TicketService:
             await self.db.flush()
             await self.db.refresh(job)
 
+            # CRITICAL: Commit BEFORE dispatching to avoid SQLite deadlock.
+            # The SQLite in-process worker picks up tasks immediately and tries
+            # to write to the same DB. If we hold the write lock (uncommitted
+            # flush), the worker blocks → deadlock with the event loop.
+            await self.db.commit()
+
             # Enqueue the verify task via unified dispatch
             from app.services.task_dispatch import enqueue_task
             task = enqueue_task("verify_ticket", args=[job.id])
 
-            # Store the task ID
+            # Store the task ID (new transaction after commit)
             job.celery_task_id = task.id
             await self.db.flush()
 

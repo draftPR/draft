@@ -743,17 +743,23 @@ def _enqueue_verify_job_sync(ticket_id: str) -> str | None:
         db.add(job)
         db.flush()
         job_id = job.id
-
-        # Enqueue the verify task
-        from app.services.task_dispatch import enqueue_task
-
-        task = enqueue_task("verify_ticket", args=[job_id])
-
-        # Store the task ID
-        job.celery_task_id = task.id
+        # Commit BEFORE enqueue_task to release the SQLite write lock.
+        # enqueue_task opens a separate sqlite3 connection which would
+        # deadlock if this session still holds the write lock.
         db.commit()
 
-        return job_id
+    # Enqueue the verify task (outside the db session to avoid deadlock)
+    from app.services.task_dispatch import enqueue_task
+
+    task = enqueue_task("verify_ticket", args=[job_id])
+
+    # Update the job with the task ID
+    with get_sync_db() as db:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job:
+            job.celery_task_id = task.id
+
+    return job_id
 
 
 def run_executor_cli(
@@ -900,11 +906,18 @@ def run_executor_cli(
         # Wait for process with timeout AND poll for cancellation
         try:
             start_time = time.time()
+            last_heartbeat_time = start_time
             while True:
                 # Check if process finished
                 exit_code = process.poll()
                 if exit_code is not None:
                     break
+
+                # Update heartbeat every 30 seconds to prevent watchdog from killing long-running jobs
+                now = time.time()
+                if job_id and now - last_heartbeat_time >= 30:
+                    update_job_heartbeat(job_id)
+                    last_heartbeat_time = now
 
                 # Check if job was canceled
                 if job_id and check_canceled(job_id):
@@ -1475,6 +1488,40 @@ def execute_ticket_task(self, job_id: str) -> dict:
 
     try:
         return _execute_ticket_task_impl(job_id)
+    except Exception as e:
+        # Catch-all: if _execute_ticket_task_impl crashes with an unhandled
+        # exception, properly fail the job and block the ticket instead of
+        # leaving them in a zombie RUNNING/EXECUTING state.
+        import logging
+        import traceback
+
+        logger = logging.getLogger(__name__)
+        logger.error(
+            f"execute_ticket_task crashed for job {job_id}: {e}",
+            exc_info=True,
+        )
+        try:
+            update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
+        except Exception:
+            pass
+        try:
+            # Try to find the ticket_id from the job to transition it
+            result = get_job_with_ticket(job_id)
+            if result:
+                _, ticket = result
+                transition_ticket_sync(
+                    ticket.id,
+                    TicketState.BLOCKED,
+                    reason=f"Execution crashed: {e}",
+                    actor_id="execute_worker",
+                )
+        except Exception:
+            pass
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "error": f"Unexpected error: {e}",
+        }
     finally:
         # Signal streaming finished and clean up
         stream_finished(job_id)
@@ -1767,27 +1814,15 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 
     # Build prompt bundle
     write_log(log_path, "Building prompt bundle...")
-    from app.executors.spec import ExecutorVariant
-
-    # Get variant from job (default to DEFAULT if not set)
-    job_variant = ExecutorVariant.DEFAULT
-    if job.variant:
-        try:
-            job_variant = ExecutorVariant(job.variant)
-            write_log(log_path, f"Using execution variant: {job_variant.value}")
-        except ValueError:
-            write_log(
-                log_path, f"WARNING: Invalid variant '{job.variant}', using default"
-            )
-
     prompt_builder = PromptBundleBuilder(worktree_path, job_id)
+    verify_commands = config.verify_config.commands if config.verify_config.commands else None
     prompt_file = prompt_builder.build_prompt(
         ticket_title=ticket.title,
         ticket_description=ticket.description,
         feedback_bundle=feedback_bundle,
         additional_context=additional_context,
         related_tickets_context=related_tickets_context,
-        variant=job_variant,
+        verify_commands=verify_commands,
     )
     write_log(log_path, f"Prompt bundle created at: {prompt_file}")
 
@@ -2224,7 +2259,32 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 @celery_app.task(bind=True, name="verify_ticket")
 def verify_ticket_task(self, job_id: str) -> dict:
     """Verify task wrapper for Celery."""
-    return _verify_ticket_task_impl(job_id)
+    try:
+        return _verify_ticket_task_impl(job_id)
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).error(
+            f"verify_ticket_task crashed for job {job_id}: {e}",
+            exc_info=True,
+        )
+        try:
+            update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
+        except Exception:
+            pass
+        try:
+            result = get_job_with_ticket(job_id)
+            if result:
+                _, ticket = result
+                transition_ticket_sync(
+                    ticket.id,
+                    TicketState.BLOCKED,
+                    reason=f"Verification crashed: {e}",
+                    actor_id="verify_worker",
+                )
+        except Exception:
+            pass
+        return {"job_id": job_id, "status": "failed", "error": str(e)}
 
 
 def _verify_ticket_task_impl(job_id: str) -> dict:

@@ -379,6 +379,7 @@ class PromptBundleBuilder:
         additional_context: str | None = None,
         feedback_bundle: dict | None = None,
         related_tickets_context: dict | None = None,
+        verify_commands: list[str] | None = None,
     ) -> Path:
         """
         Build a prompt bundle file for the executor CLI.
@@ -394,6 +395,7 @@ class PromptBundleBuilder:
                     "completed_tickets": [{"title": str, "description": str}],  # already done
                     "goal_title": str  # optional goal title
                 }
+            verify_commands: Current verification commands from smartkanban.yaml.
 
         Returns:
             Path to the created prompt file.
@@ -408,6 +410,7 @@ class PromptBundleBuilder:
             additional_context=additional_context,
             feedback_bundle=feedback_bundle,
             related_tickets_context=related_tickets_context,
+            verify_commands=verify_commands,
         )
 
         # Write the prompt file
@@ -422,6 +425,7 @@ class PromptBundleBuilder:
         additional_context: str | None = None,
         feedback_bundle: dict | None = None,
         related_tickets_context: dict | None = None,
+        verify_commands: list[str] | None = None,
     ) -> str:
         """
         Generate the content for the prompt bundle.
@@ -432,6 +436,7 @@ class PromptBundleBuilder:
             additional_context: Optional additional context.
             feedback_bundle: Optional feedback from previous revision review.
             related_tickets_context: Optional context about related tickets.
+            verify_commands: Current verification commands from smartkanban.yaml.
 
         Returns:
             Formatted prompt string.
@@ -502,6 +507,30 @@ class PromptBundleBuilder:
                - Why each change was necessary
                - Any path adaptations you made from the ticket description
         """)
+
+        # Add verification scoping instructions
+        if verify_commands:
+            commands_str = "\n".join(f"  - `{cmd}`" for cmd in verify_commands)
+            prompt += dedent(f"""\
+            ## Verification Setup
+
+            After implementing your changes, the following verification commands will run:
+            {commands_str}
+
+            **IMPORTANT**: If the verification commands above run a broad test suite (e.g., the
+            entire test file), you MUST update `smartkanban.yaml` in this worktree to scope the
+            `verify_config.commands` to ONLY the tests relevant to your changes. This prevents
+            unrelated test failures from blocking your ticket.
+
+            For example, if you fixed `fibonacci` and `is_prime`, update the verify config to:
+            ```yaml
+            verify_config:
+              commands:
+                - "python -m pytest -q test_calculator.py::TestFibonacci test_calculator.py::TestIsPrime"
+            ```
+
+            Scope the verify commands to the test classes/functions that cover your changes.
+            """)
 
         if additional_context:
             prompt += f"\n## Additional Context\n\n{additional_context}\n"

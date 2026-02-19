@@ -33,7 +33,7 @@ execute_config:
   # Options:
   #   - "claude": Claude Code CLI (recommended for automation, headless)
   #   - "cursor": Cursor CLI (interactive, opens editor for human)
-  preferred_executor: "cursor"
+  preferred_executor: "claude"
 
   # ---------------------------------------------------------------------------
   # YOLO MODE - DANGEROUS: Skip permission prompts
@@ -56,13 +56,13 @@ execute_config:
   #   - Never runs on main/master/develop branches
   #
   # Default: false (permissioned mode - safer)
-  yolo_mode: false
+  yolo_mode: true
 
   # REQUIRED when yolo_mode=true: list of trusted repo paths
   # If yolo_mode is true but this is empty, execution REFUSES for safety.
   # This prevents "I turned on YOLO and forgot" accidents.
   # Example: ["/Users/me/trusted-repo", "/home/ci/project"]
-  yolo_allowlist: []
+  yolo_allowlist: ["/Users/ellabaror/Documents/code/test/calculator"]
 
 # =============================================================================
 # EXECUTOR PROFILES
@@ -105,13 +105,7 @@ verify_config:
   # Each command is executed in the ticket's isolated worktree directory.
   # Commands run sequentially; verification stops on first failure.
   commands:
-    # Compile check: catches syntax errors
-    - "python -m compileall -q backend/app"
-    # Lint check: catches style and some logical errors
-    - "cd backend && ruff check app --select=E,F --ignore=F401"
-    # Add more as your project grows:
-    # - "cd backend && python -m pytest -q"
-    # - "cd frontend && npm run lint"
+    - "python -m pytest -q test_calculator.py"
 
   # Note: After verification passes, tickets always go to 'needs_human' for review.
   # Only when the user explicitly approves the revision does it move to 'done'.

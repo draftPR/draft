@@ -27,9 +27,9 @@ if _DATABASE_URL:
 
 def _get_conn() -> sqlite3.Connection:
     """Get a SQLite connection with WAL mode."""
-    conn = sqlite3.connect(_DB_PATH, timeout=10)
+    conn = sqlite3.connect(_DB_PATH, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 

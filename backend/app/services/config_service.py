@@ -56,6 +56,7 @@ class ExecuteConfig:
 
     timeout: int = 600  # seconds (default 10 minutes)
     preferred_executor: str = "claude"  # "claude" (headless) or "cursor" (interactive)
+    executor_model: str | None = None  # Optional model override for executor
     yolo_mode: bool = False  # DANGEROUS: skip permissions prompts (opt-in only)
     yolo_allowlist: list[str] = field(
         default_factory=list
@@ -67,6 +68,7 @@ class ExecuteConfig:
         return cls(
             timeout=data.get("timeout", 600),
             preferred_executor=data.get("preferred_executor", "claude"),
+            executor_model=data.get("executor_model"),
             yolo_mode=data.get("yolo_mode", False),
             yolo_allowlist=data.get("yolo_allowlist") or [],
         )
@@ -607,6 +609,7 @@ class ConfigService:
                 git_root = subprocess.run(
                     ["git", "rev-parse", "--show-toplevel"],
                     capture_output=True, text=True, timeout=5,
+                    cwd=str(self.repo_path),
                 ).stdout.strip()
                 if git_root and (Path(git_root) / self.CONFIG_FILENAME).exists():
                     self.repo_path = Path(git_root)
@@ -652,6 +655,58 @@ class ConfigService:
             return SmartKanbanConfig()
         except OSError:
             return SmartKanbanConfig()
+
+    def load_config_with_board_overrides(
+        self,
+        board_config: dict[str, Any] | None = None,
+        use_cache: bool = False,
+    ) -> SmartKanbanConfig:
+        """Load config from file and apply board-level overrides.
+
+        Args:
+            board_config: Optional dict of board-level config overrides.
+                         Keys match smartkanban.yaml sections (e.g. execute_config, planner_config).
+            use_cache: Whether to use cached config.
+
+        Returns:
+            SmartKanbanConfig with board overrides merged in.
+        """
+        config = self.load_config(use_cache=use_cache)
+
+        if not board_config:
+            return config
+
+        # Merge board overrides into the loaded config
+        if "execute_config" in board_config and isinstance(
+            board_config["execute_config"], dict
+        ):
+            ec = board_config["execute_config"]
+            if "timeout" in ec:
+                config.execute_config.timeout = ec["timeout"]
+            if "preferred_executor" in ec:
+                config.execute_config.preferred_executor = ec["preferred_executor"]
+            if "yolo_mode" in ec:
+                config.execute_config.yolo_mode = ec["yolo_mode"]
+
+        if "planner_config" in board_config and isinstance(
+            board_config["planner_config"], dict
+        ):
+            pc = board_config["planner_config"]
+            if "model" in pc:
+                config.planner_config.model = pc["model"]
+            if "agent_path" in pc:
+                config.planner_config.agent_path = pc["agent_path"]
+            if "timeout" in pc:
+                config.planner_config.timeout = pc["timeout"]
+
+        if "verify_config" in board_config and isinstance(
+            board_config["verify_config"], dict
+        ):
+            vc = board_config["verify_config"]
+            if "commands" in vc:
+                config.verify_config.commands = vc["commands"]
+
+        return config
 
     def clear_cache(self) -> None:
         """Clear the configuration cache."""

@@ -410,6 +410,17 @@ async def execute_ticket(
             f"Ticket must be in PLANNED, NEEDS_HUMAN, or DONE state.",
         )
 
+    # Check dependency: ticket cannot execute if blocked by an incomplete ticket
+    if ticket.is_blocked_by_dependency:
+        blocker_title = (
+            ticket.blocked_by.title if ticket.blocked_by else "unknown"
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot execute: ticket is blocked by '{blocker_title}' "
+            f"(id: {ticket.blocked_by_ticket_id}) which is not yet done.",
+        )
+
     job_service = JobService(db)
     job = await job_service.create_job(ticket_id, JobKind.EXECUTE)
 
@@ -443,7 +454,7 @@ async def run_ticket(
 
     Enqueue an execute job for a ticket.
     """
-    return await execute_ticket(ticket_id, db)
+    return await execute_ticket(ticket_id, db=db)
 
 
 @router.post(
