@@ -2,6 +2,12 @@
 
 An AI-powered local-first kanban board that uses AI agents to automatically implement tickets. It creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the results, and manages the workflow through a state machine.
 
+## Demo
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Alma Kanban Demo" width="900" />
+</p>
+
 ## Screenshots
 
 ### Kanban Board
