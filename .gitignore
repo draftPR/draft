@@ -66,3 +66,5 @@ htmlcov/
 !AGENTS.md
 !README.md
 
+*.db-shm
+*.db-wal
