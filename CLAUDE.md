@@ -7,26 +7,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Alma Kanban is an AI-powered local-first kanban board that uses AI agents to automatically implement tickets. It creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the changes, and manages the workflow through a state machine.
 
 **Tech Stack:**
-- Backend: FastAPI + SQLAlchemy (async) + Celery + Redis
+- Backend: FastAPI + SQLAlchemy (async) + SQLite
 - Frontend: React + Vite + TypeScript + Tailwind CSS + shadcn/ui
 - Database: SQLite with Alembic migrations
-- Background Jobs: Celery workers with Redis broker
+- Background Jobs: In-process SQLiteWorker (ThreadPoolExecutor)
 - AI Executors: Claude Code CLI or Cursor Agent CLI
 
 ## Development Commands
 
 ```bash
 make setup              # Install all dependencies (backend venv + frontend npm)
-make run                # Start ALL services (Redis, Backend, Worker, Frontend)
+make run                # Start backend + frontend (2 processes)
 make db-migrate         # Run Alembic migrations (alembic upgrade head)
 make lint               # Run ruff (backend) + ESLint (frontend)
 make format             # Format with ruff + Prettier
 
-# Manual service startup (4 terminals)
-make redis              # Terminal 1: Start Redis
-make dev-backend        # Terminal 2: FastAPI at http://localhost:8000
-make dev-worker         # Terminal 3: Celery worker (--pool=solo)
-make dev-frontend       # Terminal 4: Vite at http://localhost:5173
+# Manual service startup (2 terminals)
+make dev-backend        # Terminal 1: FastAPI at http://localhost:8000
+make dev-frontend       # Terminal 2: Vite at http://localhost:5173
 
 # Testing
 cd backend && source venv/bin/activate
@@ -41,7 +39,6 @@ alembic upgrade head
 
 # Health checks
 curl http://localhost:8000/health
-redis-cli ping
 ```
 
 API docs auto-generated at http://localhost:8000/docs
@@ -96,17 +93,17 @@ Key services: `WorkspaceService` (creates worktrees), `WorktreeValidator` (valid
 
 ### Background Job System
 
-Jobs are Celery tasks that execute or verify tickets:
+Jobs run in-process via `SQLiteWorker` (ThreadPoolExecutor + SQLite job queue):
 
 1. Frontend/planner calls `POST /tickets/{id}/run` or `/verify`
-2. Backend creates Job record (`QUEUED`), returns immediately
-3. Celery worker picks up task, runs in isolated worktree, streams logs via Redis SSE
+2. Backend creates Job record (`QUEUED`) and enqueues into `job_queue` table
+3. SQLiteWorker polls, claims task, runs in isolated worktree, streams logs via in-memory broadcaster
 4. Job transitions: `QUEUED → RUNNING → SUCCEEDED/FAILED/CANCELED`
 5. Job results trigger ticket state transitions
 
-Key files: `worker.py` (Celery tasks), `celery_app.py` (config + Beat scheduler), `job_service.py` (CRUD), `job_watchdog_service.py` (auto-cancels stuck jobs)
+Key files: `worker.py` (task implementations), `sqlite_worker.py` (job runner + periodic scheduler), `task_dispatch.py` (enqueue), `job_service.py` (CRUD), `job_watchdog_service.py` (auto-cancels stuck jobs)
 
-**Celery Beat** runs periodic tasks: PR status polling, job watchdog, worktree cleanup.
+**Periodic tasks** (run by SQLiteWorker scheduler): job watchdog (15s), planner tick (2s), PR status polling (5min).
 
 ### AI Executor System
 
@@ -161,9 +158,9 @@ Use `TicketGenerationService` for generating tickets from goals; `PlannerService
 
 ### Middleware
 
-**Idempotency** (`idempotency.py`): Atomic first-writer-wins via Redis SETNX. Guarantees exactly-once execution for LLM operations. Key includes `(client_id, route, resource_scope, idempotency_key)`. Returns `409 Conflict` for same key + different body. Redis required (503 if unavailable).
+**Idempotency** (`idempotency.py`): Atomic first-writer-wins via SQLite. Guarantees exactly-once execution for LLM operations. Key includes `(client_id, route, resource_scope, idempotency_key)`. Returns `409 Conflict` for same key + different body.
 
-**Rate Limiting** (`rate_limit.py`): 10 req/min for LLM endpoints using Redis.
+**Rate Limiting** (`rate_limit.py`): Cost-based budget per client for LLM endpoints using SQLite.
 
 ### Data Model Relationships
 
@@ -188,13 +185,12 @@ Evidence is NOT cascade deleted (orphaned evidence cleaned by maintenance tasks)
 ### Async vs Sync Database
 
 - **FastAPI routes:** Async SQLAlchemy via `database.get_db()`
-- **Celery workers:** Sync SQLAlchemy via `database_sync.get_sync_db()`
+- **Background worker:** Sync SQLAlchemy via `database_sync.get_sync_db()`
 - Models are shared but sessions differ. Use `db.expunge()` before passing objects between contexts.
 
 ### Testing
 
 - Tests use `asyncio_mode = "auto"` (configured in `pyproject.toml`) — no need for `@pytest.mark.asyncio`
-- Integration tests require Redis (marked with `-m integration`)
 - Mock LLM calls in tests to avoid API costs
 - Fixtures in `backend/tests/conftest.py`
 
@@ -217,7 +213,7 @@ Ruff ignores `B008` (function call in default argument) because FastAPI's `Depen
 
 ### Configuration Files
 
-- `backend/.env`: Database URL, CORS, Redis, AWS credentials (copy from `.env.example`)
+- `backend/.env`: Database URL, CORS, AWS credentials (copy from `.env.example`)
 - `smartkanban.yaml` (repo root): Executor config, verification commands, cleanup TTLs, planner settings, merge strategy
 - `backend/pyproject.toml`: Ruff + pytest config
 

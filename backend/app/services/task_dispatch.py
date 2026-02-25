@@ -1,6 +1,6 @@
-"""Unified task dispatch for both Celery and SQLite backends.
+"""Task dispatch via SQLite job_queue table.
 
-Replaces direct celery_app.send_task() / .delay() calls throughout the codebase.
+Enqueues background tasks for the in-process SQLiteWorker to pick up.
 """
 
 import json
@@ -8,15 +8,13 @@ import logging
 import time
 import uuid
 
-from app.task_backend import is_sqlite_backend
-
 logger = logging.getLogger(__name__)
 
 
 class TaskHandle:
     """Opaque handle returned by enqueue_task.
 
-    Compatible with Celery's AsyncResult interface (has .id attribute).
+    Has .id attribute for compatibility with job tracking.
     """
 
     def __init__(self, task_id: str):
@@ -24,7 +22,7 @@ class TaskHandle:
 
 
 def enqueue_task(task_name: str, args: list | None = None) -> TaskHandle:
-    """Enqueue a task via SQLite or Celery based on TASK_BACKEND.
+    """Enqueue a task into the SQLite job_queue table.
 
     Args:
         task_name: The task name (e.g., "execute_ticket", "verify_ticket")
@@ -33,20 +31,11 @@ def enqueue_task(task_name: str, args: list | None = None) -> TaskHandle:
     Returns:
         TaskHandle with .id attribute (task ID string)
     """
-    args = args or []
-
-    if is_sqlite_backend():
-        return _enqueue_sqlite(task_name, args)
-    else:
-        return _enqueue_celery(task_name, args)
-
-
-def _enqueue_sqlite(task_name: str, args: list) -> TaskHandle:
-    """Insert a task into the job_queue table with retry on lock."""
     import sqlite3
 
     from app.sqlite_kv import _DB_PATH
 
+    args = args or []
     task_id = str(uuid.uuid4())
 
     max_retries = 5
@@ -61,7 +50,7 @@ def _enqueue_sqlite(task_name: str, args: list) -> TaskHandle:
                 (task_id, task_name, json.dumps(args)),
             )
             conn.commit()
-            logger.info(f"Enqueued SQLite task {task_id} ({task_name})")
+            logger.info(f"Enqueued task {task_id} ({task_name})")
             return TaskHandle(task_id)
         except sqlite3.OperationalError as e:
             if "locked" in str(e) and attempt < max_retries - 1:
@@ -77,12 +66,3 @@ def _enqueue_sqlite(task_name: str, args: list) -> TaskHandle:
 
     # Should not reach here, but just in case
     raise sqlite3.OperationalError("database is locked after all retries")
-
-
-def _enqueue_celery(task_name: str, args: list) -> TaskHandle:
-    """Enqueue via Celery send_task."""
-    from app.celery_app import celery_app
-
-    result = celery_app.send_task(task_name, args=args)
-    logger.info(f"Enqueued Celery task {result.id} ({task_name})")
-    return TaskHandle(result.id)

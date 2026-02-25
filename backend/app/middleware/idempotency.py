@@ -30,8 +30,6 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from app.task_backend import is_sqlite_backend
-
 logger = logging.getLogger(__name__)
 
 # Endpoints that support idempotency (expensive LLM operations that mutate state)
@@ -157,11 +155,8 @@ def _generate_execution_id() -> str:
 
 
 def _backend_available() -> bool:
-    """Check if the idempotency backend (Redis or SQLite) is available."""
-    if is_sqlite_backend():
-        return True  # SQLite is always available
-    from app.redis_client import redis_available
-    return redis_available()
+    """Check if the idempotency backend is available."""
+    return True  # SQLite is always available
 
 
 class IdempotencyMiddleware(BaseHTTPMiddleware):
@@ -236,16 +231,10 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         execution_id = _generate_execution_id()
 
         try:
-            if is_sqlite_backend():
-                return await self._dispatch_sqlite(
-                    request, call_next, body, body_hash, base_key,
-                    idempotency_key, execution_id
-                )
-            else:
-                return await self._dispatch_redis(
-                    request, call_next, body, body_hash, base_key,
-                    idempotency_key, execution_id
-                )
+            return await self._dispatch_sqlite(
+                request, call_next, body, body_hash, base_key,
+                idempotency_key, execution_id
+            )
 
         except Exception as e:
             logger.error(f"Idempotency error: {e}")
@@ -263,13 +252,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         self, request, call_next, body, body_hash, base_key,
         idempotency_key, execution_id,
     ) -> Response:
-        from app.sqlite_kv import (
-            idempotency_get_lock,
-            idempotency_get_result,
-            idempotency_release_lock,
-            idempotency_store_result,
-            idempotency_try_acquire,
-        )
+        from app.sqlite_kv import idempotency_try_acquire
 
         lock_value = json.dumps({
             "body_hash": body_hash,
@@ -389,57 +372,6 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             },
         )
 
-    # ─── Redis backend ───
-
-    async def _dispatch_redis(
-        self, request, call_next, body, body_hash, base_key,
-        idempotency_key, execution_id,
-    ) -> Response:
-        from app.redis_client import get_redis
-
-        redis_client = get_redis()
-        lock_key = f"{REDIS_LOCK_PREFIX}{base_key}"
-        result_key = f"{REDIS_RESULT_PREFIX}{base_key}"
-
-        lock_value = json.dumps({
-            "body_hash": body_hash,
-            "execution_id": execution_id,
-            "started_at": time.time(),
-        })
-
-        def _redis_acquire_lock():
-            return redis_client.set(
-                lock_key, lock_value, nx=True, ex=LOCK_TTL_SECONDS
-            )
-
-        try:
-            acquired = await asyncio.wait_for(
-                asyncio.to_thread(_redis_acquire_lock),
-                timeout=5.0
-            )
-        except asyncio.TimeoutError:
-            logger.error(f"Redis lock acquisition timed out for key {idempotency_key[:8]}...")
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "detail": "Service temporarily unavailable due to lock timeout.",
-                    "error_type": "service_unavailable",
-                    "retry_after_seconds": 5,
-                },
-                headers={"Retry-After": "5"},
-            )
-
-        if acquired:
-            return await self._execute_and_cache(
-                request, call_next, body, body_hash, redis_client,
-                lock_key, result_key, idempotency_key, execution_id
-            )
-        else:
-            return await self._blocking_wait_for_result(
-                redis_client, lock_key, result_key, body_hash,
-                idempotency_key, execution_id
-            )
-
     def _service_unavailable(self) -> JSONResponse:
         """Return 503 when backend is unavailable."""
         return JSONResponse(
@@ -450,145 +382,4 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                 "retry_after_seconds": 30,
             },
             headers={"Retry-After": "30"},
-        )
-
-    async def _execute_and_cache(
-        self,
-        request: Request,
-        call_next,
-        body: bytes,
-        body_hash: str,
-        redis_client,
-        lock_key: str,
-        result_key: str,
-        idempotency_key: str,
-        execution_id: str,
-    ) -> Response:
-        """Execute the request and cache the result (Redis backend)."""
-        async def receive():
-            return {"type": "http.request", "body": body}
-        request._receive = receive
-
-        try:
-            response = await call_next(request)
-
-            # Read response body
-            response_body = b""
-            async for chunk in response.body_iterator:
-                response_body += chunk
-
-            # Cache result with execution_id
-            result_data = json.dumps({
-                "status_code": response.status_code,
-                "body": response_body.decode("utf-8"),
-                "body_hash": body_hash,
-                "execution_id": execution_id,
-                "completed_at": time.time(),
-            })
-            redis_client.setex(result_key, CACHE_TTL_SECONDS, result_data)
-
-            # Release lock (delete it - result is now available)
-            redis_client.delete(lock_key)
-
-            logger.debug(f"Executed and cached for key: {idempotency_key[:8]}... exec_id: {execution_id[:8]}...")
-
-            return Response(
-                content=response_body,
-                status_code=response.status_code,
-                media_type="application/json",
-                headers={"X-Execution-ID": execution_id},
-            )
-
-        except Exception:
-            # On error, release lock so others can retry
-            redis_client.delete(lock_key)
-            raise
-
-    async def _blocking_wait_for_result(
-        self,
-        redis_client,
-        lock_key: str,
-        result_key: str,
-        body_hash: str,
-        idempotency_key: str,
-        our_execution_id: str,
-    ) -> Response:
-        """Blocking wait for another request to complete (Redis backend)."""
-        start_time = time.time()
-        max_wait = WAIT_TIMEOUT_SECONDS
-        original_execution_id: str | None = None
-
-        while time.time() - start_time < max_wait:
-            result_data = redis_client.get(result_key)
-            if result_data:
-                cached = json.loads(result_data)
-
-                if cached.get("body_hash") != body_hash:
-                    logger.warning(
-                        f"Idempotency key reused with different body: {idempotency_key[:8]}..."
-                    )
-                    return JSONResponse(
-                        status_code=409,
-                        content={
-                            "detail": "Idempotency key already used with different request body",
-                            "error_type": "idempotency_conflict",
-                            "original_execution_id": cached.get("execution_id"),
-                        },
-                    )
-
-                logger.info(f"Idempotency cache hit: {idempotency_key[:8]}... exec_id: {cached.get('execution_id', 'unknown')[:8]}...")
-                return Response(
-                    content=cached["body"].encode() if isinstance(cached["body"], str) else cached["body"],
-                    status_code=cached["status_code"],
-                    media_type="application/json",
-                    headers={
-                        "X-Idempotency-Replayed": "true",
-                        "X-Execution-ID": cached.get("execution_id", "unknown"),
-                    },
-                )
-
-            lock_data = redis_client.get(lock_key)
-            if not lock_data:
-                result_data = redis_client.get(result_key)
-                if result_data:
-                    cached = json.loads(result_data)
-                    if cached.get("body_hash") != body_hash:
-                        return JSONResponse(
-                            status_code=409,
-                            content={
-                                "detail": "Idempotency key already used with different request body",
-                                "error_type": "idempotency_conflict",
-                            },
-                        )
-                    return Response(
-                        content=cached["body"].encode(),
-                        status_code=cached["status_code"],
-                        media_type="application/json",
-                        headers={
-                            "X-Idempotency-Replayed": "true",
-                            "X-Execution-ID": cached.get("execution_id", "unknown"),
-                        },
-                    )
-                break
-
-            try:
-                lock_info = json.loads(lock_data)
-                original_execution_id = lock_info.get("execution_id")
-            except (json.JSONDecodeError, TypeError):
-                original_execution_id = "unknown"
-
-            await asyncio.sleep(POLL_INTERVAL_MS / 1000)
-
-        return JSONResponse(
-            status_code=202,
-            content={
-                "detail": "Request is being processed. Poll for result using execution_id.",
-                "error_type": "processing",
-                "execution_id": original_execution_id or our_execution_id,
-                "retry_after_seconds": 2,
-            },
-            headers={
-                "Retry-After": "2",
-                "X-Execution-ID": original_execution_id or our_execution_id,
-            },
         )

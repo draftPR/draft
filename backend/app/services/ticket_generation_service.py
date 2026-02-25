@@ -165,8 +165,13 @@ class TicketGenerationService:
 
         repo_root = Path(repo_root)
 
-        # Build prompt for agent
-        prompt = self._build_agent_ticket_generation_prompt(goal, include_readme)
+        # Fetch existing tickets for this goal to prevent duplicates
+        existing_tickets = await self._get_existing_tickets(goal_id)
+
+        # Build prompt for agent (includes existing tickets for dedup awareness)
+        prompt = self._build_agent_ticket_generation_prompt(
+            goal, include_readme, existing_tickets
+        )
 
         # Call agent to generate tickets (run in thread pool to avoid blocking event loop)
         logger.info(f"Calling agent CLI for goal '{goal.title}' (streaming={'yes' if stream_callback else 'no'})")
@@ -257,10 +262,18 @@ class TicketGenerationService:
                     logger.warning(f"Skipping ticket with invalid title (len={len(title)})")
                     continue
 
-                # Dedup check - only block on exact match
-                status, _, _, _ = self._check_duplicate(title, existing_tickets)
+                # Dedup check - block on exact match and high-similarity matches
+                status, dup_id, dup_title, similarity = self._check_duplicate(
+                    title, existing_tickets
+                )
                 if status == "exact":
                     logger.info(f"Skipping exact duplicate ticket: {title[:50]}")
+                    continue
+                if status == "similar" and similarity >= 0.7:
+                    logger.info(
+                        f"Skipping near-duplicate ticket: '{title[:50]}' "
+                        f"(similar to '{dup_title}', score={similarity:.2f})"
+                    )
                     continue
 
                 # Parse priority bucket
@@ -1021,22 +1034,39 @@ Guidelines:
     # =========================================================================
 
     def _build_agent_ticket_generation_prompt(
-        self, goal: Goal, include_readme: bool = False
+        self,
+        goal: Goal,
+        include_readme: bool = False,
+        existing_tickets: list[tuple[str, str]] | None = None,
     ) -> str:
         """Build prompt for agent-based ticket generation.
 
         The agent will analyze the codebase in the workspace and generate tickets.
         """
+        # Build the existing tickets section
+        existing_section = ""
+        if existing_tickets:
+            ticket_lines = "\n".join(
+                f"- {title}" for _, title in existing_tickets
+            )
+            existing_section = f"""
+## Existing Tickets (DO NOT DUPLICATE)
+The following tickets already exist for this goal. Do NOT create tickets that overlap with or duplicate these:
+{ticket_lines}
+
+"""
+
         prompt = f"""# Task: Generate Implementation Tickets
 
 ## Goal
 **{goal.title}**
 
 {goal.description or "No additional description provided."}
-
+{existing_section}
 ## Instructions
 
 Analyze this codebase and break down the goal into 2-5 specific, actionable tickets.
+{"**Skip any work already covered by the existing tickets listed above.**" if existing_tickets else ""}
 
 **IMPORTANT**: Your response MUST include a JSON code block with the tickets. Use this exact format:
 

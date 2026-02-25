@@ -118,6 +118,28 @@ export async function getExecutorModels(executor: string): Promise<ExecutorModel
   return apiFetch<ExecutorModel[]>(`/executors/${executor}/models`);
 }
 
+export interface ExecutorProfile {
+  name: string;
+  executor_type: string;
+  timeout: number;
+  extra_flags: string[];
+  model: string | null;
+  env: Record<string, string>;
+}
+
+export async function fetchExecutorProfiles(): Promise<ExecutorProfile[]> {
+  return apiFetch<ExecutorProfile[]>("/executors/profiles");
+}
+
+export async function saveExecutorProfiles(
+  profiles: ExecutorProfile[],
+): Promise<ExecutorProfile[]> {
+  return apiFetch<ExecutorProfile[]>("/executors/profiles", {
+    method: "PUT",
+    body: JSON.stringify(profiles),
+  });
+}
+
 export async function deleteAllTickets(boardId: string): Promise<{ message: string }> {
   return apiFetch<{ message: string }>(`/boards/${boardId}/tickets`, {
     method: "DELETE",
@@ -320,8 +342,11 @@ export async function fetchTicket(ticketId: string): Promise<Ticket> {
  * 
  * @returns The created job
  */
-export async function executeTicket(ticketId: string): Promise<Job> {
-  return apiFetch<Job>(`/tickets/${ticketId}/execute`, {
+export async function executeTicket(ticketId: string, executorProfile?: string): Promise<Job> {
+  const url = executorProfile
+    ? `/tickets/${ticketId}/execute?executor_profile=${encodeURIComponent(executorProfile)}`
+    : `/tickets/${ticketId}/execute`;
+  return apiFetch<Job>(url, {
     method: "POST",
   });
 }
@@ -762,6 +787,7 @@ export function streamAgentLogs(
         // Normalized log entry from cursor-agent JSON parsing
         try {
           const entry = JSON.parse(content) as StreamNormalizedEntry;
+          entry.timestamp = entry.timestamp || new Date().toISOString();
           onMessage({ normalized: entry });
         } catch (e) {
           console.error("Failed to parse normalized entry:", e);
@@ -840,6 +866,127 @@ export async function cancelQueuedMessage(
   return apiFetch<QueuedMessageStatus>(`/tickets/${ticketId}/queue`, {
     method: "DELETE",
   });
+}
+
+// ==================== Conflict Resolution API ====================
+
+import type {
+  ConflictStatusResponse,
+  RebaseResponse,
+  AbortResponse,
+  PushResponse,
+  PushStatusResponse,
+  PRComment,
+  AddPRCommentRequest,
+  MergePRRequest,
+} from "@/types/api";
+
+export async function fetchConflictStatus(
+  ticketId: string
+): Promise<ConflictStatusResponse> {
+  return apiFetch<ConflictStatusResponse>(`/tickets/${ticketId}/conflict-status`);
+}
+
+export async function rebaseTicket(
+  ticketId: string,
+  ontoBranch: string = "main"
+): Promise<RebaseResponse> {
+  return apiFetch<RebaseResponse>(
+    `/tickets/${ticketId}/rebase?onto_branch=${encodeURIComponent(ontoBranch)}`,
+    { method: "POST" }
+  );
+}
+
+export async function continueRebase(
+  ticketId: string
+): Promise<RebaseResponse> {
+  return apiFetch<RebaseResponse>(`/tickets/${ticketId}/continue-rebase`, {
+    method: "POST",
+  });
+}
+
+export async function abortConflict(
+  ticketId: string
+): Promise<AbortResponse> {
+  return apiFetch<AbortResponse>(`/tickets/${ticketId}/abort-conflict`, {
+    method: "POST",
+  });
+}
+
+// ==================== Push API ====================
+
+/**
+ * Check if a ticket's branch needs to be pushed to remote
+ */
+export async function fetchPushStatus(
+  ticketId: string
+): Promise<PushStatusResponse> {
+  return apiFetch<PushStatusResponse>(`/tickets/${ticketId}/push-status`);
+}
+
+/**
+ * Push a ticket's branch to remote
+ */
+export async function pushTicketBranch(
+  ticketId: string
+): Promise<PushResponse> {
+  return apiFetch<PushResponse>(`/tickets/${ticketId}/push`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Force-push a ticket's branch to remote (uses --force-with-lease)
+ */
+export async function forcePushTicketBranch(
+  ticketId: string
+): Promise<PushResponse> {
+  return apiFetch<PushResponse>(`/tickets/${ticketId}/force-push`, {
+    method: "POST",
+  });
+}
+
+// ==================== PR Comments & Merge API ====================
+
+/**
+ * Add a comment to a ticket's PR
+ */
+export async function addPRComment(
+  ticketId: string,
+  body: string
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch<{ success: boolean; message: string }>(
+    `/pull-requests/${ticketId}/comments`,
+    {
+      method: "POST",
+      body: JSON.stringify({ body } satisfies AddPRCommentRequest),
+    }
+  );
+}
+
+/**
+ * List all comments on a ticket's PR
+ */
+export async function listPRComments(
+  ticketId: string
+): Promise<PRComment[]> {
+  return apiFetch<PRComment[]>(`/pull-requests/${ticketId}/comments`);
+}
+
+/**
+ * Merge a ticket's PR on GitHub
+ */
+export async function mergePR(
+  ticketId: string,
+  strategy: MergePRRequest["strategy"] = "squash"
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch<{ success: boolean; message: string }>(
+    `/pull-requests/${ticketId}/merge`,
+    {
+      method: "POST",
+      body: JSON.stringify({ strategy } satisfies MergePRRequest),
+    }
+  );
 }
 
 // ==================== Dashboard API ====================

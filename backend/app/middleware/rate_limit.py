@@ -17,13 +17,11 @@ import asyncio
 import json
 import logging
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-
-from app.task_backend import is_sqlite_backend
 
 logger = logging.getLogger(__name__)
 
@@ -163,10 +161,7 @@ def _compute_actual_cost(response_body: bytes, estimated_cost: int) -> int:
 
 def _backend_available() -> bool:
     """Check if the rate limit backend is available."""
-    if is_sqlite_backend():
-        return True
-    from app.redis_client import redis_available
-    return redis_available()
+    return True  # SQLite is always available
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -224,14 +219,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         now = time.time()
 
         try:
-            if is_sqlite_backend():
-                current_cost, oldest_time = await self._check_sqlite(
-                    client_id, route_key, estimated_cost
-                )
-            else:
-                current_cost, oldest_time = await self._check_redis(
-                    client_id, route_key, estimated_cost, now
-                )
+            current_cost, oldest_time = await self._check_sqlite(
+                client_id, route_key, estimated_cost
+            )
         except Exception as e:
             logger.error(f"Rate limit check failed: {e}")
             return JSONResponse(
@@ -268,13 +258,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "X-RateLimit-Reset": str(int(now + retry_after)),
                 },
             )
-
-        # Record cost (SQLite already recorded in check step; Redis needs separate record)
-        if not is_sqlite_backend():
-            try:
-                await self._record_redis(client_id, route_key, estimated_cost, now)
-            except Exception as e:
-                logger.error(f"Failed to record rate limit cost: {e}")
 
         # Reconstruct request with body
         async def receive():
@@ -324,59 +307,3 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             rate_limit_check_and_record, client_key, estimated_cost, self.window_seconds
         )
 
-    # ─── Redis backend ───
-
-    async def _check_redis(
-        self, client_id: str, route_key: str, estimated_cost: int, now: float
-    ) -> tuple[int, float]:
-        """Check rate limit via Redis. Returns (current_cost, oldest_time)."""
-        from app.redis_client import get_redis
-
-        redis_client = get_redis()
-        window_start = now - self.window_seconds
-        redis_key = f"{REDIS_KEY_PREFIX}{client_id}:{route_key}"
-
-        def _redis_rate_limit_check():
-            pipe = redis_client.pipeline()
-            pipe.zremrangebyscore(redis_key, 0, window_start)
-            pipe.zrange(redis_key, 0, -1, withscores=True)
-            results = pipe.execute()
-            return results[1]
-
-        try:
-            entries = await asyncio.wait_for(
-                asyncio.to_thread(_redis_rate_limit_check),
-                timeout=5.0
-            )
-        except asyncio.TimeoutError:
-            logger.error(f"Redis rate limit check timed out for {client_id}")
-            raise
-
-        current_cost = 0
-        oldest_time = now
-        for member, score in entries:
-            try:
-                _, cost_str = member.split(":", 1)
-                current_cost += int(cost_str)
-                if score < oldest_time:
-                    oldest_time = score
-            except (ValueError, AttributeError):
-                current_cost += BASE_COST
-
-        return current_cost, oldest_time
-
-    async def _record_redis(
-        self, client_id: str, route_key: str, estimated_cost: int, now: float
-    ) -> None:
-        """Record cost entry in Redis."""
-        from app.redis_client import get_redis
-
-        redis_client = get_redis()
-        redis_key = f"{REDIS_KEY_PREFIX}{client_id}:{route_key}"
-
-        def _redis_record_cost():
-            member = f"{now}:{estimated_cost}"
-            redis_client.zadd(redis_key, {member: now})
-            redis_client.expire(redis_key, self.window_seconds + 10)
-
-        await asyncio.to_thread(_redis_record_cost)

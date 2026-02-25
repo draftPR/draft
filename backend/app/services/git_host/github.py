@@ -69,6 +69,13 @@ class GitHubProvider:
     ) -> PullRequest:
         await self.ensure_authenticated()
 
+        # Push branch to remote first (required for PR creation)
+        from app.services.git_ops import push_branch
+
+        push_result = push_branch(repo_path, head_branch)
+        if not push_result.success:
+            raise RuntimeError(f"Failed to push branch before PR creation: {push_result.message}")
+
         cmd = [
             self.gh_path,
             "pr",
@@ -158,3 +165,106 @@ class GitHubProvider:
             return json.loads(result.stdout)
         except Exception as e:
             raise RuntimeError(f"Failed to get PR details: {e}")
+
+    async def add_pr_comment(
+        self, repo_path: Path, pr_number: int, body: str
+    ) -> dict:
+        """Add a comment to a PR."""
+        await self.ensure_authenticated()
+
+        cmd = [
+            self.gh_path,
+            "pr",
+            "comment",
+            str(pr_number),
+            "--body",
+            body,
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd, cwd=repo_path, capture_output=True, text=True, timeout=15
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"Failed to add PR comment: {result.stderr.strip()}")
+            return {"success": True, "message": "Comment added"}
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("PR comment timed out")
+        except RuntimeError:
+            raise
+        except Exception as e:
+            raise RuntimeError(f"Failed to add PR comment: {e}")
+
+    async def list_pr_comments(
+        self, repo_path: Path, pr_number: int
+    ) -> list[dict]:
+        """List comments on a PR."""
+        await self.ensure_authenticated()
+
+        cmd = [
+            self.gh_path,
+            "pr",
+            "view",
+            str(pr_number),
+            "--json",
+            "comments",
+            "--jq",
+            ".comments",
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd, cwd=repo_path, capture_output=True, text=True, timeout=10
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"Failed to list PR comments: {result.stderr.strip()}")
+            return json.loads(result.stdout) if result.stdout.strip() else []
+        except Exception as e:
+            raise RuntimeError(f"Failed to list PR comments: {e}")
+
+    async def merge_pr(
+        self,
+        repo_path: Path,
+        pr_number: int,
+        strategy: str = "squash",
+    ) -> dict:
+        """Merge a PR with the given strategy.
+
+        Args:
+            repo_path: Repo path for gh CLI context
+            pr_number: PR number to merge
+            strategy: One of 'squash', 'merge', 'rebase'
+        """
+        await self.ensure_authenticated()
+
+        strategy_flag = {
+            "squash": "--squash",
+            "merge": "--merge",
+            "rebase": "--rebase",
+        }.get(strategy, "--squash")
+
+        cmd = [
+            self.gh_path,
+            "pr",
+            "merge",
+            str(pr_number),
+            strategy_flag,
+            "--delete-branch",
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd, cwd=repo_path, capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"Failed to merge PR: {result.stderr.strip()}")
+            return {
+                "success": True,
+                "message": f"PR #{pr_number} merged via {strategy}",
+            }
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("PR merge timed out after 30 seconds")
+        except RuntimeError:
+            raise
+        except Exception as e:
+            raise RuntimeError(f"Failed to merge PR: {e}")

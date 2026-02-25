@@ -459,6 +459,19 @@ async def submit_review(
             # Get ticket to check current state
             ticket = await ticket_service.get_ticket_by_id(revision.ticket_id)
 
+            # Detect target branch from board config or git
+            target_branch = "main"  # fallback
+            if ticket.board_id:
+                from sqlalchemy import select as sql_select_board
+                from app.models.board import Board
+
+                board_result = await db.execute(
+                    sql_select_board(Board).where(Board.id == ticket.board_id)
+                )
+                board = board_result.scalar_one_or_none()
+                if board and board.default_branch:
+                    target_branch = board.default_branch
+
             # CRITICAL: Do NOT transition to DONE yet - it triggers worktree cleanup!
             # We need the worktree to exist for PR creation or merge.
             # Transition happens AFTER merge/PR creation.
@@ -495,7 +508,7 @@ async def submit_review(
                                 f"Ticket ID: {ticket.id}"
                             ),
                             head_branch=head_branch,
-                            base_branch="main",
+                            base_branch=target_branch,
                         )
 
                         # Update ticket with PR information
@@ -528,6 +541,7 @@ async def submit_review(
                         actor_type=TicketActorType.HUMAN,
                         reason="Revision approved by reviewer",
                         auto_verify=False,
+                        skip_cleanup=True,  # Worktree kept for PR
                     )
             else:
                 # Auto-merge using simple git operations (no state coupling)
@@ -582,20 +596,8 @@ async def submit_review(
 
                             config_service = ConfigService()
 
-                            # Get board config for overrides
-                            board_config = None
-                            if ticket.board_id:
-                                from sqlalchemy import select as sql_select_board
-                                from app.models.board import Board
-
-                                board_result = await db.execute(
-                                    sql_select_board(Board).where(
-                                        Board.id == ticket.board_id
-                                    )
-                                )
-                                board = board_result.scalar_one_or_none()
-                                if board and board.config:
-                                    board_config = board.config
+                            # Reuse board fetched earlier for target_branch detection
+                            board_config = board.config if board and board.config else None
 
                             # Load config with board overrides applied
                             config = config_service.load_config_with_board_overrides(
@@ -609,11 +611,11 @@ async def submit_review(
                                 git_merge_worktree_branch,
                                 repo_path=repo_path,
                                 branch_name=branch_name,
-                                target_branch="main",
+                                target_branch=target_branch,
                                 delete_branch_after=merge_config.delete_branch_after_merge,
                                 push_to_remote=merge_config.push_after_merge,
-                                squash=merge_config.squash_merge,  # From config (default: true)
-                                check_divergence=merge_config.check_divergence,  # From config (default: true)
+                                squash=merge_config.squash_merge,
+                                check_divergence=merge_config.check_divergence,
                             )
 
                             merge_success = merge_result.success
@@ -656,6 +658,7 @@ async def submit_review(
                         actor_type=TicketActorType.HUMAN,
                         reason="Revision approved by reviewer",
                         auto_verify=False,
+                        skip_cleanup=True,  # Merge path handles cleanup above
                     )
         elif (
             data.decision.value == ReviewDecision.CHANGES_REQUESTED.value

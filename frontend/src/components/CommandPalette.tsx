@@ -1,380 +1,297 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Dialog, DialogContent } from './ui/dialog';
-import { Input } from './ui/input';
-import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
+/**
+ * CommandPalette -- Cmd+K command palette using cmdk.
+ *
+ * Provides fuzzy search across tickets and quick actions.
+ * Replaces the previous custom Dialog-based implementation with cmdk for
+ * better built-in fuzzy search, keyboard navigation, and accessibility.
+ */
+
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { Command } from "cmdk";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/hooks/queryKeys";
+import { useBoardStore } from "@/stores/boardStore";
+import { useTicketSelectionStore } from "@/stores/ticketStore";
+import type { BoardResponse, Ticket } from "@/types/api";
+import { STATE_DISPLAY_NAMES } from "@/types/api";
 import {
   Search,
+  Target,
+  Settings,
   Play,
   CheckSquare,
-  Target,
-  List,
-  Settings,
   FileText,
-} from 'lucide-react';
+} from "lucide-react";
 
-export interface Command {
-  /** Unique ID for the command */
+export interface CommandAction {
   id: string;
-  /** Display label */
   label: string;
-  /** Optional description */
   description?: string;
-  /** Icon component */
   icon?: React.ComponentType<{ className?: string }>;
-  /** Keyboard shortcut hint */
   shortcut?: string;
-  /** Category for grouping */
   category?: string;
-  /** Action to execute when command is selected */
   onSelect: () => void;
-  /** Optional keywords for search */
   keywords?: string[];
 }
 
 interface CommandPaletteProps {
-  /** List of available commands */
-  commands: Command[];
-  /** Whether palette is initially open */
-  initiallyOpen?: boolean;
-  /** Placeholder text for search input */
-  placeholder?: string;
+  /** List of available commands/actions */
+  commands: CommandAction[];
 }
 
-/**
- * Command palette component.
- *
- * A searchable command menu accessible via Ctrl+K / Cmd+K.
- * Supports fuzzy search, keyboard navigation (arrow keys, enter, escape),
- * and grouped commands by category.
- *
- * @example
- * ```tsx
- * const commands = [
- *   {
- *     id: 'new-goal',
- *     label: 'Create New Goal',
- *     icon: Target,
- *     shortcut: 'n g',
- *     category: 'Goals',
- *     onSelect: () => navigate('/goals/new')
- *   },
- *   {
- *     id: 'execute-all',
- *     label: 'Execute All Ready Tickets',
- *     icon: Play,
- *     shortcut: 'e a',
- *     category: 'Tickets',
- *     onSelect: () => executeAllTickets()
- *   }
- * ];
- *
- * <CommandPalette commands={commands} />
- * ```
- */
-export function CommandPalette({
-  commands,
-  initiallyOpen = false,
-  placeholder = 'Type a command or search...',
-}: CommandPaletteProps) {
-  const [open, setOpen] = useState(initiallyOpen);
-  const [query, setQuery] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+// Color dot for ticket state
+const STATE_DOT_COLORS: Record<string, string> = {
+  proposed: "bg-slate-400",
+  planned: "bg-blue-400",
+  executing: "bg-amber-400",
+  verifying: "bg-purple-400",
+  needs_human: "bg-orange-400",
+  blocked: "bg-red-400",
+  done: "bg-emerald-400",
+  abandoned: "bg-gray-400",
+};
 
-  // Register Ctrl+K / Cmd+K to open palette
-  useKeyboardNavigation({
-    shortcuts: [
-      {
-        key: 'ctrl+k',
-        handler: () => {
-          setOpen(!open);
-          setQuery('');
-          setSelectedIndex(0);
-        },
-        description: 'Open command palette',
-        category: 'Global',
-      },
-      {
-        key: 'cmd+k',
-        handler: () => {
-          setOpen(!open);
-          setQuery('');
-          setSelectedIndex(0);
-        },
-        description: 'Open command palette',
-        category: 'Global',
-      },
-    ],
-    enabled: true,
-  });
+export function CommandPalette({ commands }: CommandPaletteProps) {
+  const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const boardId = useBoardStore((s) => s.currentBoardId);
+  const selectTicket = useTicketSelectionStore((s) => s.selectTicket);
 
-  // Fuzzy search function
-  const fuzzyMatch = (text: string, query: string): boolean => {
-    const lowerText = text.toLowerCase();
-    const lowerQuery = query.toLowerCase();
-
-    // Empty query matches everything
-    if (!lowerQuery) return true;
-
-    // Try exact substring match first
-    if (lowerText.includes(lowerQuery)) return true;
-
-    // Try fuzzy match (characters in order)
-    let queryIndex = 0;
-    for (let i = 0; i < lowerText.length && queryIndex < lowerQuery.length; i++) {
-      if (lowerText[i] === lowerQuery[queryIndex]) {
-        queryIndex++;
+  // Toggle on Cmd+K / Ctrl+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setOpen((prev) => !prev);
       }
-    }
-    return queryIndex === lowerQuery.length;
-  };
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
-  // Filter and sort commands based on query
-  const filteredCommands = useMemo(() => {
-    if (!query.trim()) {
-      return commands;
-    }
+  // Get tickets from React Query cache
+  const allTickets = useMemo(() => {
+    if (!boardId) return [];
+    const boardData = queryClient.getQueryData<BoardResponse>(
+      queryKeys.boards.view(boardId)
+    );
+    if (!boardData?.columns) return [];
+    return boardData.columns.flatMap((col) => col.tickets);
+  }, [boardId, queryClient, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return commands.filter((cmd) => {
-      // Search in label, description, and keywords
-      const searchableText = [
-        cmd.label,
-        cmd.description || '',
-        ...(cmd.keywords || []),
-      ].join(' ');
-
-      return fuzzyMatch(searchableText, query);
-    });
-  }, [commands, query]);
-
-  // Group filtered commands by category
+  // Group commands by category
   const groupedCommands = useMemo(() => {
-    const groups: Record<string, Command[]> = {};
-
-    filteredCommands.forEach((cmd) => {
-      const category = cmd.category || 'Other';
-      if (!groups[category]) {
-        groups[category] = [];
-      }
-      groups[category].push(cmd);
-    });
-
+    const groups: Record<string, CommandAction[]> = {};
+    for (const cmd of commands) {
+      const cat = cmd.category || "Other";
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(cmd);
+    }
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredCommands]);
+  }, [commands]);
 
-  // Calculate total number of commands for index bounds
-  const totalCommands = filteredCommands.length;
-
-  // Handle arrow key navigation
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev + 1) % totalCommands);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev - 1 + totalCommands) % totalCommands);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (filteredCommands[selectedIndex]) {
-        filteredCommands[selectedIndex].onSelect();
-        setOpen(false);
-        setQuery('');
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
+  const handleTicketSelect = useCallback(
+    (ticketId: string) => {
       setOpen(false);
-      setQuery('');
-    }
-  };
+      selectTicket(ticketId);
+    },
+    [selectTicket]
+  );
 
-  // Focus input when dialog opens
-  useEffect(() => {
-    if (open && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 0);
-    }
-  }, [open]);
+  const handleCommandSelect = useCallback(
+    (cmd: CommandAction) => {
+      setOpen(false);
+      cmd.onSelect();
+    },
+    []
+  );
 
-  // Reset selection when query changes
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
-
-  // Scroll selected item into view
-  useEffect(() => {
-    if (listRef.current) {
-      const selectedElement = listRef.current.querySelector(`[data-index="${selectedIndex}"]`);
-      selectedElement?.scrollIntoView({ block: 'nearest' });
-    }
-  }, [selectedIndex]);
+  if (!open) return null;
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-w-2xl p-0 gap-0">
-        {/* Search input */}
-        <div className="border-b p-4">
-          <div className="flex items-center gap-2">
-            <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <Input
-              ref={inputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={() => setOpen(false)}
+      />
+
+      {/* Command dialog */}
+      <div className="absolute top-[20%] left-1/2 -translate-x-1/2 w-full max-w-lg">
+        <Command
+          className="rounded-xl border border-border bg-popover shadow-2xl overflow-hidden"
+          loop
+        >
+          <div className="flex items-center gap-2 border-b border-border px-3">
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Command.Input
+              placeholder="Search tickets, actions..."
+              className="flex h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              autoFocus
             />
           </div>
-        </div>
 
-        {/* Command list */}
-        <div ref={listRef} className="max-h-[400px] overflow-y-auto p-2">
-          {totalCommands === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              No commands found for &quot;{query}&quot;
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {groupedCommands.map(([category, categoryCommands]) => (
-                <div key={category}>
-                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                    {category}
-                  </div>
-                  {categoryCommands.map((cmd) => {
-                    const globalIndex = filteredCommands.indexOf(cmd);
-                    const isSelected = globalIndex === selectedIndex;
-                    const Icon = cmd.icon;
+          <Command.List className="max-h-80 overflow-y-auto p-1.5">
+            <Command.Empty className="py-6 text-center text-sm text-muted-foreground">
+              No results found.
+            </Command.Empty>
 
-                    return (
-                      <button
-                        key={cmd.id}
-                        data-index={globalIndex}
-                        onClick={() => {
-                          cmd.onSelect();
-                          setOpen(false);
-                          setQuery('');
-                        }}
-                        onMouseEnter={() => setSelectedIndex(globalIndex)}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded text-sm transition-colors ${
-                          isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          {Icon && <Icon className="h-4 w-4 flex-shrink-0" />}
-                          <div className="flex flex-col items-start flex-1 min-w-0">
-                            <span className="font-medium truncate w-full text-left">
-                              {cmd.label}
-                            </span>
-                            {cmd.description && (
-                              <span className="text-xs text-muted-foreground truncate w-full text-left">
-                                {cmd.description}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {cmd.shortcut && (
-                          <kbd className="px-2 py-1 text-xs font-mono bg-secondary border border-border rounded flex-shrink-0">
-                            {cmd.shortcut}
-                          </kbd>
+            {/* Quick Actions by category */}
+            {groupedCommands.map(([category, cmds]) => (
+              <Command.Group
+                key={category}
+                heading={category}
+                className="px-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
+              >
+                {cmds.map((cmd) => {
+                  const Icon = cmd.icon;
+                  return (
+                    <Command.Item
+                      key={cmd.id}
+                      value={`${cmd.label} ${cmd.description || ""} ${(cmd.keywords || []).join(" ")}`}
+                      onSelect={() => handleCommandSelect(cmd)}
+                      className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm rounded-md cursor-pointer aria-selected:bg-accent"
+                    >
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {Icon && (
+                          <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
                         )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate">{cmd.label}</span>
+                          {cmd.description && (
+                            <span className="text-[11px] text-muted-foreground truncate">
+                              {cmd.description}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {cmd.shortcut && (
+                        <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-muted border border-border rounded shrink-0">
+                          {cmd.shortcut}
+                        </kbd>
+                      )}
+                    </Command.Item>
+                  );
+                })}
+              </Command.Group>
+            ))}
 
-        {/* Footer hint */}
-        <div className="border-t p-2 flex items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-4">
+            {/* Tickets */}
+            {allTickets.length > 0 && (
+              <Command.Group
+                heading="Tickets"
+                className="px-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
+              >
+                {allTickets.map((ticket: Ticket) => (
+                  <Command.Item
+                    key={ticket.id}
+                    value={`${ticket.title} ${ticket.id}`}
+                    onSelect={() => handleTicketSelect(ticket.id)}
+                    className="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md cursor-pointer aria-selected:bg-accent"
+                  >
+                    <span
+                      className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                        STATE_DOT_COLORS[ticket.state] || "bg-gray-400"
+                      }`}
+                    />
+                    <span className="truncate flex-1">{ticket.title}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {STATE_DISPLAY_NAMES[ticket.state]}
+                    </span>
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
+          </Command.List>
+
+          {/* Footer */}
+          <div className="border-t border-border px-3 py-2 flex items-center justify-between text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-3">
+              <span>
+                <kbd className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                  ↑↓
+                </kbd>{" "}
+                navigate
+              </span>
+              <span>
+                <kbd className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                  ↵
+                </kbd>{" "}
+                select
+              </span>
+              <span>
+                <kbd className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                  esc
+                </kbd>{" "}
+                close
+              </span>
+            </div>
             <span>
-              <kbd className="px-1 py-0.5 bg-secondary border rounded">↑↓</kbd> Navigate
-            </span>
-            <span>
-              <kbd className="px-1 py-0.5 bg-secondary border rounded">Enter</kbd> Select
-            </span>
-            <span>
-              <kbd className="px-1 py-0.5 bg-secondary border rounded">Esc</kbd> Close
+              <kbd className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                ⌘K
+              </kbd>{" "}
+              to open
             </span>
           </div>
-          <span>
-            <kbd className="px-1 py-0.5 bg-secondary border rounded">Ctrl+K</kbd> to open
-          </span>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </Command>
+      </div>
+    </div>
   );
 }
 
 /**
- * Example commands for common Alma Kanban actions.
+ * Default commands for common Alma Kanban actions.
+ * Build this array in App.tsx, passing callbacks from App state.
  */
-export const exampleCommands: Command[] = [
-  // Goal actions
+export const exampleCommands: CommandAction[] = [
   {
-    id: 'new-goal',
-    label: 'Create New Goal',
-    description: 'Define a new development goal',
+    id: "new-goal",
+    label: "Create New Goal",
+    description: "Define a new development goal",
     icon: Target,
-    shortcut: 'n g',
-    category: 'Goals',
-    onSelect: () => console.log('Create new goal'),
-    keywords: ['add', 'goal', 'objective'],
+    shortcut: "n g",
+    category: "Goals",
+    onSelect: () => console.log("Create new goal"),
+    keywords: ["add", "goal", "objective"],
   },
   {
-    id: 'generate-tickets',
-    label: 'Generate Tickets from Goal',
-    description: 'AI-generate tickets for the selected goal',
+    id: "generate-tickets",
+    label: "Generate Tickets from Goal",
+    description: "AI-generate tickets for the selected goal",
     icon: FileText,
-    shortcut: 'g t',
-    category: 'Goals',
-    onSelect: () => console.log('Generate tickets'),
-    keywords: ['plan', 'tickets', 'ai'],
+    shortcut: "g t",
+    category: "Goals",
+    onSelect: () => console.log("Generate tickets"),
+    keywords: ["plan", "tickets", "ai"],
   },
-
-  // Ticket actions
   {
-    id: 'execute-all',
-    label: 'Execute All Ready Tickets',
-    description: 'Start autonomous execution of all planned tickets',
+    id: "execute-all",
+    label: "Execute All Ready Tickets",
+    description: "Start autonomous execution of all planned tickets",
     icon: Play,
-    shortcut: 'e a',
-    category: 'Tickets',
-    onSelect: () => console.log('Execute all tickets'),
-    keywords: ['run', 'start', 'execute'],
+    shortcut: "e a",
+    category: "Tickets",
+    onSelect: () => console.log("Execute all tickets"),
+    keywords: ["run", "start", "execute"],
   },
   {
-    id: 'verify-all',
-    label: 'Verify All Completed Tickets',
-    description: 'Run verification commands on completed tickets',
+    id: "verify-all",
+    label: "Verify All Completed Tickets",
+    description: "Run verification commands on completed tickets",
     icon: CheckSquare,
-    shortcut: 'v a',
-    category: 'Tickets',
-    onSelect: () => console.log('Verify all tickets'),
-    keywords: ['test', 'verify', 'check'],
+    shortcut: "v a",
+    category: "Tickets",
+    onSelect: () => console.log("Verify all tickets"),
+    keywords: ["test", "verify", "check"],
   },
-
-  // Navigation
   {
-    id: 'goto-board',
-    label: 'Go to Board',
-    description: 'View the kanban board',
-    icon: List,
-    shortcut: 'g b',
-    category: 'Navigation',
-    onSelect: () => console.log('Go to board'),
-  },
-
-  // Executor
-  {
-    id: 'select-executor',
-    label: 'Select Executor',
-    description: 'Choose which AI coding agent to use',
+    id: "select-executor",
+    label: "Select Executor",
+    description: "Choose which AI coding agent to use",
     icon: Settings,
-    shortcut: 's e',
-    category: 'Settings',
-    onSelect: () => console.log('Select executor'),
-    keywords: ['agent', 'claude', 'cursor'],
+    shortcut: "s e",
+    category: "Settings",
+    onSelect: () => console.log("Select executor"),
+    keywords: ["agent", "claude", "cursor", "gemini", "codex"],
   },
 ];

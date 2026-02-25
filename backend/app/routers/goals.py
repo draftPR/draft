@@ -173,6 +173,8 @@ async def generate_tickets_stream(
 
     async def event_generator():
         try:
+            from app.services.cursor_log_normalizer import CursorLogNormalizer
+
             # Send initial status
             yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Starting ticket generation...'})}\n\n"
             await asyncio.sleep(0.05)
@@ -181,14 +183,14 @@ async def generate_tickets_stream(
             config_service = ConfigService()
             config = config_service.load_config()
 
-            yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Analyzing goal and building prompt...'})}\n\n"
-            await asyncio.sleep(0.05)
-
             service = TicketGenerationService(db)
 
             # Create a queue for streaming agent output
-            output_queue = asyncio.Queue()
+            output_queue: asyncio.Queue = asyncio.Queue()
             loop = asyncio.get_running_loop()
+
+            # Normalizer to parse CLI JSON output into structured entries
+            normalizer = CursorLogNormalizer()
 
             def stream_callback(line: str):
                 """Called from subprocess thread when agent outputs a line."""
@@ -198,9 +200,6 @@ async def generate_tickets_stream(
                     )
                 except Exception:
                     pass
-
-            yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Starting agent CLI...'})}\n\n"
-            await asyncio.sleep(0.05)
 
             # Start generation task - repo_root resolved inside service from goal's board
             generation_task = asyncio.create_task(
@@ -212,13 +211,44 @@ async def generate_tickets_stream(
                 )
             )
 
+            def _normalize_and_yield(line: str):
+                """Parse a raw CLI line into normalized entries."""
+                entries = normalizer.process_line(line)
+                results = []
+                for entry in entries:
+                    entry_data = {
+                        "entry_type": entry.entry_type.value,
+                        "content": entry.content,
+                        "sequence": entry.sequence,
+                        "tool_name": entry.tool_name,
+                        "action_type": entry.action_type.value
+                        if entry.action_type
+                        else None,
+                        "tool_status": entry.tool_status.value
+                        if entry.tool_status
+                        else None,
+                        "metadata": entry.metadata or {},
+                        "timestamp": None,
+                    }
+                    results.append(
+                        f"data: {json_lib.dumps({'type': 'agent_normalized', 'entry': entry_data})}\n\n"
+                    )
+                return results
+
             # Stream agent output as it comes in
             while not generation_task.done():
                 try:
                     msg_type, data = await asyncio.wait_for(output_queue.get(), timeout=0.1)
                     if msg_type == "agent_output":
-                        yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
-                except asyncio.TimeoutError:
+                        # Try to parse into structured entries
+                        normalized_chunks = _normalize_and_yield(data)
+                        if normalized_chunks:
+                            for chunk in normalized_chunks:
+                                yield chunk
+                        else:
+                            # Fallback: emit raw line if normalizer didn't produce entries
+                            yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+                except TimeoutError:
                     continue
 
             # Get final result
@@ -233,7 +263,30 @@ async def generate_tickets_stream(
             while not output_queue.empty():
                 msg_type, data = await output_queue.get()
                 if msg_type == "agent_output":
-                    yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+                    normalized_chunks = _normalize_and_yield(data)
+                    if normalized_chunks:
+                        for chunk in normalized_chunks:
+                            yield chunk
+                    else:
+                        yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+
+            # Flush any remaining buffered entries from normalizer
+            for entry in normalizer.finalize():
+                entry_data = {
+                    "entry_type": entry.entry_type.value,
+                    "content": entry.content,
+                    "sequence": entry.sequence,
+                    "tool_name": entry.tool_name,
+                    "action_type": entry.action_type.value
+                    if entry.action_type
+                    else None,
+                    "tool_status": entry.tool_status.value
+                    if entry.tool_status
+                    else None,
+                    "metadata": entry.metadata or {},
+                    "timestamp": None,
+                }
+                yield f"data: {json_lib.dumps({'type': 'agent_normalized', 'entry': entry_data})}\n\n"
 
             # Stream each created ticket
             if result.tickets:

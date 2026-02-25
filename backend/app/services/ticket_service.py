@@ -138,6 +138,7 @@ class TicketService:
         actor_id: str | None = None,
         reason: str | None = None,
         auto_verify: bool = True,
+        skip_cleanup: bool = False,
     ) -> Ticket:
         """
         Transition a ticket to a new state.
@@ -150,6 +151,8 @@ class TicketService:
             actor_id: Optional ID of the actor
             reason: Optional reason for the transition
             auto_verify: If True, auto-enqueue verify job when entering verifying state
+            skip_cleanup: If True, skip workspace cleanup for terminal states
+                (use when caller handles cleanup separately to avoid SQLite deadlocks)
 
         Returns:
             The updated Ticket instance
@@ -185,7 +188,7 @@ class TicketService:
         await self.db.refresh(ticket)
 
         # Trigger workspace cleanup for terminal states
-        if is_terminal_state(to_state):
+        if is_terminal_state(to_state) and not skip_cleanup:
             await self._cleanup_workspace_async(ticket_id)
 
         # Auto-trigger verification when entering verifying state

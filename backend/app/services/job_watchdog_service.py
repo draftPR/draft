@@ -252,10 +252,8 @@ def _reenqueue_lost_task(db: Session, job: Job, result: WatchdogResult) -> bool:
     """
     from app.models.job import JobKind
     from app.services.task_dispatch import enqueue_task
-    from app.task_backend import is_sqlite_backend
 
     # First check if the ticket is in a state where re-enqueueing makes sense
-    # If ticket is already BLOCKED, DONE, or ABANDONED, don't re-enqueue
     ticket = db.query(Ticket).filter(Ticket.id == job.ticket_id).first()
     if ticket:
         terminal_states = [
@@ -264,7 +262,6 @@ def _reenqueue_lost_task(db: Session, job: Job, result: WatchdogResult) -> bool:
             TicketState.ABANDONED.value,
         ]
         if ticket.state in terminal_states:
-            # Ticket is in terminal/blocked state - fail the job instead of re-enqueueing
             logger.info(
                 f"Job {job.id} ticket is in {ticket.state} state - failing job instead of re-enqueueing"
             )
@@ -276,34 +273,6 @@ def _reenqueue_lost_task(db: Session, job: Job, result: WatchdogResult) -> bool:
                 f"Job {job.id} ({job.kind}): Failed (ticket already {ticket.state})"
             )
             return False
-
-    # Check if the Celery task is still pending/active (Redis backend only)
-    # SQLite backend uses in-process worker, so task state is tracked via job_queue table
-    if not is_sqlite_backend() and job.celery_task_id:
-        try:
-            from app.celery_app import celery_app
-            task_result = celery_app.AsyncResult(job.celery_task_id)
-            import threading
-            task_state = [None]
-
-            def check_state():
-                try:
-                    task_state[0] = task_result.state
-                except Exception:
-                    task_state[0] = "UNKNOWN"
-
-            check_thread = threading.Thread(target=check_state, daemon=True)
-            check_thread.start()
-            check_thread.join(timeout=2)  # 2 second timeout for state check
-
-            if check_thread.is_alive():
-                # Timeout - assume task state is unknown, proceed with re-enqueue check
-                logger.warning(f"Timeout checking task state for job {job.id}")
-            elif task_state[0] in ("PENDING", "STARTED", "RETRY"):
-                # Task exists and is active, no need to re-enqueue
-                return False
-        except Exception as e:
-            logger.warning(f"Error checking task status for job {job.id}: {e}")
 
     # Task is lost or never existed - re-enqueue via unified dispatch
     try:

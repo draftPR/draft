@@ -5,13 +5,15 @@
  * but without the Sheet wrapper.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { EvidenceList } from "@/components/EvidenceList";
 import { EmptyState } from "@/components/EmptyState";
 import { TicketDetailSkeleton } from "@/components/skeletons/TicketDetailSkeleton";
 import { AgentActivityLog } from "@/components/AgentActivityLog";
 import { BlockingIndicator } from "@/components/BlockingIndicator";
+import { RevisionViewer } from "@/components/RevisionViewer";
+import { ConflictBanner } from "@/components/ConflictBanner";
 import {
   fetchTicketEvents,
   fetchTicketEvidence,
@@ -21,6 +23,13 @@ import {
   fetchTicketJobs,
   fetchTicketDependents,
   fetchTicket,
+  executeTicket,
+  queueFollowupMessage,
+  getQueuedMessage,
+  cancelQueuedMessage,
+  fetchExecutorProfiles,
+  fetchConflictStatus,
+  type ExecutorProfile,
 } from "@/services/api";
 import type {
   Ticket,
@@ -28,7 +37,9 @@ import type {
   Evidence,
   Revision,
   MergeStatusResponse,
+  ConflictStatusResponse,
   Job,
+  QueuedMessageStatus,
 } from "@/types/api";
 import {
   STATE_DISPLAY_NAMES,
@@ -42,6 +53,7 @@ import { toast } from "sonner";
 import {
   ArrowRight,
   AlertCircle,
+  ExternalLink,
   FlaskConical,
   GitPullRequest,
   GitMerge,
@@ -52,10 +64,16 @@ import {
   GitBranch,
   Lock,
   Loader2,
+  Play,
+  MessageSquarePlus,
+  Send,
+  ChevronDown,
 } from "lucide-react";
 import { CreatePRButton } from "@/components/PullRequest/CreatePRButton";
 import { PRStatusBadge } from "@/components/PullRequest/PRStatusBadge";
 import { useTicketSelectionStore } from "@/stores/ticketStore";
+import { useBoard } from "@/contexts/BoardContext";
+import { useBoardViewQuery } from "@/hooks/useQueries";
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString);
@@ -87,13 +105,35 @@ export function TicketDetailPanel() {
   const [loading, setLoading] = useState(false);
   const [evidenceLoading] = useState(false);
   const [mergeLoading, setMergeLoading] = useState(false);
+  const [showRevisionViewer, setShowRevisionViewer] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Agent execution state
+  const [executeLoading, setExecuteLoading] = useState(false);
+  const [executorProfiles, setExecutorProfiles] = useState<ExecutorProfile[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState<string>("");
+  const [showProfileSelector, setShowProfileSelector] = useState(false);
+
+  // Follow-up queue state
+  const [followUpText, setFollowUpText] = useState("");
+  const [queuedMessage, setQueuedMessage] = useState<QueuedMessageStatus | null>(null);
+  const [queueLoading, setQueueLoading] = useState(false);
+
+  // Conflict state
+  const [conflictStatus, setConflictStatus] = useState<ConflictStatusResponse | null>(null);
+
+  // Load executor profiles once
+  useEffect(() => {
+    fetchExecutorProfiles()
+      .then(setExecutorProfiles)
+      .catch(() => {});
+  }, []);
 
   const loadAll = useCallback(async (ticketId: string) => {
     setLoading(true);
     setError(null);
     try {
-      const [t, evts, evi, revs, sts, jbs, deps] = await Promise.all([
+      const [t, evts, evi, revs, sts, jbs, deps, cst] = await Promise.all([
         fetchTicket(ticketId),
         fetchTicketEvents(ticketId).catch(() => ({ events: [] })),
         fetchTicketEvidence(ticketId).catch(() => ({ evidence: [] })),
@@ -101,6 +141,7 @@ export function TicketDetailPanel() {
         fetchMergeStatus(ticketId).catch(() => null),
         fetchTicketJobs(ticketId).catch(() => ({ jobs: [] })),
         fetchTicketDependents(ticketId).catch(() => []),
+        fetchConflictStatus(ticketId).catch(() => null),
       ]);
       setTicket(t);
       setEvents(evts.events);
@@ -109,6 +150,7 @@ export function TicketDetailPanel() {
       setMergeStatus(sts);
       setJobs(jbs.jobs);
       setDependents(deps);
+      setConflictStatus(cst);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load ticket");
     } finally {
@@ -118,19 +160,127 @@ export function TicketDetailPanel() {
 
   useEffect(() => {
     if (selectedTicketId) {
+      setShowRevisionViewer(false);
+      setFollowUpText("");
+      setQueuedMessage(null);
       loadAll(selectedTicketId);
     }
   }, [selectedTicketId, loadAll]);
 
-  // Auto-refresh jobs when running
+  // Auto-refresh jobs when running + poll queue status
   const hasRunningJob = jobs.some(j => j.status === JobStatus.RUNNING || j.status === JobStatus.QUEUED);
   useEffect(() => {
     if (!hasRunningJob || !selectedTicketId) return;
     const interval = setInterval(() => {
       fetchTicketJobs(selectedTicketId).then(r => setJobs(r.jobs)).catch(() => {});
+      getQueuedMessage(selectedTicketId).then(setQueuedMessage).catch(() => {});
     }, 5000);
     return () => clearInterval(interval);
   }, [hasRunningJob, selectedTicketId]);
+
+  // Load queue status when ticket changes
+  useEffect(() => {
+    if (selectedTicketId && hasRunningJob) {
+      getQueuedMessage(selectedTicketId).then(setQueuedMessage).catch(() => {});
+    }
+  }, [selectedTicketId, hasRunningJob]);
+
+  // Keyboard navigation (j/k to navigate between tickets)
+  const { currentBoard } = useBoard();
+  const { data: boardData } = useBoardViewQuery(currentBoard?.id, false);
+  const allTicketIds = useMemo(() => {
+    if (!boardData?.columns) return [];
+    return boardData.columns.flatMap((col) => col.tickets.map((t) => t.id));
+  }, [boardData]);
+
+  useEffect(() => {
+    if (!selectedTicketId || allTicketIds.length === 0) return;
+    const handler = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in an input
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      const idx = allTicketIds.indexOf(selectedTicketId);
+      if (idx === -1) return;
+
+      if (e.key === "j" && idx < allTicketIds.length - 1) {
+        e.preventDefault();
+        selectTicket(allTicketIds[idx + 1]);
+      } else if (e.key === "k" && idx > 0) {
+        e.preventDefault();
+        selectTicket(allTicketIds[idx - 1]);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        clearSelection();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedTicketId, allTicketIds, selectTicket, clearSelection]);
+
+  // Combined activity timeline: merge events + jobs into a single chronological list
+  const activityTimeline = useMemo(() => {
+    const items: Array<{
+      id: string;
+      type: "event" | "job";
+      timestamp: string;
+      data: TicketEvent | Job;
+    }> = [];
+    events.forEach((evt) =>
+      items.push({ id: evt.id, type: "event", timestamp: evt.created_at, data: evt })
+    );
+    jobs.forEach((job) =>
+      items.push({ id: job.id, type: "job", timestamp: job.created_at, data: job })
+    );
+    items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return items;
+  }, [events, jobs]);
+
+  const handleExecute = useCallback(async () => {
+    if (!ticket) return;
+    setExecuteLoading(true);
+    try {
+      await executeTicket(ticket.id, selectedProfile || undefined);
+      toast.success("Execution started");
+      loadAll(ticket.id);
+    } catch (err) {
+      toast.error("Failed to start execution", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setExecuteLoading(false);
+    }
+  }, [ticket, selectedProfile, loadAll]);
+
+  const handleQueueFollowUp = useCallback(async () => {
+    if (!ticket || !followUpText.trim()) return;
+    setQueueLoading(true);
+    try {
+      const result = await queueFollowupMessage(ticket.id, followUpText.trim());
+      setQueuedMessage(result);
+      setFollowUpText("");
+      toast.success("Follow-up queued", {
+        description: "Will execute after current job completes",
+      });
+    } catch (err) {
+      toast.error("Failed to queue follow-up", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setQueueLoading(false);
+    }
+  }, [ticket, followUpText]);
+
+  const handleCancelQueued = useCallback(async () => {
+    if (!ticket) return;
+    try {
+      const result = await cancelQueuedMessage(ticket.id);
+      setQueuedMessage(result);
+      toast.success("Queued message cancelled");
+    } catch {
+      // ignore
+    }
+  }, [ticket]);
 
   const handleMerge = useCallback(async () => {
     if (!ticket) return;
@@ -159,6 +309,12 @@ export function TicketDetailPanel() {
   const handleNavigateToTicket = useCallback((ticketId: string) => {
     selectTicket(ticketId);
   }, [selectTicket]);
+
+  const handleRevisionUpdated = useCallback(() => {
+    if (ticket) {
+      loadAll(ticket.id);
+    }
+  }, [ticket, loadAll]);
 
   if (!selectedTicketId) return null;
 
@@ -189,8 +345,28 @@ export function TicketDetailPanel() {
     ticket.state === TicketState.DONE ||
     ticket.state === TicketState.VERIFYING
   );
+  // NEEDS_HUMAN is excluded — ticket is awaiting review, not re-execution.
+  // Re-running from review is done via "Request Changes" in the revision viewer.
+  const canExecute = ([
+    TicketState.PLANNED,
+    TicketState.BLOCKED,
+  ] as string[]).includes(ticket.state);
 
   return (
+    <>
+    {/* Full-screen revision viewer overlay */}
+    {showRevisionViewer && revisions.length > 0 && (
+      <div className="fixed inset-0 z-50 bg-background">
+        <RevisionViewer
+          ticketId={ticket.id}
+          ticketTitle={ticket.title}
+          revisions={revisions}
+          onRevisionUpdated={handleRevisionUpdated}
+          onClose={() => setShowRevisionViewer(false)}
+        />
+      </div>
+    )}
+
     <div className="h-full overflow-y-auto border-l border-border bg-background">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background border-b border-border/40 px-6 py-4">
@@ -231,6 +407,139 @@ export function TicketDetailPanel() {
             <p className={cn("text-[13px] font-medium", priority.color)}>{priority.label}</p>
           </div>
         </div>
+
+        {/* Execute / Follow-Up Actions */}
+        {(canExecute || hasRunningJob) && (
+          <div className="space-y-4">
+            <h3 className="section-label flex items-center gap-2">
+              <Play className="h-3.5 w-3.5" />
+              Agent Actions
+            </h3>
+
+            {/* Execute button (when no job running) */}
+            {canExecute && !hasRunningJob && (
+              <div className="space-y-3">
+                {/* Executor profile selector */}
+                {executorProfiles.length > 1 && (
+                  <div>
+                    <button
+                      onClick={() => setShowProfileSelector(!showProfileSelector)}
+                      className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <ChevronDown className={cn("h-3 w-3 transition-transform", showProfileSelector && "rotate-180")} />
+                      {selectedProfile
+                        ? `Profile: ${selectedProfile}`
+                        : "Default executor profile"}
+                    </button>
+                    {showProfileSelector && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => { setSelectedProfile(""); setShowProfileSelector(false); }}
+                          className={cn(
+                            "px-2.5 py-1 rounded-md text-[12px] border transition-colors",
+                            !selectedProfile
+                              ? "bg-foreground text-background border-foreground"
+                              : "border-border hover:border-foreground/50"
+                          )}
+                        >
+                          Default
+                        </button>
+                        {executorProfiles.map((p) => (
+                          <button
+                            key={p.name}
+                            onClick={() => { setSelectedProfile(p.name); setShowProfileSelector(false); }}
+                            className={cn(
+                              "px-2.5 py-1 rounded-md text-[12px] border transition-colors",
+                              selectedProfile === p.name
+                                ? "bg-foreground text-background border-foreground"
+                                : "border-border hover:border-foreground/50"
+                            )}
+                          >
+                            {p.name}
+                            <span className="ml-1 text-[10px] opacity-60">{p.executor_type}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <Button
+                  onClick={handleExecute}
+                  disabled={executeLoading}
+                  className="w-full"
+                >
+                  {executeLoading ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  Execute{selectedProfile ? ` (${selectedProfile})` : ""}
+                </Button>
+              </div>
+            )}
+
+            {/* Follow-up queue (only when agent is actively executing, not awaiting review) */}
+            {hasRunningJob && ticket.state === TicketState.EXECUTING && (
+              <div className="space-y-3">
+                {/* Queued message indicator */}
+                {queuedMessage?.status === "queued" && queuedMessage.message && (
+                  <div className="bg-violet-50 dark:bg-violet-900/20 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-violet-600 dark:text-violet-400 uppercase tracking-wide">
+                        Queued follow-up
+                      </span>
+                      <button
+                        onClick={handleCancelQueued}
+                        className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <p className="text-[12px] text-foreground leading-relaxed">
+                      {queuedMessage.message}
+                    </p>
+                  </div>
+                )}
+
+                {/* Follow-up input */}
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <MessageSquarePlus className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Queue next instruction..."
+                      value={followUpText}
+                      onChange={(e) => setFollowUpText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey && followUpText.trim()) {
+                          e.preventDefault();
+                          handleQueueFollowUp();
+                        }
+                      }}
+                      className="w-full rounded-md border border-border bg-background pl-9 pr-3 py-2 text-[13px] placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleQueueFollowUp}
+                    disabled={queueLoading || !followUpText.trim()}
+                    className="h-[38px] px-3"
+                  >
+                    {queueLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Queue the next instruction while the agent is working. It will auto-execute when done.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Dependencies */}
         {(ticket.blocked_by_ticket_id || dependents.length > 0) && (
@@ -274,9 +583,24 @@ export function TicketDetailPanel() {
               Code Changes
             </h3>
             {revisions.length > 0 ? (
-              <p className="text-[13px] text-muted-foreground">
-                {revisions.length} revision{revisions.length !== 1 ? "s" : ""} available.
-              </p>
+              <div className="space-y-3">
+                <p className="text-[13px] text-muted-foreground">
+                  {revisions.length} revision{revisions.length !== 1 ? "s" : ""} available.
+                  {revisions[0] && revisions[0].unresolved_comment_count > 0 && (
+                    <span className="text-orange-500 ml-1">
+                      ({revisions[0].unresolved_comment_count} unresolved comment{revisions[0].unresolved_comment_count !== 1 ? "s" : ""})
+                    </span>
+                  )}
+                </p>
+                <Button
+                  onClick={() => setShowRevisionViewer(true)}
+                  className="w-full"
+                  variant="outline"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Review Changes
+                </Button>
+              </div>
             ) : (
               <EmptyState icon={GitPullRequest} title="No revisions yet" compact />
             )}
@@ -303,6 +627,14 @@ export function TicketDetailPanel() {
                     <code className="text-[12px] text-foreground font-mono">{String(mergeStatus.workspace.branch_name ?? "")}</code>
                   </div>
                 </div>
+                {/* Conflict/divergence banner */}
+                {conflictStatus && (conflictStatus.has_conflict || (conflictStatus.divergence && !conflictStatus.divergence.up_to_date)) && (
+                  <ConflictBanner
+                    ticketId={ticket.id}
+                    conflictStatus={conflictStatus}
+                    onResolved={() => loadAll(ticket.id)}
+                  />
+                )}
                 {mergeStatus.can_merge && (
                   <Button onClick={handleMerge} disabled={mergeLoading} className="w-full" variant="default">
                     {mergeLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <GitMerge className="h-4 w-4 mr-2" />}
@@ -347,39 +679,84 @@ export function TicketDetailPanel() {
           )}
         </div>
 
-        {/* Event History */}
+        {/* Activity Timeline */}
         <div className="space-y-4">
-          <h3 className="section-label">Event History</h3>
-          {events.length === 0 ? (
-            <EmptyState icon={Activity} title="No events recorded" compact />
+          <h3 className="section-label flex items-center gap-2">
+            <Activity className="h-3.5 w-3.5" />
+            Activity Timeline
+            <span className="text-[10px] text-muted-foreground font-normal">
+              {activityTimeline.length} event{activityTimeline.length !== 1 ? "s" : ""}
+            </span>
+          </h3>
+          {activityTimeline.length === 0 ? (
+            <EmptyState icon={Activity} title="No activity recorded" compact />
           ) : (
-            <div className="space-y-4">
-              {events.map((event) => (
-                <div key={event.id} className="border-l-2 border-border/50 pl-4 py-2 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-medium capitalize text-foreground">{event.event_type}</span>
-                    <span className="text-[12px] text-muted-foreground">{formatDate(event.created_at)}</span>
-                  </div>
-                  {event.event_type === EventType.TRANSITIONED && event.from_state && event.to_state && (
-                    <div className="flex items-center gap-2 text-[13px]">
-                      <span className="text-muted-foreground">{STATE_DISPLAY_NAMES[event.from_state]}</span>
-                      <ArrowRight className="h-3 w-3 text-muted-foreground/60" />
-                      <span className="text-foreground font-medium">{STATE_DISPLAY_NAMES[event.to_state]}</span>
+            <div className="space-y-1">
+              {activityTimeline.map((item) => {
+                if (item.type === "event") {
+                  const event = item.data as TicketEvent;
+                  return (
+                    <div key={item.id} className="border-l-2 border-border/50 pl-4 py-2 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[12px] font-medium capitalize text-foreground">{event.event_type}</span>
+                        <span className="text-[11px] text-muted-foreground">{formatDate(event.created_at)}</span>
+                      </div>
+                      {event.event_type === EventType.TRANSITIONED && event.from_state && event.to_state && (
+                        <div className="flex items-center gap-2 text-[12px]">
+                          <span className="text-muted-foreground">{STATE_DISPLAY_NAMES[event.from_state]}</span>
+                          <ArrowRight className="h-3 w-3 text-muted-foreground/60" />
+                          <span className="text-foreground font-medium">{STATE_DISPLAY_NAMES[event.to_state]}</span>
+                        </div>
+                      )}
+                      {event.reason && (
+                        <p className="text-[12px] text-muted-foreground leading-relaxed">{event.reason}</p>
+                      )}
                     </div>
-                  )}
-                  {event.reason && (
-                    <p className="text-[13px] text-muted-foreground leading-relaxed">{event.reason}</p>
-                  )}
-                  <p className="text-[12px] text-muted-foreground/80">
-                    by {event.actor_type}
-                    {event.actor_id && ` (${event.actor_id})`}
-                  </p>
-                </div>
-              ))}
+                  );
+                }
+                const job = item.data as Job;
+                return (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "border-l-2 pl-4 py-2 space-y-1",
+                      job.status === JobStatus.SUCCEEDED ? "border-emerald-300" :
+                      job.status === JobStatus.FAILED ? "border-red-300" :
+                      job.status === JobStatus.RUNNING ? "border-blue-300" :
+                      "border-border/50"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] font-medium text-foreground capitalize flex items-center gap-1.5">
+                        {job.status === JobStatus.RUNNING && <Loader2 className="h-3 w-3 animate-spin text-blue-500" />}
+                        {job.status === JobStatus.SUCCEEDED && <Check className="h-3 w-3 text-emerald-500" />}
+                        {job.status === JobStatus.FAILED && <AlertCircle className="h-3 w-3 text-red-500" />}
+                        {job.kind} job
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">{formatDate(job.created_at)}</span>
+                    </div>
+                    {(job as Job & { error_message?: string }).error_message && (
+                      <p className="text-[11px] text-red-500 leading-relaxed truncate">{(job as Job & { error_message?: string }).error_message}</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
+
+        {/* Keyboard navigation hint */}
+        <div className="text-[11px] text-muted-foreground text-center py-2 border-t border-border/30">
+          <kbd className="px-1 py-0.5 rounded border bg-muted text-[10px]">j</kbd>
+          <span className="mx-1">/</span>
+          <kbd className="px-1 py-0.5 rounded border bg-muted text-[10px]">k</kbd>
+          <span className="ml-1">navigate tickets</span>
+          <span className="mx-2">·</span>
+          <kbd className="px-1 py-0.5 rounded border bg-muted text-[10px]">esc</kbd>
+          <span className="ml-1">close</span>
+        </div>
       </div>
     </div>
+    </>
   );
 }

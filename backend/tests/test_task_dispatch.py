@@ -1,8 +1,8 @@
-"""Tests for task_dispatch module - unified task enqueue for SQLite/Celery."""
+"""Tests for task_dispatch module - SQLite-backed task enqueue."""
 
 import json
 import sqlite3
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -37,11 +37,7 @@ def sqlite_db(tmp_path):
     conn.commit()
     conn.close()
 
-    with (
-        patch("app.sqlite_kv._DB_PATH", db_path),
-        patch("app.task_backend._TASK_BACKEND", "sqlite"),
-        patch("app.task_backend._SMART_KANBAN_MODE", ""),
-    ):
+    with patch("app.sqlite_kv._DB_PATH", db_path):
         yield db_path
 
 
@@ -103,54 +99,3 @@ class TestEnqueueSQLite:
         count = conn.execute("SELECT COUNT(*) FROM job_queue").fetchone()[0]
         conn.close()
         assert count == 5
-
-
-# ===========================================================================
-# Celery enqueue tests
-# ===========================================================================
-
-
-class TestEnqueueCelery:
-    def test_enqueue_delegates_to_celery(self):
-        mock_result = MagicMock()
-        mock_result.id = "celery-task-id"
-
-        mock_celery = MagicMock()
-        mock_celery.send_task.return_value = mock_result
-
-        with (
-            patch("app.task_backend._TASK_BACKEND", "redis"),
-            patch("app.task_backend._SMART_KANBAN_MODE", ""),
-            patch("app.celery_app.celery_app", mock_celery),
-        ):
-            handle = enqueue_task("execute_ticket", args=["job-1"])
-
-        assert handle.id == "celery-task-id"
-        mock_celery.send_task.assert_called_once_with(
-            "execute_ticket", args=["job-1"]
-        )
-
-
-# ===========================================================================
-# Backend routing tests
-# ===========================================================================
-
-
-class TestBackendRouting:
-    def test_sqlite_backend_routes_to_sqlite(self, sqlite_db):
-        with patch("app.services.task_dispatch._enqueue_sqlite") as mock_sq:
-            mock_sq.return_value = TaskHandle("sq-id")
-            handle = enqueue_task("execute_ticket", args=["j1"])
-            mock_sq.assert_called_once_with("execute_ticket", ["j1"])
-            assert handle.id == "sq-id"
-
-    def test_redis_backend_routes_to_celery(self):
-        with (
-            patch("app.task_backend._TASK_BACKEND", "redis"),
-            patch("app.task_backend._SMART_KANBAN_MODE", ""),
-            patch("app.services.task_dispatch._enqueue_celery") as mock_cel,
-        ):
-            mock_cel.return_value = TaskHandle("cel-id")
-            handle = enqueue_task("verify_ticket", args=["j2"])
-            mock_cel.assert_called_once_with("verify_ticket", ["j2"])
-            assert handle.id == "cel-id"

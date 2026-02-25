@@ -1,6 +1,43 @@
 # Alma Kanban
 
-A local-first kanban board application for managing tasks and projects.
+An AI-powered local-first kanban board that uses AI agents to automatically implement tickets. It creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the results, and manages the workflow through a state machine.
+
+## Screenshots
+
+### Kanban Board
+Full board view with ticket states, dependency tracking, and autopilot controls.
+
+![Kanban Board](docs/screenshots/kanban-board.png)
+
+### Ticket Detail
+Ticket detail panel showing description, state, agent actions, and worktree info.
+
+![Ticket Detail](docs/screenshots/ticket-detail.png)
+
+### Dependency Graph
+Visual DAG of ticket dependencies in the debug panel.
+
+![Dependency Graph](docs/screenshots/dependency-graph.png)
+
+### Agent Execution
+Live agent activity log streaming during ticket execution.
+
+![Agent Execution](docs/screenshots/agent-execution.png)
+
+### Autopilot Running
+Board with autopilot active — tickets flowing through executing, verifying, and blocked states.
+
+![Autopilot Running](docs/screenshots/autopilot-running.png)
+
+### Code Review
+Revision diff view with inline commenting and approve/request changes workflow.
+
+![Code Review](docs/screenshots/code-review.png)
+
+### Inline Comments
+Line-level commenting on revision diffs.
+
+![Inline Comments](docs/screenshots/inline-comments.png)
 
 ## Tech Stack
 
@@ -9,49 +46,40 @@ A local-first kanban board application for managing tasks and projects.
 | Frontend | React + Vite + TypeScript |
 | UI Components | shadcn/ui + Tailwind CSS |
 | Backend | FastAPI (Python 3.11+) |
-| Database | SQLite |
-| Task Queue | Celery + Redis |
+| Database | SQLite + Alembic migrations |
+| Background Jobs | In-process SQLiteWorker (ThreadPoolExecutor) |
+| AI Executors | Claude Code CLI or Cursor Agent CLI |
 
 ## Prerequisites
 
 - **Node.js** 18+ (with npm)
 - **Python** 3.11+
-- **Redis** (for background job processing)
 
-### Installing Redis
-
-**macOS (Homebrew):**
-```bash
-brew install redis
-```
-
-**Ubuntu/Debian:**
-```bash
-sudo apt install redis-server
-```
-
-**Docker:**
-```bash
-docker run -d -p 6379:6379 redis:alpine
-```
+No external services (Redis, etc.) required — everything runs in-process.
 
 ## Project Structure
 
 ```
-kanban/
-├── frontend/          # React + Vite + TypeScript + shadcn
+alma-kanban/
+├── frontend/              # React + Vite + TypeScript + shadcn
 │   ├── src/
-│   │   ├── components/ui/   # shadcn components
-│   │   ├── lib/             # Utilities
-│   │   ├── App.tsx          # Main app component
-│   │   └── config.ts        # Environment configuration
+│   │   ├── components/    # UI components (KanbanBoard, TicketDetailPanel, etc.)
+│   │   ├── services/      # API client
+│   │   └── types/         # TypeScript types
 │   └── package.json
-├── backend/           # FastAPI application
+├── backend/               # FastAPI application
 │   ├── app/
-│   │   └── main.py          # FastAPI app with endpoints
-│   ├── requirements.txt     # Production dependencies
-│   └── requirements-dev.txt # Development dependencies
-├── Makefile           # Developer scripts
+│   │   ├── models/        # SQLAlchemy models (Ticket, Job, Board, etc.)
+│   │   ├── routers/       # API route handlers
+│   │   ├── services/      # Business logic (planner, executor, worker, etc.)
+│   │   ├── middleware/     # Idempotency, rate limiting
+│   │   └── main.py        # FastAPI app entry point
+│   ├── alembic/           # Database migrations
+│   ├── tests/             # pytest test suite
+│   └── requirements.txt
+├── smartkanban.yaml       # Executor, verification, and planner config
+├── Makefile               # Developer scripts
+├── run.py                 # Unified launcher (backend + frontend)
 └── README.md
 ```
 
@@ -74,11 +102,9 @@ This will:
 make db-migrate
 ```
 
-### 3. Run the Application ⚡
+### 3. Run the Application
 
-**Option A: One Command (Recommended)** 🚀
-
-Just like `npx vibe-kanban`, run everything with a single command:
+**One Command (Recommended):**
 
 ```bash
 make run
@@ -90,34 +116,20 @@ Or directly:
 ./run.py
 ```
 
-This automatically starts:
-- ✅ Redis server
-- ✅ FastAPI backend (http://localhost:8000)
-- ✅ Celery worker
-- ✅ Vite frontend (http://localhost:5173)
+This starts:
+- FastAPI backend (http://localhost:8000) with in-process background worker
+- Vite frontend (http://localhost:5173)
 
 Press `Ctrl+C` to stop all services gracefully.
 
-**Option B: Manual (4 terminals)**
+**Manual (2 terminals):**
 
-If you prefer to run services separately:
-
-**Terminal 1 - Redis:**
-```bash
-make redis
-```
-
-**Terminal 2 - Backend (http://localhost:8000):**
+**Terminal 1 - Backend (http://localhost:8000):**
 ```bash
 make dev-backend
 ```
 
-**Terminal 3 - Celery Worker:**
-```bash
-make dev-worker
-```
-
-**Terminal 4 - Frontend (http://localhost:5173):**
+**Terminal 2 - Frontend (http://localhost:5173):**
 ```bash
 make dev-frontend
 ```
@@ -175,14 +187,10 @@ Alma Kanban includes a verification pipeline that runs configurable commands to 
 Create or edit `smartkanban.yaml` at the repository root:
 
 ```yaml
-# Commands to run during ticket verification
-verify_commands:
-  - "pytest tests/"
-  - "npm run lint"
-  - "make test"
-
-# Auto-transition to 'done' on success (true) or 'needs_human' for review (false)
-auto_transition_on_success: false
+verify_config:
+  commands:
+    - "pytest tests/"
+    - "npm run lint"
 ```
 
 ### How Verification Works
@@ -199,12 +207,8 @@ auto_transition_on_success: false
 
 Based on verification outcome:
 
-- **All commands succeed:**
-  - If `auto_transition_on_success: true` → ticket moves to `done`
-  - If `auto_transition_on_success: false` → ticket moves to `needs_human` for review
-- **Any command fails:**
-  - Ticket moves to `blocked`
-  - A TicketEvent is created with failure details
+- **All commands succeed:** ticket moves to `needs_human` for review
+- **Any command fails:** ticket moves to `blocked` with failure details
 
 ### Viewing Evidence
 
@@ -223,7 +227,7 @@ Evidence is displayed in the ticket detail drawer in the UI:
 
 ## Background Jobs
 
-Alma Kanban uses Celery with Redis to run background jobs for ticket execution and verification.
+Alma Kanban uses an in-process SQLiteWorker (ThreadPoolExecutor + SQLite job queue) to run background jobs. No external services like Redis or Celery are required.
 
 ### Job Workflow Example
 
@@ -269,14 +273,14 @@ curl -X POST http://localhost:8000/jobs/<job_id>/cancel
 
 | Command | Description |
 |---------|-------------|
-| `make setup` | Install all dependencies |
+| `make setup` | Install all dependencies (backend venv + frontend npm) |
+| `make run` | Start backend + frontend (2 processes) |
 | `make dev-backend` | Run FastAPI server with hot reload |
 | `make dev-frontend` | Run Vite dev server with HMR |
-| `make dev-worker` | Run Celery worker for background jobs |
-| `make redis` | Start Redis server |
-| `make db-migrate` | Run database migrations |
+| `make db-migrate` | Run Alembic database migrations |
 | `make lint` | Run linters (ruff + ESLint) |
 | `make format` | Format code (ruff + Prettier) |
+| `make generate-types` | Generate TypeScript types from OpenAPI spec |
 | `make clean` | Remove build artifacts |
 
 Run `make help` for a full list of commands.

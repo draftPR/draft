@@ -26,6 +26,10 @@ import {
   XCircle,
   Loader2,
   Info,
+  Terminal,
+  Plus,
+  Trash2,
+  GripVertical,
 } from "lucide-react";
 import {
   getPreferredEditor,
@@ -40,8 +44,13 @@ import {
   fetchPlannerConfig,
   updatePlannerConfig,
   checkPlannerHealth,
+  getBoardConfig,
+  updateBoardConfig,
+  fetchExecutorProfiles,
+  saveExecutorProfiles,
 } from "@/services/api";
 import type { PlannerHealthResponse } from "@/types/api";
+import { useBoard } from "@/contexts/BoardContext";
 
 export interface BudgetSettings {
   daily: number;
@@ -149,6 +158,192 @@ export function AgentSettingsCard({
             showDetails
           />
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ExecutorProfilesCard() {
+  const [profiles, setProfiles] = useState<
+    { name: string; executor_type: string; timeout: number; extra_flags: string[]; model: string | null; env: Record<string, string> }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    fetchExecutorProfiles()
+      .then((p) => setProfiles(p))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const addProfile = () => {
+    setProfiles((prev) => [
+      ...prev,
+      { name: "", executor_type: "claude", timeout: 600, extra_flags: [], model: null, env: {} },
+    ]);
+    setDirty(true);
+  };
+
+  const removeProfile = (idx: number) => {
+    setProfiles((prev) => prev.filter((_, i) => i !== idx));
+    setDirty(true);
+  };
+
+  const updateProfile = (idx: number, field: string, value: string | number | string[]) => {
+    setProfiles((prev) =>
+      prev.map((p, i) => (i === idx ? { ...p, [field]: value } : p)),
+    );
+    setDirty(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const saved = await saveExecutorProfiles(
+        profiles.filter((p) => p.name.trim()),
+      );
+      setProfiles(saved);
+      setDirty(false);
+      playSound("success");
+    } catch {
+      // Error handled silently
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="section-header flex items-center gap-2">
+              <Cpu className="h-5 w-5" />
+              Executor Profiles
+            </CardTitle>
+            <CardDescription>
+              Named execution strategies (e.g. fast, thorough) with per-profile settings
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            {dirty && (
+              <Button size="sm" onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <Save className="h-3 w-3 mr-1" />
+                )}
+                Save
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={addProfile}>
+              <Plus className="h-3 w-3 mr-1" />
+              Add Profile
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading profiles...
+          </div>
+        ) : profiles.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No profiles configured. Add a profile to create execution strategies
+            like &quot;fast&quot; (Haiku, 5min timeout) or &quot;thorough&quot; (Opus, 20min timeout).
+          </p>
+        ) : (
+          profiles.map((profile, idx) => (
+            <div
+              key={idx}
+              className="border rounded-lg p-3 space-y-3"
+            >
+              <div className="flex items-center gap-2">
+                <GripVertical className="h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Profile name (e.g. fast)"
+                  value={profile.name}
+                  onChange={(e) => updateProfile(idx, "name", e.target.value)}
+                  className="flex-1 h-8 text-sm"
+                />
+                <Select
+                  value={profile.executor_type}
+                  onValueChange={(v) => updateProfile(idx, "executor_type", v)}
+                >
+                  <SelectTrigger className="w-[130px] h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="claude">Claude</SelectItem>
+                    <SelectItem value="codex">Codex</SelectItem>
+                    <SelectItem value="gemini">Gemini</SelectItem>
+                    <SelectItem value="cursor">Cursor</SelectItem>
+                    <SelectItem value="cursor-agent">Cursor Agent</SelectItem>
+                    <SelectItem value="amp">Amp</SelectItem>
+                    <SelectItem value="droid">Droid</SelectItem>
+                    <SelectItem value="opencode">OpenCode</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeProfile(idx)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Timeout (seconds)</Label>
+                  <Input
+                    type="number"
+                    value={profile.timeout}
+                    onChange={(e) =>
+                      updateProfile(idx, "timeout", parseInt(e.target.value) || 600)
+                    }
+                    className="h-8 text-sm"
+                    min={60}
+                    step={60}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Model override</Label>
+                  <Input
+                    placeholder="e.g. claude-haiku-4-5-20251001"
+                    value={profile.model || ""}
+                    onChange={(e) =>
+                      updateProfile(idx, "model", e.target.value || "")
+                    }
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Extra CLI flags (comma-separated)</Label>
+                <Input
+                  placeholder='e.g. --model, claude-haiku-4-5-20251001'
+                  value={(profile.extra_flags || []).join(", ")}
+                  onChange={(e) =>
+                    updateProfile(
+                      idx,
+                      "extra_flags",
+                      e.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    )
+                  }
+                  className="h-8 text-sm font-mono"
+                />
+              </div>
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );
@@ -669,6 +864,139 @@ export function PlannerSettingsCard({
   );
 }
 
+/* ── Verification Commands Card ── */
+
+export function VerificationCommandsCard() {
+  const { currentBoard } = useBoard();
+  const [commands, setCommands] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newCmd, setNewCmd] = useState("");
+
+  useEffect(() => {
+    if (!currentBoard?.id) return;
+    getBoardConfig(currentBoard.id)
+      .then((cfg) => {
+        const cmds = cfg.config?.verify_config?.commands || [];
+        setCommands(cmds);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [currentBoard?.id]);
+
+  const handleSave = useCallback(async () => {
+    if (!currentBoard?.id) return;
+    setSaving(true);
+    try {
+      await updateBoardConfig(currentBoard.id, {
+        config: { verify_config: { commands } },
+      });
+      playSound("success");
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false);
+    }
+  }, [currentBoard?.id, commands]);
+
+  const addCommand = () => {
+    if (!newCmd.trim()) return;
+    setCommands((prev) => [...prev, newCmd.trim()]);
+    setNewCmd("");
+  };
+
+  const removeCommand = (index: number) => {
+    setCommands((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const moveCommand = (from: number, to: number) => {
+    setCommands((prev) => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="section-header flex items-center gap-2">
+          <Terminal className="h-5 w-5" />
+          Verification Commands
+        </CardTitle>
+        <CardDescription>
+          Commands run after each agent execution to verify the changes. They run sequentially in the ticket's worktree.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <div className="flex items-center justify-center py-4">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            {commands.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">
+                No verification commands configured. Add commands to automatically verify agent changes.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {commands.map((cmd, i) => (
+                  <div key={i} className="flex items-center gap-2 group">
+                    <div className="flex flex-col gap-0.5">
+                      <button
+                        onClick={() => i > 0 && moveCommand(i, i - 1)}
+                        disabled={i === 0}
+                        className="text-muted-foreground/50 hover:text-muted-foreground disabled:opacity-30 transition-colors"
+                      >
+                        <GripVertical className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <code className="flex-1 text-sm font-mono bg-muted/50 rounded px-3 py-2 text-foreground">
+                      {cmd}
+                    </code>
+                    <button
+                      onClick={() => removeCommand(i)}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add new command */}
+            <div className="flex gap-2">
+              <Input
+                value={newCmd}
+                onChange={(e) => setNewCmd(e.target.value)}
+                placeholder="e.g., npm test, pytest -q, make lint"
+                className="font-mono text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newCmd.trim()) {
+                    e.preventDefault();
+                    addCommand();
+                  }
+                }}
+              />
+              <Button size="sm" variant="outline" onClick={addCommand} disabled={!newCmd.trim()}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+              Save Commands
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 /* ── Main SettingsPanel (kept for backward compat) ── */
 
 export function SettingsPanel() {
@@ -727,6 +1055,9 @@ export function SettingsPanel() {
         defaultAgent={defaultAgent}
         onAgentChange={(v) => { setDefaultAgent(v); setHasChanges(true); }}
       />
+      <ExecutorProfilesCard />
+      <PlannerSettingsCard onDirty={() => setHasChanges(true)} />
+      <VerificationCommandsCard />
       <BudgetSettingsCard budget={budget} onBudgetChange={handleBudgetChange} />
       <KeyboardShortcutsCard />
       <WelcomeTutorialCard />

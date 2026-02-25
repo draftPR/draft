@@ -57,6 +57,7 @@ class ExecuteConfig:
     timeout: int = 600  # seconds (default 10 minutes)
     preferred_executor: str = "claude"  # "claude" (headless) or "cursor" (interactive)
     executor_model: str | None = None  # Optional model override for executor
+    max_parallel_jobs: int = 1  # Max concurrent execute jobs (1 = sequential)
     yolo_mode: bool = False  # DANGEROUS: skip permissions prompts (opt-in only)
     yolo_allowlist: list[str] = field(
         default_factory=list
@@ -69,6 +70,7 @@ class ExecuteConfig:
             timeout=data.get("timeout", 600),
             preferred_executor=data.get("preferred_executor", "claude"),
             executor_model=data.get("executor_model"),
+            max_parallel_jobs=max(1, data.get("max_parallel_jobs", 1)),
             yolo_mode=data.get("yolo_mode", False),
             yolo_allowlist=data.get("yolo_allowlist") or [],
         )
@@ -209,6 +211,9 @@ class MergeConfig:
     pull_before_merge: bool = True  # git pull --ff-only before merge
     delete_branch_after_merge: bool = True  # Delete branch after merge
     require_pull_success: bool = True  # If pull fails, abort merge (safer default)
+    push_after_merge: bool = False  # Push target branch to remote after merge
+    squash_merge: bool = True  # Squash commits into single commit
+    check_divergence: bool = True  # Check if target branch moved ahead
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MergeConfig":
@@ -218,6 +223,9 @@ class MergeConfig:
             pull_before_merge=data.get("pull_before_merge", True),
             delete_branch_after_merge=data.get("delete_branch_after_merge", True),
             require_pull_success=data.get("require_pull_success", True),
+            push_after_merge=data.get("push_after_merge", False),
+            squash_merge=data.get("squash_merge", True),
+            check_divergence=data.get("check_divergence", True),
         )
 
 
@@ -764,3 +772,46 @@ class ConfigService:
     def get_executor_profile(self, name: str) -> ExecutorProfile | None:
         """Get a specific executor profile by name."""
         return self.load_config().executor_profiles.get(name)
+
+    def save_executor_profiles(
+        self, profiles: list[dict[str, Any]]
+    ) -> dict[str, ExecutorProfile]:
+        """Save executor profiles to smartkanban.yaml.
+
+        Reads the existing YAML, updates only the executor_profiles section,
+        and writes back. Preserves all other config and comments where possible.
+        """
+        config_path = self.config_path
+
+        # Load existing YAML as raw dict (preserves structure)
+        data: dict[str, Any] = {}
+        if config_path.exists():
+            with open(config_path) as f:
+                data = yaml.safe_load(f) or {}
+
+        # Build profiles dict
+        profiles_dict: dict[str, Any] = {}
+        for p in profiles:
+            name = p.get("name", "").strip()
+            if not name:
+                continue
+            entry: dict[str, Any] = {}
+            if p.get("executor_type"):
+                entry["executor_type"] = p["executor_type"]
+            if p.get("timeout"):
+                entry["timeout"] = int(p["timeout"])
+            if p.get("extra_flags"):
+                entry["extra_flags"] = p["extra_flags"]
+            if p.get("model"):
+                entry["model"] = p["model"]
+            if p.get("env"):
+                entry["env"] = p["env"]
+            profiles_dict[name] = entry
+
+        data["executor_profiles"] = profiles_dict
+
+        with open(config_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+        self.clear_cache()
+        return self.get_executor_profiles()

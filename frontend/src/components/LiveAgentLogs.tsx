@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { streamAgentLogs, fetchJobLogs, type StreamNormalizedEntry } from "@/services/api";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { cn } from "@/lib/utils";
 import {
   Loader2,
@@ -18,6 +19,9 @@ import {
   TerminalSquare,
   Bot,
   AlertCircle,
+  Filter,
+  Clock,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -57,7 +61,7 @@ const ACTION_ICONS: Record<string, typeof FileCode> = {
 /**
  * Render a single normalized entry with clean, minimal styling
  */
-function NormalizedEntryView({ entry }: { entry: StreamNormalizedEntry }) {
+function NormalizedEntryView({ entry, showTimestamp }: { entry: StreamNormalizedEntry; showTimestamp?: boolean }) {
   const config = ENTRY_CONFIG[entry.entry_type] || ENTRY_CONFIG.system_message;
   const Icon = entry.action_type ? (ACTION_ICONS[entry.action_type] || config.icon) : config.icon;
   
@@ -85,6 +89,11 @@ function NormalizedEntryView({ entry }: { entry: StreamNormalizedEntry }) {
         <Icon className="h-4 w-4 mt-0.5 flex-shrink-0 text-gray-400" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+            {showTimestamp && entry.timestamp && (
+              <span className="text-[10px] text-gray-400 font-mono tabular-nums">
+                {new Date(entry.timestamp).toLocaleTimeString()}
+              </span>
+            )}
             <span className="font-medium">{config.label}</span>
             {entry.tool_name && (
               <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-mono">
@@ -132,8 +141,12 @@ export function LiveAgentLogs({
   const [copied, setCopied] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [progress, setProgress] = useState<ProgressState | null>(null);
-  const logsEndRef = useRef<HTMLDivElement>(null);
-  const logsContainerRef = useRef<HTMLDivElement>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const [levelFilter, setLevelFilter] = useState<Set<string>>(new Set());
+  const [showTimestamps, setShowTimestamps] = useState(false);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const isRunning = jobStatus === JobStatus.RUNNING || jobStatus === JobStatus.QUEUED;
@@ -215,22 +228,31 @@ export function LiveAgentLogs({
     }
   }, [expanded, isRunning, loadLogs]);
 
-  // Auto-scroll to bottom when logs or normalized entries update
-  // Use scrollTop on container instead of scrollIntoView to avoid page jumping
-  useEffect(() => {
-    if (autoScroll && logsContainerRef.current && expanded) {
-      const container = logsContainerRef.current;
-      container.scrollTop = container.scrollHeight;
+  // Memoize sorted + filtered normalized entries for Virtuoso
+  const sortedEntries = useMemo(() => {
+    let entries = Array.from(normalizedEntries.values()).sort((a, b) => a.sequence - b.sequence);
+    if (levelFilter.size > 0) {
+      entries = entries.filter((e) => levelFilter.has(e.entry_type));
     }
-  }, [logs, normalizedEntries.size, autoScroll, expanded]);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      entries = entries.filter(
+        (e) =>
+          e.content?.toLowerCase().includes(q) ||
+          e.tool_name?.toLowerCase().includes(q)
+      );
+    }
+    return entries;
+  }, [normalizedEntries, levelFilter, searchQuery]);
 
-  // Detect manual scroll to disable auto-scroll
-  const handleScroll = useCallback(() => {
-    if (!logsContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-    setAutoScroll(isAtBottom);
-  }, []);
+  // Memoize filtered raw log lines for Virtuoso
+  const rawLogLines = useMemo(() => {
+    if (!logs) return [];
+    const lines = logs.split("\n");
+    if (!searchQuery) return lines;
+    const q = searchQuery.toLowerCase();
+    return lines.filter((line) => line.toLowerCase().includes(q));
+  }, [logs, searchQuery]);
 
   const handleCopy = async () => {
     try {
@@ -243,8 +265,7 @@ export function LiveAgentLogs({
     }
   };
 
-  const logLines = logs.split("\n");
-  const lineCount = logLines.length;
+  const lineCount = rawLogLines.length;
 
   // Status badge colors - clean and minimal
   const getStatusDisplay = () => {
@@ -390,6 +411,70 @@ export function LiveAgentLogs({
             </div>
           )}
 
+          {/* Search & filter toolbar */}
+          {(showSearch || levelFilter.size > 0) && (
+            <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200 bg-white">
+              <Search className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search logs..."
+                className="flex-1 text-xs bg-transparent outline-none text-gray-700 placeholder:text-gray-400"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setSearchQuery("");
+                    setShowSearch(false);
+                  }
+                }}
+              />
+              {searchQuery && (
+                <span className="text-[10px] text-gray-400">
+                  {viewMode === "normalized" ? sortedEntries.length : rawLogLines.length} matches
+                </span>
+              )}
+              <button
+                onClick={() => {
+                  setSearchQuery("");
+                  setShowSearch(false);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Level filter pills (normalized view only) */}
+          {viewMode === "normalized" && hasNormalizedEntries && levelFilter.size > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-gray-200 bg-white">
+              <Filter className="h-3 w-3 text-gray-400" />
+              {Array.from(levelFilter).map((level) => (
+                <button
+                  key={level}
+                  onClick={() =>
+                    setLevelFilter((prev) => {
+                      const next = new Set(prev);
+                      next.delete(level);
+                      return next;
+                    })
+                  }
+                  className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200"
+                >
+                  {ENTRY_CONFIG[level]?.label || level}
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              ))}
+              <button
+                onClick={() => setLevelFilter(new Set())}
+                className="text-[10px] text-gray-400 hover:text-gray-600 ml-1"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+
           {loading && !logs && !hasNormalizedEntries ? (
             <div className="flex items-center justify-center py-8 bg-zinc-950">
               <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
@@ -400,69 +485,171 @@ export function LiveAgentLogs({
             </div>
           ) : (
             <>
-              {/* Copy button */}
-              {logs && (
+              {/* Toolbar buttons */}
+              <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                {/* Search toggle */}
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleCopy();
+                    setShowSearch((v) => !v);
+                    if (!showSearch) {
+                      setTimeout(() => searchInputRef.current?.focus(), 50);
+                    }
                   }}
                   className={cn(
-                    "absolute top-2 right-2 h-7 px-2 z-10",
+                    "h-7 w-7 p-0",
                     viewMode === "normalized"
                       ? "bg-white border border-gray-200 hover:bg-gray-50 text-gray-500"
-                      : "bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400"
+                      : "bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400",
+                    showSearch && "ring-1 ring-blue-400"
                   )}
                 >
-                  {copied ? (
-                    <Check className={cn("h-3.5 w-3.5", viewMode === "normalized" ? "text-green-600" : "text-emerald-400")} />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
+                  <Search className="h-3.5 w-3.5" />
                 </Button>
-              )}
+
+                {/* Level filter (normalized view only) */}
+                {viewMode === "normalized" && hasNormalizedEntries && (
+                  <div className="relative group">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "h-7 w-7 p-0",
+                        "bg-white border border-gray-200 hover:bg-gray-50 text-gray-500",
+                        levelFilter.size > 0 && "ring-1 ring-blue-400"
+                      )}
+                    >
+                      <Filter className="h-3.5 w-3.5" />
+                    </Button>
+                    <div className="hidden group-hover:block absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-1 min-w-[140px]">
+                      {Object.entries(ENTRY_CONFIG).map(([key, cfg]) => (
+                        <button
+                          key={key}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLevelFilter((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(key)) next.delete(key);
+                              else next.add(key);
+                              return next;
+                            });
+                          }}
+                          className={cn(
+                            "flex items-center gap-2 w-full px-2 py-1 text-xs rounded hover:bg-gray-50",
+                            levelFilter.has(key) ? "text-blue-600 font-medium" : "text-gray-600"
+                          )}
+                        >
+                          <cfg.icon className="h-3 w-3" />
+                          {cfg.label}
+                          {levelFilter.has(key) && <Check className="h-3 w-3 ml-auto" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Timestamp toggle (normalized view only) */}
+                {viewMode === "normalized" && hasNormalizedEntries && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowTimestamps((v) => !v);
+                    }}
+                    className={cn(
+                      "h-7 w-7 p-0",
+                      "bg-white border border-gray-200 hover:bg-gray-50 text-gray-500",
+                      showTimestamps && "ring-1 ring-blue-400"
+                    )}
+                    title="Toggle timestamps"
+                  >
+                    <Clock className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+
+                {/* Copy button */}
+                {logs && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopy();
+                    }}
+                    className={cn(
+                      "h-7 w-7 p-0",
+                      viewMode === "normalized"
+                        ? "bg-white border border-gray-200 hover:bg-gray-50 text-gray-500"
+                        : "bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400"
+                    )}
+                  >
+                    {copied ? (
+                      <Check className={cn("h-3.5 w-3.5", viewMode === "normalized" ? "text-green-600" : "text-emerald-400")} />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                )}
+              </div>
 
               <div
-                ref={logsContainerRef}
-                onScroll={handleScroll}
                 className={cn(
-                  "overflow-auto",
                   "max-h-[400px] min-h-[120px]",
                   viewMode === "normalized" ? "bg-gray-50" : "bg-zinc-900",
                   viewMode === "raw" && "font-mono text-xs"
                 )}
               >
                 {viewMode === "normalized" && hasNormalizedEntries ? (
-                  // Normalized view - clean white background
-                  <div className="p-3">
-                    {Array.from(normalizedEntries.values())
-                      .sort((a, b) => a.sequence - b.sequence)
-                      .map((entry) => (
-                        <NormalizedEntryView key={entry.sequence} entry={entry} />
-                      ))}
-                    {normalizedEntries.size === 0 && (
+                  // Normalized view - virtualized
+                  sortedEntries.length > 0 ? (
+                    <Virtuoso
+                      ref={virtuosoRef}
+                      data={sortedEntries}
+                      style={{ height: "400px" }}
+                      followOutput={autoScroll ? "smooth" : false}
+                      atBottomStateChange={(atBottom) => setAutoScroll(atBottom)}
+                      itemContent={(_index, entry) => (
+                        <div className="px-3 first:pt-3 last:pb-3">
+                          <NormalizedEntryView entry={entry} showTimestamp={showTimestamps} />
+                        </div>
+                      )}
+                    />
+                  ) : (
+                    <div className="p-3">
                       <span className="text-gray-400 italic text-sm">
                         {isRunning
                           ? "Waiting for agent output..."
                           : "No entries available"}
                       </span>
-                    )}
-                    <div ref={logsEndRef} />
-                  </div>
+                    </div>
+                  )
                 ) : (
-                  // Raw view - dark terminal style
-                  <pre className="p-3 text-zinc-300 whitespace-pre-wrap break-words leading-relaxed">
-                    {logs || (
+                  // Raw view - virtualized terminal style
+                  rawLogLines.length > 0 ? (
+                    <Virtuoso
+                      ref={virtuosoRef}
+                      data={rawLogLines}
+                      style={{ height: "400px" }}
+                      followOutput={autoScroll ? "smooth" : false}
+                      atBottomStateChange={(atBottom) => setAutoScroll(atBottom)}
+                      itemContent={(_index, line) => (
+                        <pre className="px-3 text-zinc-300 whitespace-pre-wrap break-words leading-relaxed">
+                          {line}
+                        </pre>
+                      )}
+                    />
+                  ) : (
+                    <pre className="p-3 text-zinc-300 whitespace-pre-wrap break-words leading-relaxed">
                       <span className="text-zinc-500 italic">
                         {isRunning
                           ? "Waiting for logs..."
                           : "No logs available"}
                       </span>
-                    )}
-                    <div ref={logsEndRef} />
-                  </pre>
+                    </pre>
+                  )
                 )}
               </div>
 
@@ -472,13 +659,14 @@ export function LiveAgentLogs({
                   onClick={(e) => {
                     e.stopPropagation();
                     setAutoScroll(true);
-                    if (logsContainerRef.current) {
-                      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
-                    }
+                    virtuosoRef.current?.scrollToIndex({
+                      index: "LAST",
+                      behavior: "smooth",
+                    });
                   }}
                   className={cn(
                     "absolute bottom-2 right-2 px-2 py-1 rounded text-[10px] transition-colors shadow-sm",
-                    viewMode === "normalized" 
+                    viewMode === "normalized"
                       ? "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
                       : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
                   )}

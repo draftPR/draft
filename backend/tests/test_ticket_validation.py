@@ -287,8 +287,8 @@ class TestTicketValidation:
 
 
 def test_validation_config_default(mock_config):
-    """Test that validation is enabled by default in config."""
-    assert mock_config.features.validate_tickets is True
+    """Test that validation is disabled by default in config (matches YAML intent)."""
+    assert mock_config.features.validate_tickets is False
 
 
 if __name__ == "__main__":

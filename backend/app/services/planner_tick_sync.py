@@ -72,7 +72,7 @@ def run_planner_tick_sync() -> dict:
     with get_sync_db() as db:
         # Acquire lock
         _acquire_lock_sync(db, lock_owner_id)
-        
+
         try:
             # 0. Check for queued messages on tickets ready for execution
             # This enables the instant follow-up UX like vibe-kanban
@@ -81,26 +81,48 @@ def run_planner_tick_sync() -> dict:
                 if queued_job_id:
                     jobs_to_enqueue.append(queued_job_id)
                     queued_executed = 1
-            
-            # 1. Pick and execute next planned ticket (if no active execution and no queued)
+
+            from app.routers.debug import add_orchestrator_log
+
+            # 1. Unblock tickets whose blockers are now done
+            unblocked = _unblock_ready_tickets_sync(db)
+            if unblocked:
+                add_orchestrator_log(
+                    "INFO",
+                    f"Unblocked {unblocked} ticket(s) (blockers reached DONE)",
+                    {"count": unblocked},
+                )
+
+            # 2. Pick and execute planned tickets (parallel-aware)
             if config.features.auto_execute and queued_executed == 0:
-                if not _has_active_execution_sync(db):
-                    job_id = _pick_and_execute_next_sync(db)
-                    if job_id:
-                        jobs_to_enqueue.append(job_id)
-                        executed = 1
-            
-            # 2. Handle blocked tickets (LLM-powered)
+                new_job_ids = _pick_and_execute_next_sync(db)
+                if new_job_ids:
+                    jobs_to_enqueue.extend(new_job_ids)
+                    executed = len(new_job_ids)
+
+            # 3. Handle blocked tickets (LLM-powered)
             if config.features.propose_followups:
                 followups_created = _handle_blocked_tickets_sync(db, config)
-            
-            # 3. Generate reflections (LLM-powered)
+                if followups_created:
+                    add_orchestrator_log(
+                        "INFO",
+                        f"Created {followups_created} follow-up ticket(s) for blocked tickets",
+                        {"count": followups_created},
+                    )
+
+            # 4. Generate reflections (LLM-powered)
             if config.features.generate_reflections:
                 reflections_added = _generate_reflections_sync(db, config)
-            
+                if reflections_added:
+                    add_orchestrator_log(
+                        "INFO",
+                        f"Generated {reflections_added} reflection(s) for done tickets",
+                        {"count": reflections_added},
+                    )
+
             # Commit all changes
             db.commit()
-            
+
         finally:
             # Always release lock
             _release_lock_sync(db, lock_owner_id)
@@ -114,6 +136,7 @@ def run_planner_tick_sync() -> dict:
         "followups_created": followups_created,
         "reflections_added": reflections_added,
         "queued_executed": queued_executed,
+        "unblocked": unblocked,
     }
 
 
@@ -189,107 +212,199 @@ def _release_lock_sync(db, owner_id: str) -> None:
         logger.warning(f"Failed to release planner lock: {e}")
 
 
+def _count_active_executions_sync(db) -> int:
+    """Count active executions (queued + running execute jobs)."""
+    from sqlalchemy import func as sql_func
+    count = db.execute(
+        select(sql_func.count(Job.id)).where(
+            and_(
+                Job.kind == JobKind.EXECUTE.value,
+                Job.status.in_([
+                    JobStatus.QUEUED.value,
+                    JobStatus.RUNNING.value,
+                ]),
+            )
+        )
+    ).scalar_one()
+    return count or 0
+
+
 def _has_active_execution_sync(db) -> bool:
     """Check if there's an active execution (synchronous)."""
-    # Check for executing or verifying tickets
-    active_ticket = db.execute(
-        select(Ticket.id)
-        .where(
-            Ticket.state.in_([
-                TicketState.EXECUTING.value,
-                TicketState.VERIFYING.value,
-            ])
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-    
-    if active_ticket:
-        logger.debug("Active execution gate: ticket in executing/verifying state")
-        return True
-    
-    # Check for RUNNING execute jobs
-    running_job = db.execute(
-        select(Job.id)
-        .where(
-            and_(
-                Job.kind == JobKind.EXECUTE.value,
-                Job.status == JobStatus.RUNNING.value,
-            )
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-    
-    if running_job:
-        logger.debug("Active execution gate: execute job running")
-        return True
-    
-    return False
+    return _count_active_executions_sync(db) > 0
 
 
-def _pick_and_execute_next_sync(db) -> str | None:
-    """Pick the next planned ticket and create an execute job (synchronous).
-    
+def _get_max_parallel_jobs() -> int:
+    """Read max_parallel_jobs from config."""
+    try:
+        config = ConfigService().load_config()
+        return config.execute_config.max_parallel_jobs
+    except Exception:
+        return 1
+
+
+def _unblock_ready_tickets_sync(db) -> int:
+    """Check BLOCKED tickets and unblock those whose blockers are now done.
+
+    Mirrors the async ``PlannerService._unblock_ready_tickets`` so that the
+    sync periodic tick (run by SQLiteWorker) also transitions dependent
+    tickets from BLOCKED → PLANNED once their blocker reaches DONE.
+
     Returns:
-        Job ID if a ticket was queued, None otherwise.
+        Number of tickets that were unblocked.
     """
-    # Check if there are ANY queued or running execute jobs
-    active_job = db.execute(
-        select(Job.id).where(
+    blocked_tickets = db.execute(
+        select(Ticket)
+        .where(
             and_(
-                Job.kind == JobKind.EXECUTE.value,
-                Job.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
+                Ticket.state == TicketState.BLOCKED.value,
+                Ticket.blocked_by_ticket_id.isnot(None),
             )
-        ).limit(1)
-    ).scalar_one_or_none()
-    
-    if active_job:
-        logger.debug("Execute job already queued or running, not queuing new tickets")
-        return None
-    
-    # Find the SINGLE highest-priority planned ticket
-    planned_ticket = db.execute(
+        )
+        .options(selectinload(Ticket.blocked_by))
+    ).scalars().all()
+
+    unblocked = 0
+    for ticket in blocked_tickets:
+        if ticket.blocked_by and ticket.blocked_by.state == TicketState.DONE.value:
+            logger.info(
+                f"Unblocking ticket {ticket.id}: blocker {ticket.blocked_by_ticket_id} "
+                f"is now DONE"
+            )
+            old_state = ticket.state
+            ticket.state = TicketState.PLANNED.value
+
+            event = TicketEvent(
+                ticket_id=ticket.id,
+                event_type=EventType.TRANSITIONED.value,
+                from_state=old_state,
+                to_state=TicketState.PLANNED.value,
+                actor_type=ActorType.PLANNER.value,
+                actor_id="planner",
+                reason=f"Unblocked: blocking ticket '{ticket.blocked_by.title}' is now done",
+                payload_json=json.dumps({
+                    "blocker_ticket_id": ticket.blocked_by_ticket_id,
+                    "blocker_title": ticket.blocked_by.title,
+                    "action": "unblocked",
+                }),
+            )
+            db.add(event)
+
+            # Clear the dependency FK so UI stops showing the badge
+            ticket.blocked_by_ticket_id = None
+            unblocked += 1
+
+    if unblocked:
+        db.flush()
+        logger.info(f"Unblocked {unblocked} tickets")
+
+    return unblocked
+
+
+def _pick_and_execute_next_sync(db) -> list[str]:
+    """Pick planned tickets and create execute jobs, respecting parallelism.
+
+    When max_parallel_jobs > 1, picks multiple independent tickets (those not
+    blocked by unfinished dependencies). Dependent tickets are always sequential.
+
+    Returns:
+        List of Job IDs that were queued (may be empty).
+    """
+    max_parallel = _get_max_parallel_jobs()
+    active_count = _count_active_executions_sync(db)
+    slots = max_parallel - active_count
+
+    if slots <= 0:
+        logger.debug(
+            f"No execution slots available ({active_count}/{max_parallel} active)"
+        )
+        return []
+
+    # Find planned tickets ordered by priority
+    planned_tickets = db.execute(
         select(Ticket)
         .where(Ticket.state == TicketState.PLANNED.value)
+        .options(selectinload(Ticket.blocked_by))
         .order_by(
             Ticket.priority.desc().nulls_last(),
             Ticket.created_at.asc(),
         )
-        .limit(1)
-    ).scalar_one_or_none()
-    
-    if not planned_ticket:
-        logger.info("No planned tickets to queue")
-        return None
-    
-    # Create execute job
-    job = Job(
-        ticket_id=planned_ticket.id,
-        board_id=planned_ticket.board_id,
-        kind=JobKind.EXECUTE.value,
-        status=JobStatus.QUEUED.value,
+        .limit(slots * 2)  # Fetch extra in case some are dependency-blocked
+    ).scalars().all()
+
+    if not planned_tickets:
+        return []
+
+    # Collect ticket IDs that already have active jobs (avoid double-scheduling)
+    active_ticket_ids = set(
+        db.execute(
+            select(Job.ticket_id).where(
+                and_(
+                    Job.kind == JobKind.EXECUTE.value,
+                    Job.status.in_([
+                        JobStatus.QUEUED.value,
+                        JobStatus.RUNNING.value,
+                    ]),
+                )
+            )
+        ).scalars().all()
     )
-    db.add(job)
-    db.flush()
-    db.refresh(job)
-    
-    # Create event
-    event = TicketEvent(
-        ticket_id=planned_ticket.id,
-        event_type=EventType.COMMENT.value,
-        from_state=planned_ticket.state,
-        to_state=planned_ticket.state,
-        actor_type=ActorType.PLANNER.value,
-        actor_id="planner",
-        reason="Planner enqueued execute job",
-        payload_json=json.dumps({
-            "action": "enqueued_execute",
-            "job_id": job.id,
-        }),
-    )
-    db.add(event)
-    
-    logger.info(f"Planner created execute job {job.id} for ticket {planned_ticket.id}")
-    return job.id
+
+    job_ids = []
+    for ticket in planned_tickets:
+        if len(job_ids) >= slots:
+            break
+
+        # Skip if already has an active job
+        if ticket.id in active_ticket_ids:
+            continue
+
+        # Skip if blocked by an unfinished dependency
+        if ticket.blocked_by_ticket_id:
+            blocker = ticket.blocked_by
+            if blocker is None or blocker.state != TicketState.DONE.value:
+                logger.debug(
+                    f"Skipping ticket {ticket.id}: blocked by {ticket.blocked_by_ticket_id}"
+                )
+                continue
+
+        # Create execute job
+        job = Job(
+            ticket_id=ticket.id,
+            board_id=ticket.board_id,
+            kind=JobKind.EXECUTE.value,
+            status=JobStatus.QUEUED.value,
+        )
+        db.add(job)
+        db.flush()
+        db.refresh(job)
+
+        event = TicketEvent(
+            ticket_id=ticket.id,
+            event_type=EventType.COMMENT.value,
+            from_state=ticket.state,
+            to_state=ticket.state,
+            actor_type=ActorType.PLANNER.value,
+            actor_id="planner",
+            reason="Planner enqueued execute job",
+            payload_json=json.dumps({
+                "action": "enqueued_execute",
+                "job_id": job.id,
+            }),
+        )
+        db.add(event)
+        job_ids.append(job.id)
+
+        logger.info(
+            f"Planner created execute job {job.id} for ticket {ticket.id}"
+        )
+
+    if job_ids:
+        logger.info(
+            f"Planner queued {len(job_ids)} execute job(s) "
+            f"({active_count + len(job_ids)}/{max_parallel} slots used)"
+        )
+    return job_ids
 
 
 def _execute_queued_message_sync(db) -> str | None:
@@ -468,6 +583,19 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
         if blocker_reason and _should_skip_followup(blocker_reason, config):
             continue
         
+        # Fetch sibling ticket titles in the same goal to avoid duplicates
+        sibling_titles: list[str] = []
+        if ticket.goal_id:
+            sibling_result = db.execute(
+                select(Ticket.title).where(
+                    and_(
+                        Ticket.goal_id == ticket.goal_id,
+                        Ticket.id != ticket.id,
+                    )
+                )
+            )
+            sibling_titles = [row[0] for row in sibling_result.fetchall()]
+
         # Generate follow-up proposal
         try:
             proposal = _generate_followup_proposal(
@@ -478,6 +606,7 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
                 goal_description=ticket.goal.description if ticket.goal else None,
                 llm_service=llm_service,
                 config=config,
+                existing_ticket_titles=sibling_titles,
             )
         except Exception as e:
             logger.error(f"Failed to generate follow-up for ticket {ticket.id}: {e}")
@@ -529,7 +658,23 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
         
         followups_created += 1
         logger.info(f"Created follow-up ticket {followup_ticket.id} for blocked ticket {ticket.id}")
-    
+
+        try:
+            from app.routers.debug import add_orchestrator_log
+            add_orchestrator_log(
+                "INFO",
+                f"Follow-up created: '{followup_ticket.title}'",
+                {
+                    "followup_ticket_id": followup_ticket.id,
+                    "blocked_ticket_id": ticket.id,
+                    "blocked_ticket_title": ticket.title,
+                    "blocker_reason": blocker_reason,
+                    "existing_siblings": len(sibling_titles),
+                },
+            )
+        except Exception:
+            pass
+
     return followups_created
 
 
@@ -550,6 +695,7 @@ def _generate_followup_proposal(
     goal_description: str | None,
     llm_service: LLMService,
     config: PlannerConfig,
+    existing_ticket_titles: list[str] | None = None,
 ) -> dict:
     """Generate a follow-up ticket proposal using LLM."""
     context_parts = []
@@ -562,9 +708,19 @@ def _generate_followup_proposal(
         context_parts.append(f"Ticket description: {ticket_description}")
     if blocker_reason:
         context_parts.append(f"Blocker reason: {blocker_reason}")
-    
+
     context = "\n".join(context_parts)
-    
+
+    # Include existing tickets so LLM avoids duplicates
+    existing_section = ""
+    if existing_ticket_titles:
+        ticket_list = "\n".join(f"- {t}" for t in existing_ticket_titles)
+        existing_section = f"""
+
+## Existing Tickets (DO NOT DUPLICATE)
+These tickets already exist in the same goal. Do NOT create a follow-up that overlaps with any of these:
+{ticket_list}"""
+
     system_prompt = """You are a technical project planner. Given a blocked ticket, propose a follow-up ticket that addresses the blocker.
 
 Your response MUST be valid JSON with this exact structure:
@@ -572,11 +728,14 @@ Your response MUST be valid JSON with this exact structure:
   "title": "Short, actionable title for the follow-up ticket",
   "description": "Clear description of what needs to be done to unblock the original ticket",
   "verification": ["command1", "command2"]
-}"""
-    
+}
+
+Guidelines:
+- Do NOT create a ticket that duplicates an existing one"""
+
     user_prompt = f"""A ticket is blocked and needs a follow-up ticket to address the blocker.
 
-{context}
+{context}{existing_section}
 
 Generate a follow-up ticket proposal as JSON."""
     

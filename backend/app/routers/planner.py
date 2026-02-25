@@ -65,12 +65,25 @@ class PlannerStatusResponse(BaseModel):
     last_tick: LastTickStats | None
 
 
-def _detect_llm_provider() -> tuple[bool, str | None]:
-    """Detect if an LLM API key is configured and which provider.
+def _detect_llm_provider(model: str | None = None) -> tuple[bool, str | None]:
+    """Detect if an LLM is configured and which provider.
+
+    Supports both API-key-based providers and CLI-based agents (e.g. claude, cursor).
 
     Returns:
         Tuple of (is_configured, provider_name)
     """
+    import shutil
+
+    # CLI-based models (no API key needed — CLI handles auth)
+    # Model format: "cli/claude", "cli/cursor", etc.
+    if model and model.startswith("cli/"):
+        cli_name = model.split("/", 1)[1]  # e.g. "claude", "cursor"
+        if shutil.which(cli_name):
+            return True, f"cli:{cli_name}"
+        # CLI binary not found on PATH
+        return False, f"cli:{cli_name} (not found)"
+
     # Check for common API keys
     if os.environ.get("OPENAI_API_KEY"):
         return True, "openai"
@@ -230,7 +243,7 @@ async def get_planner_status(
     # Load fresh config without cache (in case smartkanban.yaml was edited)
     config = config_service.load_config(use_cache=False).planner_config
 
-    llm_configured, llm_provider = _detect_llm_provider()
+    llm_configured, llm_provider = _detect_llm_provider(model=config.model)
 
     # Get last tick stats
     last_tick = await _get_last_tick_stats(db)

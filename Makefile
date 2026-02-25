@@ -1,4 +1,4 @@
-.PHONY: setup setup-backend setup-frontend run run-redis dev dev-backend dev-frontend dev-worker redis db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean generate-types
+.PHONY: setup setup-backend setup-frontend run dev-backend dev-frontend db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean generate-types
 
 # Default target
 help:
@@ -10,15 +10,12 @@ help:
 	@echo "  make setup-frontend - Install Node.js dependencies"
 	@echo ""
 	@echo "Quick Start:"
-	@echo "  make run            - 🚀 Start all services (SQLite backend, no Redis needed)"
-	@echo "  make run-redis      - Start all services with Redis backend (requires Redis)"
+	@echo "  make run            - Start backend + frontend (2 processes)"
 	@echo "  ./run.py            - Alternative: run the launcher script directly"
 	@echo ""
 	@echo "Development (Manual):"
 	@echo "  make dev-backend    - Run FastAPI backend server (http://localhost:8000)"
 	@echo "  make dev-frontend   - Run Vite frontend dev server (http://localhost:5173)"
-	@echo "  make dev-worker     - Run Celery worker for background jobs"
-	@echo "  make redis          - Start Redis server (required for worker)"
 	@echo ""
 	@echo "Database:"
 	@echo "  make db-migrate     - Run Alembic database migrations"
@@ -52,15 +49,10 @@ setup-frontend:
 	cd frontend && npm install
 	@echo "✓ Frontend setup complete!"
 
-# Quick start - one command to run everything (SQLite backend, no Redis needed)
+# Quick start - backend + frontend (2 processes, no Redis needed)
 run:
-	@echo "🚀 Starting Alma Kanban (SQLite backend)..."
-	@TASK_BACKEND=sqlite python3 run.py
-
-# Run with Redis backend (requires Redis to be running)
-run-redis:
-	@echo "🚀 Starting Alma Kanban (Redis backend)..."
-	@TASK_BACKEND=redis python3 run.py
+	@echo "Starting Alma Kanban..."
+	@python3 run.py
 
 # Development targets (manual)
 dev-backend:
@@ -68,15 +60,6 @@ dev-backend:
 
 dev-frontend:
 	cd frontend && npm run dev
-
-dev-worker:
-	@# Clean up stale celerybeat-schedule SQLite lock files to prevent locking protocol errors
-	rm -f backend/celerybeat-schedule-shm backend/celerybeat-schedule-wal
-	@# Use --pool=solo to avoid SIGSEGV crashes with Python 3.14 + SQLite + fork
-	cd backend && . venv/bin/activate && celery -A app.celery_app worker --beat --loglevel=info --pool=solo
-
-redis:
-	redis-server
 
 # Database targets
 db-migrate:
@@ -118,7 +101,7 @@ clean:
 	rm -rf backend/app/__pycache__
 	rm -rf backend/.ruff_cache
 	rm -rf backend/.pytest_cache
-	rm -f backend/celerybeat-schedule backend/celerybeat-schedule-shm backend/celerybeat-schedule-wal
+	rm -f backend/celerybeat-schedule*
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@echo "✓ Clean complete!"

@@ -60,6 +60,54 @@ class MergeStatusResponse(BaseModel):
     )
 
 
+class ConflictStatusResponse(BaseModel):
+    """Response for conflict status query."""
+
+    has_conflict: bool
+    operation: str | None = Field(
+        description="Type of conflict operation: rebase, merge, cherry_pick, revert"
+    )
+    conflicted_files: list[str] = Field(default_factory=list)
+    can_continue: bool = False
+    can_abort: bool = False
+    divergence: dict | None = Field(
+        default=None,
+        description="Branch divergence info (ahead/behind counts)",
+    )
+
+
+class RebaseResponse(BaseModel):
+    """Response from a rebase operation."""
+
+    success: bool
+    message: str
+    has_conflicts: bool = False
+    conflicted_files: list[str] = Field(default_factory=list)
+
+
+class AbortResponse(BaseModel):
+    """Response from an abort operation."""
+
+    success: bool
+    message: str
+
+
+class PushResponse(BaseModel):
+    """Response from a push operation."""
+
+    success: bool
+    message: str
+
+
+class PushStatusResponse(BaseModel):
+    """Response for push status query."""
+
+    ahead: int = 0
+    behind: int = 0
+    remote_exists: bool = False
+    needs_push: bool = False
+
+
 class CleanupRequest(BaseModel):
     """Request body for maintenance cleanup."""
 

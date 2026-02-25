@@ -40,6 +40,26 @@ class PRStatusResponse(BaseModel):
     pr_base_branch: Optional[str]
 
 
+class AddPRCommentRequest(BaseModel):
+    """Request to add a comment to a PR."""
+
+    body: str
+
+
+class PRCommentResponse(BaseModel):
+    """A single PR comment."""
+
+    author: str
+    body: str
+    created_at: str
+
+
+class MergePRRequest(BaseModel):
+    """Request to merge a PR."""
+
+    strategy: str = "squash"  # squash, merge, rebase
+
+
 @router.post("", response_model=PRStatusResponse)
 async def create_pull_request(
     request: CreatePRRequest,
@@ -247,3 +267,88 @@ async def refresh_pr_status(
         raise HTTPException(
             status_code=500, detail=f"Failed to refresh PR status: {str(e)}"
         )
+
+
+# ===================== PR Comment Endpoints =====================
+
+
+async def _get_ticket_with_pr(ticket_id: str, db: AsyncSession) -> tuple:
+    """Get ticket with PR info and workspace repo path."""
+    result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
+    ticket = result.scalar_one_or_none()
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+    if not ticket.pr_number:
+        raise HTTPException(status_code=400, detail="Ticket has no associated PR")
+
+    result = await db.execute(select(Workspace).where(Workspace.ticket_id == ticket_id))
+    workspace = result.scalar_one_or_none()
+    if not workspace or not workspace.worktree_path:
+        raise HTTPException(status_code=400, detail="No workspace found for ticket")
+
+    repo_path = Path(workspace.worktree_path)
+    return ticket, repo_path
+
+
+@router.post("/{ticket_id}/comments", response_model=dict)
+async def add_pr_comment(
+    ticket_id: str,
+    request: AddPRCommentRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a comment to a ticket's PR."""
+    ticket, repo_path = await _get_ticket_with_pr(ticket_id, db)
+    git_host = get_git_host_provider(repo_path)
+
+    try:
+        result = await git_host.add_pr_comment(repo_path, ticket.pr_number, request.body)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add comment: {str(e)}")
+
+
+@router.get("/{ticket_id}/comments", response_model=list[PRCommentResponse])
+async def list_pr_comments(
+    ticket_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """List all comments on a ticket's PR."""
+    ticket, repo_path = await _get_ticket_with_pr(ticket_id, db)
+    git_host = get_git_host_provider(repo_path)
+
+    try:
+        comments = await git_host.list_pr_comments(repo_path, ticket.pr_number)
+        return [
+            PRCommentResponse(
+                author=c.get("author", {}).get("login", "unknown"),
+                body=c.get("body", ""),
+                created_at=c.get("createdAt", ""),
+            )
+            for c in comments
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list comments: {str(e)}")
+
+
+@router.post("/{ticket_id}/merge", response_model=dict)
+async def merge_pr_endpoint(
+    ticket_id: str,
+    request: MergePRRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge a ticket's PR on GitHub with the given strategy."""
+    ticket, repo_path = await _get_ticket_with_pr(ticket_id, db)
+    git_host = get_git_host_provider(repo_path)
+
+    try:
+        result = await git_host.merge_pr(repo_path, ticket.pr_number, request.strategy)
+
+        # Update ticket state on successful merge
+        ticket.pr_state = "MERGED"
+        ticket.pr_merged_at = datetime.now()
+        ticket.state = TicketState.DONE.value
+        await db.commit()
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to merge PR: {str(e)}")

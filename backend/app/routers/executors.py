@@ -188,3 +188,25 @@ async def get_executor_profile(profile_name: str):
         "model": profile.model,
         "env": profile.env,
     }
+
+
+@router.put("/profiles", response_model=list[dict[str, Any]])
+async def save_executor_profiles(profiles: list[dict[str, Any]]):
+    """Save executor profiles to smartkanban.yaml.
+
+    Replaces all profiles with the provided list.
+    """
+    config_service = ConfigService()
+    saved = config_service.save_executor_profiles(profiles)
+
+    return [
+        {
+            "name": p.name,
+            "executor_type": p.executor_type,
+            "timeout": p.timeout,
+            "extra_flags": p.extra_flags,
+            "model": p.model,
+            "env": p.env,
+        }
+        for p in saved.values()
+    ]

@@ -421,6 +421,19 @@ async def execute_ticket(
             f"(id: {ticket.blocked_by_ticket_id}) which is not yet done.",
         )
 
+    # Transition ticket to EXECUTING immediately so the board reflects it
+    # before the Celery worker picks up the job. This prevents the "bounce"
+    # where optimistic UI update snaps back on the next board refresh.
+    if current_state != TicketState.EXECUTING:
+        await ticket_service.transition_ticket(
+            ticket_id=ticket_id,
+            to_state=TicketState.EXECUTING,
+            actor_type=ActorType.HUMAN,
+            reason="Execution requested",
+            auto_verify=False,
+            skip_cleanup=False,
+        )
+
     job_service = JobService(db)
     job = await job_service.create_job(ticket_id, JobKind.EXECUTE)
 

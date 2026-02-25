@@ -370,6 +370,65 @@ export interface QueuedMessageStatus {
   queued_at: string | null;
 }
 
+// --- Conflict resolution types ---
+export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert" | "unknown";
+
+export interface ConflictStatusResponse {
+  has_conflict: boolean;
+  operation: ConflictOp | null;
+  conflicted_files: string[];
+  can_continue: boolean;
+  can_abort: boolean;
+  divergence: {
+    ahead: number;
+    behind: number;
+    diverged: boolean;
+    up_to_date: boolean;
+  } | null;
+}
+
+export interface RebaseResponse {
+  success: boolean;
+  message: string;
+  has_conflicts: boolean;
+  conflicted_files: string[];
+}
+
+export interface AbortResponse {
+  success: boolean;
+  message: string;
+}
+
+// --- Push types ---
+export interface PushResponse {
+  success: boolean;
+  message: string;
+}
+
+export interface PushStatusResponse {
+  ahead: number;
+  behind: number;
+  remote_exists: boolean;
+  needs_push: boolean;
+}
+
+// --- PR comment/merge types ---
+export interface PRComment {
+  author: string;
+  body: string;
+  created_at: string;
+}
+
+export interface AddPRCommentRequest {
+  body: string;
+}
+
+export type PRMergeStrategy = "squash" | "merge" | "rebase";
+
+export interface MergePRRequest {
+  strategy: PRMergeStrategy;
+}
+
 // --- Debug types ---
 export type OrchestratorLogEntry =
   components["schemas"]["OrchestratorLogEntry"];
@@ -435,6 +494,7 @@ export interface StreamNormalizedEntry {
   action_type?: string | null;
   tool_status?: string | null;
   metadata?: Record<string, any>;
+  timestamp?: string;
 }
 
 export interface StreamCallbackData {

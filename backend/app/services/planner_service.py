@@ -240,6 +240,17 @@ class PlannerService:
             # 2. Unblock tickets whose blockers are now done
             unblock_actions = await self._unblock_ready_tickets()
             actions.extend(unblock_actions)
+            if unblock_actions:
+                for ua in unblock_actions:
+                    add_orchestrator_log(
+                        "INFO",
+                        f"Unblocked ticket: '{ua.ticket_title}'",
+                        {
+                            "ticket_id": ua.ticket_id,
+                            "blocker_ticket_id": ua.details.get("blocker_ticket_id"),
+                            "blocker_title": ua.details.get("blocker_title"),
+                        },
+                    )
 
             # 3. Handle blocked tickets (LLM-powered, with caps)
             if self.config.features.propose_followups:
@@ -790,6 +801,9 @@ class PlannerService:
                     )
                 )
 
+                # Clear the dependency FK so UI stops showing the badge
+                ticket.blocked_by_ticket_id = None
+
         if actions:
             logger.info(f"Unblocked {len(actions)} tickets")
 
@@ -914,6 +928,19 @@ class PlannerService:
                 )
                 continue
 
+            # Fetch sibling ticket titles in the same goal to avoid duplicates
+            sibling_titles: list[str] = []
+            if ticket.goal_id:
+                sibling_result = await self.db.execute(
+                    select(Ticket.title).where(
+                        and_(
+                            Ticket.goal_id == ticket.goal_id,
+                            Ticket.id != ticket.id,
+                        )
+                    )
+                )
+                sibling_titles = [row[0] for row in sibling_result.fetchall()]
+
             # Generate follow-up proposal using LLM
             try:
                 proposal = await self._generate_followup_proposal(
@@ -922,6 +949,7 @@ class PlannerService:
                     blocker_reason=blocker_reason,
                     goal_title=ticket.goal.title if ticket.goal else None,
                     goal_description=ticket.goal.description if ticket.goal else None,
+                    existing_ticket_titles=sibling_titles,
                 )
             except Exception as e:
                 logger.error(f"Failed to generate follow-up for ticket {ticket.id}: {e}")
@@ -1010,6 +1038,18 @@ class PlannerService:
                 f"Created follow-up ticket {followup_ticket.id} for blocked ticket {ticket.id}"
             )
 
+            add_orchestrator_log(
+                "INFO",
+                f"Follow-up created: '{proposal.title}'",
+                {
+                    "followup_ticket_id": followup_ticket.id,
+                    "blocked_ticket_id": ticket.id,
+                    "blocked_ticket_title": ticket.title,
+                    "blocker_reason": blocker_reason,
+                    "existing_siblings": len(sibling_titles),
+                },
+            )
+
             actions.append(
                 PlannerAction(
                     action_type=PlannerActionType.PROPOSED_FOLLOWUP,
@@ -1032,13 +1072,14 @@ class PlannerService:
         blocker_reason: str | None,
         goal_title: str | None = None,
         goal_description: str | None = None,
+        existing_ticket_titles: list[str] | None = None,
     ) -> FollowUpProposal:
         """Generate a follow-up ticket proposal for a blocked ticket using LLM.
-        
+
         Uses asyncio.to_thread() to avoid blocking the event loop during LLM calls.
         """
         import asyncio
-        
+
         context_parts = []
         if goal_title:
             context_parts.append(f"Goal: {goal_title}")
@@ -1049,6 +1090,16 @@ class PlannerService:
             context_parts.append(f"Ticket description: {ticket_description}")
         if blocker_reason:
             context_parts.append(f"Blocker reason: {blocker_reason}")
+
+        # Include existing tickets so LLM avoids duplicates
+        existing_section = ""
+        if existing_ticket_titles:
+            ticket_list = "\n".join(f"- {t}" for t in existing_ticket_titles)
+            existing_section = f"""
+
+## Existing Tickets (DO NOT DUPLICATE)
+These tickets already exist in the same goal. Do NOT create a follow-up that overlaps with any of these:
+{ticket_list}"""
 
         context = "\n".join(context_parts)
 
@@ -1065,11 +1116,12 @@ Guidelines:
 - The title should be concise and action-oriented
 - The description should explain what specifically needs to be done
 - Verification commands should be shell commands that can verify the follow-up is complete
-- Focus on the immediate blocker, not the entire original ticket"""
+- Focus on the immediate blocker, not the entire original ticket
+- Do NOT create a ticket that duplicates an existing one"""
 
         user_prompt = f"""A ticket is blocked and needs a follow-up ticket to address the blocker.
 
-{context}
+{context}{existing_section}
 
 Generate a follow-up ticket proposal as JSON."""
 

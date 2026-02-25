@@ -35,6 +35,11 @@ execute_config:
   #   - "cursor": Cursor CLI (interactive, opens editor for human)
   preferred_executor: "claude"
 
+  # Maximum concurrent execute jobs (default: 1 = sequential)
+  # Set higher to execute independent tickets in parallel.
+  # Dependent tickets (blocked_by) are always executed sequentially.
+  max_parallel_jobs: 1
+
   # ---------------------------------------------------------------------------
   # YOLO MODE - DANGEROUS: Skip permission prompts
   # ---------------------------------------------------------------------------

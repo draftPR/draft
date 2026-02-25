@@ -59,3 +59,17 @@ class GitHostProvider(Protocol):
     async def get_pr_details(self, repo_path: Path, pr_number: int) -> dict[str, any]:
         """Get detailed information about a PR."""
         ...
+
+    async def add_pr_comment(self, repo_path: Path, pr_number: int, body: str) -> dict:
+        """Add a comment to a PR."""
+        ...
+
+    async def list_pr_comments(self, repo_path: Path, pr_number: int) -> list[dict]:
+        """List comments on a PR."""
+        ...
+
+    async def merge_pr(
+        self, repo_path: Path, pr_number: int, strategy: str = "squash"
+    ) -> dict:
+        """Merge a PR with the given strategy (squash, merge, rebase)."""
+        ...

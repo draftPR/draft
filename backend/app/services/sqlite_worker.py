@@ -1,7 +1,7 @@
 """In-process job runner backed by SQLite job_queue table.
 
-Replaces Celery worker + Beat scheduler when TASK_BACKEND=sqlite.
-Uses a ThreadPoolExecutor(max_workers=1) matching Celery's --pool=solo behavior.
+In-process job runner using a ThreadPoolExecutor(max_workers=1).
+Also runs periodic tasks (watchdog, planner tick, PR polling).
 """
 
 import json
@@ -96,7 +96,11 @@ class SQLiteWorker:
         return conn
 
     def _poll_loop(self) -> None:
-        """Main polling loop: claim and execute pending tasks."""
+        """Main polling loop: claim and execute pending tasks.
+
+        When max_workers > 1, the loop continues claiming tasks without sleeping
+        until no more pending tasks are available, enabling parallel execution.
+        """
         while self._running and not self._stop_event.is_set():
             try:
                 task = self._claim_next_task()
@@ -106,10 +110,12 @@ class SQLiteWorker:
 
                     func = self._tasks.get(task_name)
                     if func:
-                        # Execute in thread pool
-                        future = self._executor.submit(
+                        self._executor.submit(
                             self._execute_task, task_id, task_name, func, args
                         )
+                        # When parallel enabled, immediately try claiming more
+                        if self.max_workers > 1:
+                            continue
                     else:
                         logger.error(f"Unknown task: {task_name} (id={task_id})")
                         self._mark_failed(task_id, f"Unknown task: {task_name}")
@@ -218,17 +224,29 @@ _worker: SQLiteWorker | None = None
 
 
 def get_worker() -> SQLiteWorker:
-    """Get or create the global SQLite worker."""
+    """Get or create the global SQLite worker.
+
+    Reads max_parallel_jobs from smartkanban.yaml to configure the thread pool.
+    """
     global _worker
     if _worker is None:
-        _worker = SQLiteWorker()
+        max_workers = 1
+        try:
+            from app.services.config_service import ConfigService
+            config = ConfigService().load_config()
+            max_workers = config.execute_config.max_parallel_jobs
+        except Exception:
+            pass  # Fall back to 1
+        _worker = SQLiteWorker(max_workers=max_workers)
+        if max_workers > 1:
+            logger.info(f"Parallel execution enabled: max_parallel_jobs={max_workers}")
     return _worker
 
 
 def setup_worker() -> SQLiteWorker:
     """Set up the SQLite worker with all registered tasks.
 
-    Called during FastAPI lifespan when TASK_BACKEND=sqlite.
+    Called during FastAPI lifespan.
     """
     worker = get_worker()
 

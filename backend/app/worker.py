@@ -1,4 +1,7 @@
-"""Celery worker tasks for Alma Kanban."""
+"""Worker task implementations for Alma Kanban.
+
+These functions are called by the SQLiteWorker (in-process background job runner).
+"""
 
 from __future__ import annotations
 
@@ -21,21 +24,6 @@ if TYPE_CHECKING:
     from app.services.config_service import PlannerConfig
 
 logger = logging.getLogger(__name__)
-
-# Celery is optional (only needed for TASK_BACKEND=redis)
-try:
-    from app.celery_app import celery_app
-except Exception:
-    # Celery not available - provide a dummy that makes @celery_app.task() a no-op
-    class _DummyCelery:
-        @staticmethod
-        def task(*args, **kwargs):
-            def decorator(func):
-                return func
-
-            return decorator
-
-    celery_app = _DummyCelery()
 from app.database_sync import get_sync_db
 from app.exceptions import (
     ExecutorInvocationError,
@@ -1463,8 +1451,7 @@ def _get_related_tickets_context_sync(ticket_id: str) -> dict | None:
         )
 
 
-@celery_app.task(bind=True, name="execute_ticket")
-def execute_ticket_task(self, job_id: str) -> dict:
+def execute_ticket_task(job_id: str) -> dict:
     """
     Execute task for a ticket using Claude Code CLI (headless) or Cursor CLI (interactive).
 
@@ -2256,8 +2243,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     }
 
 
-@celery_app.task(bind=True, name="verify_ticket")
-def verify_ticket_task(self, job_id: str) -> dict:
+def verify_ticket_task(job_id: str) -> dict:
     """Verify task wrapper for Celery."""
     try:
         return _verify_ticket_task_impl(job_id)
@@ -2627,8 +2613,7 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
         }
 
 
-@celery_app.task(bind=True, name="job_watchdog")
-def job_watchdog_task(self) -> dict:
+def job_watchdog_task() -> dict:
     """
     Periodic task to monitor and recover stuck jobs.
 
@@ -2653,8 +2638,7 @@ def job_watchdog_task(self) -> dict:
     }
 
 
-@celery_app.task(bind=True, name="planner_tick")
-def planner_tick_task(self) -> dict:
+def planner_tick_task() -> dict:
     """
     Periodic task to run a planner tick and pick up next tickets.
 
@@ -2686,8 +2670,7 @@ def planner_tick_task(self) -> dict:
         return {"status": "error", "error": str(e)[:200]}
 
 
-@celery_app.task(bind=True, name="resume_ticket")
-def resume_ticket_task(self, job_id: str) -> dict:
+def resume_ticket_task(job_id: str) -> dict:
     """Resume task wrapper for Celery."""
     return _resume_ticket_task_impl(job_id)
 
@@ -2858,7 +2841,6 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
     }
 
 
-@celery_app.task(name="poll_pr_statuses")
 def poll_pr_statuses():
     """
     Periodic task to poll GitHub PR statuses for tickets.

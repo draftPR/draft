@@ -4,11 +4,13 @@ import logging
 import os
 import traceback
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.database import init_db
@@ -97,28 +99,19 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager - initializes database on startup."""
-    from app.task_backend import is_sqlite_backend
-
     # Startup: Initialize database tables
     await init_db()
 
-    # Start SQLite worker if using SQLite backend (replaces Celery worker)
-    sqlite_worker = None
-    if is_sqlite_backend():
-        from app.services.sqlite_worker import setup_worker
-        sqlite_worker = setup_worker()
-        sqlite_worker.start()
-        logger.info("SQLite worker started (TASK_BACKEND=sqlite)")
+    # Start in-process background worker
+    from app.services.sqlite_worker import setup_worker
+    worker = setup_worker()
+    worker.start()
+    logger.info("Background worker started")
 
     yield
 
     # Shutdown
-    if sqlite_worker:
-        sqlite_worker.stop()
-        logger.info("SQLite worker stopped")
-
-    from app.redis_client import close_redis
-    close_redis()
+    worker.stop()
     logger.info("Application shutdown complete")
 
 
@@ -135,11 +128,19 @@ app.add_middleware(SecurityHeadersMiddleware)
 # Request timeout (120s global timeout)
 app.add_middleware(TimeoutMiddleware, timeout_seconds=120)
 
-# CORS configuration for local development
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# CORS configuration — supports both dev (vite on :5173) and production (same origin)
+_frontend_url = os.getenv("FRONTEND_URL")
+if not _frontend_url:
+    _frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+    if _frontend_dist.exists():
+        _backend_port = os.getenv("PORT", "8000")
+        _frontend_url = f"http://localhost:{_backend_port}"
+    else:
+        _frontend_url = "http://localhost:5173"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_url],
+    allow_origins=[_frontend_url, "http://localhost:5173", "http://localhost:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -343,21 +344,6 @@ async def healthcheck_detailed(request: Request) -> JSONResponse:
         checks["checks"]["database"] = f"error: {str(e)}"
         logger.error(f"Database health check failed: {e}")
 
-    # Check Redis (only when using Redis backend)
-    from app.task_backend import is_sqlite_backend as _is_sqlite
-    if _is_sqlite():
-        checks["checks"]["redis"] = "not required (TASK_BACKEND=sqlite)"
-    else:
-        try:
-            from app.redis_client import get_redis
-            redis_client = get_redis()
-            redis_client.ping()
-            checks["checks"]["redis"] = "ok"
-        except Exception as e:
-            checks["status"] = "unhealthy"
-            checks["checks"]["redis"] = f"error: {str(e)}"
-            logger.error(f"Redis health check failed: {e}")
-
     # Check disk space
     try:
         import shutil
@@ -413,3 +399,24 @@ app.include_router(pull_requests_router)  # GitHub PR integration
 async def get_version():
     """Return application name and version."""
     return {"app": APP_NAME, "version": APP_VERSION}
+
+
+# Serve pre-built frontend (production / npx mode).
+# Must be AFTER all API routes so /health, /api/*, /ws/* take priority.
+_frontend_dist_path = Path(__file__).parent.parent / "frontend" / "dist"
+if _frontend_dist_path.exists():
+    # Serve static assets (js, css, images)
+    app.mount(
+        "/assets",
+        StaticFiles(directory=_frontend_dist_path / "assets"),
+        name="frontend-assets",
+    )
+
+    # SPA catch-all: serve index.html for all non-API, non-asset routes
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the SPA index.html for client-side routing."""
+        file_path = _frontend_dist_path / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(_frontend_dist_path / "index.html")

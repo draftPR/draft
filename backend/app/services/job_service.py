@@ -65,7 +65,7 @@ def _safe_read_file(base_path: Path, allowed_root: Path, relpath: str) -> str | 
                 data = f.read(MAX_LOG_BYTES)
             return data.decode("utf-8", errors="replace") + "\n\n[truncated]"
         return target.read_text(encoding="utf-8", errors="replace")
-    except (OSError, IOError):
+    except OSError:
         return None
 
 
@@ -272,15 +272,6 @@ class JobService:
         except Exception as e:
             logger.error(f"Failed to kill subprocess for job {job_id}: {e}")
 
-        # Attempt to revoke the Celery task (best-effort, Redis backend only)
-        if job.celery_task_id:
-            try:
-                from app.task_backend import is_redis_backend
-                if is_redis_backend():
-                    from app.celery_app import celery_app
-                    celery_app.control.revoke(job.celery_task_id, terminate=True)
-            except Exception as e:
-                logger.warning(f"Failed to revoke Celery task {job.celery_task_id}: {e}")
 
         await self.db.refresh(job)
         return job
@@ -300,7 +291,7 @@ class JobService:
 
         Returns:
             The log content as a string, or None if no logs available
-            
+
         Note:
             For async endpoints, prefer read_job_logs_async() to avoid blocking.
         """

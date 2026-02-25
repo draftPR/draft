@@ -1,0 +1,37 @@
+{
+  "name": "alma-kanban",
+  "version": "0.1.0",
+  "description": "AI-powered local-first kanban board that uses AI agents to automatically implement tickets",
+  "bin": {
+    "alma-kanban": "./bin/cli.js"
+  },
+  "keywords": [
+    "kanban",
+    "ai",
+    "agent",
+    "claude",
+    "cursor",
+    "codex",
+    "gemini",
+    "amp",
+    "project-management",
+    "automation",
+    "local-first"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/user/alma-kanban"
+  },
+  "scripts": {
+    "prepublishOnly": "bash build.sh",
+    "local-test": "node bin/cli.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "app/"
+  ]
+}

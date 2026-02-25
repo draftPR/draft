@@ -12,6 +12,7 @@ import { SprintDashboard } from "@/components/SprintDashboard";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { KeyboardShortcutsHelp } from "@/components/KeyboardShortcutsHelp";
 import { WelcomeWalkthrough } from "@/components/WelcomeWalkthrough";
+import { CommandPalette } from "@/components/CommandPalette";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -209,7 +210,7 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-6 py-4">
+      <main className="px-6 py-4">
         <KanbanBoard refreshTrigger={refreshTrigger} />
       </main>
 
@@ -267,6 +268,68 @@ function App() {
 
       {/* Welcome Walkthrough (auto-opens on first run) */}
       <WelcomeWalkthrough />
+
+      {/* Command Palette (Cmd+K) */}
+      <CommandPalette
+        commands={[
+          {
+            id: "new-ticket",
+            label: "Create New Ticket",
+            description: "Add a new ticket to the board",
+            icon: Plus,
+            shortcut: "n",
+            category: "Actions",
+            onSelect: () => setTicketDialogOpen(true),
+            keywords: ["add", "ticket", "task"],
+          },
+          {
+            id: "new-goal",
+            label: "Create New Goal",
+            description: "Define a new development goal",
+            icon: Target,
+            category: "Actions",
+            onSelect: () => setGoalDialogOpen(true),
+            keywords: ["add", "goal", "objective"],
+          },
+          {
+            id: "goals",
+            label: "View Goals",
+            description: "Browse all goals",
+            icon: Target,
+            category: "Navigation",
+            onSelect: () => setGoalsListOpen(true),
+          },
+          {
+            id: "settings",
+            label: "Open Settings",
+            icon: Settings,
+            category: "Navigation",
+            onSelect: () => setSettingsOpen(true),
+          },
+          {
+            id: "debug",
+            label: "Toggle Debug Panel",
+            icon: Bug,
+            category: "Navigation",
+            onSelect: () => setDebugPanelOpen((v) => !v),
+          },
+          {
+            id: "refresh",
+            label: "Refresh Board",
+            description: "Re-fetch all board data",
+            category: "Actions",
+            onSelect: refreshBoard,
+            keywords: ["reload", "update"],
+          },
+          {
+            id: "shortcuts",
+            label: "Keyboard Shortcuts",
+            icon: Keyboard,
+            category: "Help",
+            onSelect: () => setShortcutsHelpOpen(true),
+          },
+        ]}
+      />
 
       {/* Toast notifications */}
       <Toaster richColors position="bottom-right" />
