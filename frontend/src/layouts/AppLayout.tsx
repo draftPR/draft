@@ -20,6 +20,9 @@ import { SprintDashboard } from "@/components/SprintDashboard";
 import { KeyboardShortcutsHelp } from "@/components/KeyboardShortcutsHelp";
 import { WelcomeWalkthrough } from "@/components/WelcomeWalkthrough";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { CommandPalette } from "@/components/CommandPalette";
+import { BackendOfflineBanner } from "@/components/BackendOfflineBanner";
+import { useBackendStatus } from "@/hooks/useBackendStatus";
 import { useNotificationBridge } from "@/hooks/useNotificationBridge";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
@@ -79,6 +82,7 @@ const TEST_TICKETS = [
 ];
 
 export function AppLayout() {
+  const backendStatus = useBackendStatus();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -148,6 +152,9 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Backend offline banner */}
+      <BackendOfflineBanner status={backendStatus} />
+
       {/* Header */}
       <header className="border-b border-border bg-card sticky top-0 z-40 shadow-sm">
         <div className="container mx-auto px-6 py-3">
@@ -305,10 +312,75 @@ export function AppLayout() {
       </Dialog>
 
       {/* Keyboard Shortcuts Help */}
-      <KeyboardShortcutsHelp />
+      <KeyboardShortcutsHelp
+        open={ui.shortcutsHelpOpen}
+        onOpenChange={ui.setShortcutsHelpOpen}
+      />
 
       {/* Welcome Walkthrough (auto-opens on first run) */}
       <WelcomeWalkthrough />
+
+      {/* Command Palette (Cmd+K) */}
+      <CommandPalette
+        commands={[
+          {
+            id: "new-ticket",
+            label: "Create New Ticket",
+            description: "Add a new ticket to the board",
+            icon: Plus,
+            shortcut: "n",
+            category: "Actions",
+            onSelect: () => ui.setTicketDialogOpen(true),
+            keywords: ["add", "ticket", "task"],
+          },
+          {
+            id: "new-goal",
+            label: "Create New Goal",
+            description: "Define a new development goal",
+            icon: Target,
+            category: "Actions",
+            onSelect: () => ui.setGoalDialogOpen(true),
+            keywords: ["add", "goal", "objective"],
+          },
+          {
+            id: "goals",
+            label: "View Goals",
+            description: "Browse all goals",
+            icon: Target,
+            category: "Navigation",
+            onSelect: () => ui.setGoalsListOpen(true),
+          },
+          {
+            id: "settings",
+            label: "Open Settings",
+            icon: Settings,
+            category: "Navigation",
+            onSelect: () => navigate("/settings"),
+          },
+          {
+            id: "debug",
+            label: "Toggle Debug Panel",
+            icon: Bug,
+            category: "Navigation",
+            onSelect: () => ui.toggleDebugPanel(),
+          },
+          {
+            id: "refresh",
+            label: "Refresh Board",
+            description: "Re-fetch all board data",
+            category: "Actions",
+            onSelect: refreshBoard,
+            keywords: ["reload", "update"],
+          },
+          {
+            id: "shortcuts",
+            label: "Keyboard Shortcuts",
+            icon: Keyboard,
+            category: "Help",
+            onSelect: () => ui.setShortcutsHelpOpen(true),
+          },
+        ]}
+      />
 
       {/* Toast notifications */}
       <Toaster richColors position="bottom-right" />

@@ -33,7 +33,15 @@ export function useBoardViewQuery(boardId: string | null | undefined, autoRefres
     queryFn: () => fetchBoard(boardId!),
     enabled: !!boardId,
     staleTime: 2000,
-    refetchInterval: autoRefresh ? 3000 : false,
+    refetchInterval: autoRefresh
+      ? (query) => {
+          // Back off when the last fetch failed (backend likely down)
+          if (query.state.fetchStatus === 'idle' && query.state.status === 'error') {
+            return 30_000; // slow poll when erroring
+          }
+          return 3000;
+        }
+      : false,
   });
 }
 

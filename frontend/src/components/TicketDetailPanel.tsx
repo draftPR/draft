@@ -24,6 +24,7 @@ import {
   fetchTicketDependents,
   fetchTicket,
   executeTicket,
+  transitionTicket,
   queueFollowupMessage,
   getQueuedMessage,
   cancelQueuedMessage,
@@ -187,7 +188,7 @@ export function TicketDetailPanel() {
 
   // Keyboard navigation (j/k to navigate between tickets)
   const { currentBoard } = useBoard();
-  const { data: boardData } = useBoardViewQuery(currentBoard?.id, false);
+  const { data: boardData, dataUpdatedAt } = useBoardViewQuery(currentBoard?.id, false);
   const allTicketIds = useMemo(() => {
     if (!boardData?.columns) return [];
     return boardData.columns.flatMap((col) => col.tickets.map((t) => t.id));
@@ -218,6 +219,24 @@ export function TicketDetailPanel() {
     return () => window.removeEventListener("keydown", handler);
   }, [selectedTicketId, allTicketIds, selectTicket, clearSelection]);
 
+  // Re-fetch detail when board data updates (e.g. state changed externally)
+  const [lastBoardUpdate, setLastBoardUpdate] = useState(0);
+  useEffect(() => {
+    if (dataUpdatedAt && dataUpdatedAt !== lastBoardUpdate && lastBoardUpdate !== 0 && selectedTicketId) {
+      // Board data changed — check if our ticket's state changed
+      if (boardData?.columns) {
+        for (const col of boardData.columns) {
+          const found = col.tickets.find(t => t.id === selectedTicketId);
+          if (found && ticket && found.state !== ticket.state) {
+            loadAll(selectedTicketId);
+            break;
+          }
+        }
+      }
+    }
+    setLastBoardUpdate(dataUpdatedAt ?? 0);
+  }, [dataUpdatedAt, selectedTicketId, boardData, ticket, loadAll, lastBoardUpdate]);
+
   // Combined activity timeline: merge events + jobs into a single chronological list
   const activityTimeline = useMemo(() => {
     const items: Array<{
@@ -235,6 +254,32 @@ export function TicketDetailPanel() {
     items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return items;
   }, [events, jobs]);
+
+  const handleAccept = useCallback(async () => {
+    if (!ticket) return;
+    try {
+      await transitionTicket(ticket.id, { to_state: TicketState.PLANNED });
+      toast.success("Ticket accepted");
+      loadAll(ticket.id);
+    } catch (err) {
+      toast.error("Failed to accept ticket", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }, [ticket, loadAll]);
+
+  const handleUnblock = useCallback(async () => {
+    if (!ticket) return;
+    try {
+      await transitionTicket(ticket.id, { to_state: TicketState.PLANNED });
+      toast.success("Ticket unblocked");
+      loadAll(ticket.id);
+    } catch (err) {
+      toast.error("Failed to unblock ticket", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }, [ticket, loadAll]);
 
   const handleExecute = useCallback(async () => {
     if (!ticket) return;
@@ -407,6 +452,25 @@ export function TicketDetailPanel() {
             <p className={cn("text-[13px] font-medium", priority.color)}>{priority.label}</p>
           </div>
         </div>
+
+        {/* State Transition Actions */}
+        {ticket.state === TicketState.PROPOSED && (
+          <div className="space-y-3">
+            <Button onClick={handleAccept} className="w-full" variant="default">
+              <Check className="h-4 w-4 mr-2" />
+              Accept
+            </Button>
+          </div>
+        )}
+
+        {ticket.state === TicketState.BLOCKED && (
+          <div className="space-y-3">
+            <Button onClick={handleUnblock} className="w-full" variant="outline">
+              <Lock className="h-4 w-4 mr-2" />
+              Unblock
+            </Button>
+          </div>
+        )}
 
         {/* Execute / Follow-Up Actions */}
         {(canExecute || hasRunningJob) && (

@@ -57,12 +57,15 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
   const boardId = useBoardStore((s) => s.currentBoardId);
   const selectTicket = useTicketSelectionStore((s) => s.selectTicket);
 
-  // Toggle on Cmd+K / Ctrl+K
+  // Toggle on Cmd+K / Ctrl+K, close on Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setOpen((prev) => !prev);
+      }
+      if (e.key === "Escape") {
+        setOpen(false);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
