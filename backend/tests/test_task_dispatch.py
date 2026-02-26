@@ -8,7 +8,6 @@ import pytest
 
 from app.services.task_dispatch import TaskHandle, enqueue_task
 
-
 # ---------------------------------------------------------------------------
 # Fixture: temp SQLite DB with job_queue table
 # ---------------------------------------------------------------------------

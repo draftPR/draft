@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from app.database import get_db
 from app.services.ticket_generation_service import TicketGenerationService
 
+
 async def test_streaming():
     """Test streaming callback."""
     print("Testing streaming...")

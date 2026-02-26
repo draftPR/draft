@@ -1,13 +1,12 @@
 """Tests for ticket validation feature in TicketGenerationService."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.goal import Goal
-from app.schemas.planner import PriorityBucket
 from app.services.config_service import PlannerConfig
 from app.services.context_gatherer import GatherStats, RepoContext
 from app.services.llm_service import LLMResponse
@@ -65,9 +64,9 @@ class TestTicketValidation:
     def test_build_validation_system_prompt(self, mock_db, mock_llm_service, mock_config):
         """Test that validation system prompt is properly built."""
         service = TicketGenerationService(mock_db, mock_llm_service, mock_config)
-        
+
         prompt = service._build_ticket_validation_system_prompt()
-        
+
         assert "technical code reviewer" in prompt.lower()
         assert "is_valid" in prompt
         assert "validation_result" in prompt
@@ -80,20 +79,20 @@ class TestTicketValidation:
     ):
         """Test that validation user prompt includes all necessary info."""
         service = TicketGenerationService(mock_db, mock_llm_service, mock_config)
-        
+
         ticket = {
             "title": "Implement JWT authentication",
             "description": "Add JWT token generation and validation",
             "priority_bucket": "P1",
         }
-        
+
         prompt = service._build_ticket_validation_user_prompt(
             ticket=ticket,
             goal_title=sample_goal.title,
             goal_description=sample_goal.description,
             context_summary="Files: src/app.py, src/auth.py",
         )
-        
+
         assert sample_goal.title in prompt
         assert sample_goal.description in prompt
         assert ticket["title"] in prompt
@@ -105,7 +104,7 @@ class TestTicketValidation:
     ):
         """Test validation of an appropriate ticket."""
         service = TicketGenerationService(mock_db, mock_llm_service, mock_config)
-        
+
         # Mock LLM response indicating ticket is appropriate
         mock_llm_service.call_completion.return_value = LLMResponse(
             content='{"is_valid": true, "confidence": "high", "validation_result": "appropriate", "reasoning": "Ticket aligns with goal"}',
@@ -118,15 +117,15 @@ class TestTicketValidation:
             "validation_result": "appropriate",
             "reasoning": "Ticket aligns with goal",
         }
-        
+
         ticket = {"title": "Implement login endpoint", "description": "Add POST /login"}
-        
+
         result = service._validate_ticket_against_codebase(
             ticket=ticket,
             goal=sample_goal,
             context_summary="Files: src/app.py",
         )
-        
+
         assert result["is_valid"] is True
         assert result["validation_result"] == "appropriate"
         assert result["confidence"] == "high"
@@ -136,7 +135,7 @@ class TestTicketValidation:
     ):
         """Test validation of a ticket for already implemented feature."""
         service = TicketGenerationService(mock_db, mock_llm_service, mock_config)
-        
+
         # Mock LLM response indicating feature already exists
         mock_llm_service.call_completion.return_value = LLMResponse(
             content='{"is_valid": false, "confidence": "high", "validation_result": "already_implemented", "reasoning": "auth.py already has login"}',
@@ -149,15 +148,15 @@ class TestTicketValidation:
             "validation_result": "already_implemented",
             "reasoning": "auth.py already has login",
         }
-        
+
         ticket = {"title": "Implement login endpoint", "description": "Add POST /login"}
-        
+
         result = service._validate_ticket_against_codebase(
             ticket=ticket,
             goal=sample_goal,
             context_summary="Files: src/app.py, src/auth.py with login_user() function",
         )
-        
+
         assert result["is_valid"] is False
         assert result["validation_result"] == "already_implemented"
 
@@ -166,7 +165,7 @@ class TestTicketValidation:
     ):
         """Test validation of a ticket that's not relevant to the goal."""
         service = TicketGenerationService(mock_db, mock_llm_service, mock_config)
-        
+
         # Mock LLM response indicating ticket is not relevant
         mock_llm_service.safe_parse_json.return_value = {
             "is_valid": False,
@@ -174,18 +173,18 @@ class TestTicketValidation:
             "validation_result": "not_relevant",
             "reasoning": "Database optimization doesn't relate to authentication goal",
         }
-        
+
         ticket = {
             "title": "Optimize database queries",
             "description": "Add database indexes",
         }
-        
+
         result = service._validate_ticket_against_codebase(
             ticket=ticket,
             goal=sample_goal,
             context_summary="Files: src/app.py, src/auth.py",
         )
-        
+
         assert result["is_valid"] is False
         assert result["validation_result"] == "not_relevant"
 
@@ -194,18 +193,18 @@ class TestTicketValidation:
     ):
         """Test that validation errors fail open (accept ticket)."""
         service = TicketGenerationService(mock_db, mock_llm_service, mock_config)
-        
+
         # Mock LLM service to raise an exception
         mock_llm_service.call_completion.side_effect = Exception("LLM API error")
-        
+
         ticket = {"title": "Some ticket", "description": "Some description"}
-        
+
         result = service._validate_ticket_against_codebase(
             ticket=ticket,
             goal=sample_goal,
             context_summary="Files: src/app.py",
         )
-        
+
         # Should fail open and accept the ticket
         assert result["is_valid"] is True
         assert result["validation_result"] == "unclear"
@@ -221,7 +220,7 @@ class TestTicketValidation:
         ) as mock_agent, patch.object(
             TicketGenerationService, "_get_existing_tickets"
         ) as mock_existing:
-            
+
             # Setup mock responses
             mock_agent.return_value = json.dumps({
                 "tickets": [
@@ -243,28 +242,28 @@ class TestTicketValidation:
                     },
                 ]
             })
-            
+
             mock_existing.return_value = []
-            
+
             # Mock database operations
             mock_db.execute = AsyncMock()
             mock_db.flush = AsyncMock()
             mock_db.refresh = AsyncMock()
             mock_db.commit = AsyncMock()
-            
+
             # Mock goal lookup
             mock_result = AsyncMock()
             mock_result.scalar_one_or_none.return_value = sample_goal
             mock_db.execute.return_value = mock_result
-            
+
             service = TicketGenerationService(mock_db, mock_llm_service, mock_config)
-            
+
             # Mock context gatherer
             with patch.object(service.context_gatherer, "gather") as mock_gather:
                 mock_context = Mock()
                 mock_context.to_prompt_string.return_value = "Files: src/app.py, src/auth.py"
                 mock_gather.return_value = mock_context
-                
+
                 # Mock validation: first ticket appropriate, second already implemented
                 service._validate_ticket_against_codebase = Mock(side_effect=[
                     {
@@ -280,7 +279,7 @@ class TestTicketValidation:
                         "reasoning": "Feature exists",
                     },
                 ])
-                
+
                 # Note: This will fail because we need to mock more DB operations
                 # This is just to show the structure of the test
                 # In a real test, you'd need to mock Ticket creation and all DB operations

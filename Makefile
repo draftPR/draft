@@ -87,7 +87,7 @@ format-frontend:
 # Type generation
 generate-types:
 	@echo "Generating TypeScript types from OpenAPI spec..."
-	cd backend && . venv/bin/activate && python scripts/extract_openapi.py /tmp/alma-openapi.json
+	cd backend && (test -f venv/bin/activate && . venv/bin/activate; python scripts/extract_openapi.py /tmp/alma-openapi.json)
 	cd frontend && npx openapi-typescript /tmp/alma-openapi.json -o src/types/generated.ts
 	@rm -f /tmp/alma-openapi.json
 	@echo "Generated frontend/src/types/generated.ts"

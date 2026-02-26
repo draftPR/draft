@@ -4,10 +4,11 @@
 import json
 import re
 import sys
+
 sys.path.insert(0, '.')
 
 # Read the actual agent response
-with open('/tmp/tmpi59wry37_agent_response.txt', 'r') as f:
+with open('/tmp/tmpi59wry37_agent_response.txt') as f:
     response = f.read()
 
 print(f"Response length: {len(response)} chars")
@@ -27,7 +28,7 @@ for i, match in enumerate(matches, 1):
     try:
         data = json.loads(match)
         if "tickets" in data:
-            print(f"✅ Valid JSON with tickets!")
+            print("✅ Valid JSON with tickets!")
             print(f"Tickets: {len(data['tickets'])}")
             for ticket in data['tickets']:
                 print(f"  - {ticket.get('title', 'NO TITLE')[:80]}")

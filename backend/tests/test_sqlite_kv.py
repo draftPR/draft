@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixture: temp SQLite DB with all required tables
 # ---------------------------------------------------------------------------

@@ -5,20 +5,20 @@ Revises: 357c780ee445
 Create Date: 2026-01-29 22:00:00.000000
 
 """
-from typing import Sequence, Union
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.sql import table, column
+from sqlalchemy.sql import column, table
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'add_repos_001'
-down_revision: Union[str, None] = '357c780ee445'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '357c780ee445'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

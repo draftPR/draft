@@ -9,9 +9,9 @@ When a ticket is blocked by another ticket, it cannot be queued for execution
 until the blocking ticket is completed.
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "013"

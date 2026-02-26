@@ -5,17 +5,17 @@ Revises: 014
 Create Date: 2026-01-12 10:47:40.188826
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '8ef5054dc280'
-down_revision: Union[str, None] = '014'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '014'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -38,7 +38,7 @@ def upgrade() -> None:
     op.create_index('ix_normalized_log_entries_job_id', 'normalized_log_entries', ['job_id'])
     op.create_index('ix_normalized_log_entries_job_sequence', 'normalized_log_entries', ['job_id', 'sequence'])
     op.create_index('ix_normalized_log_entries_entry_type', 'normalized_log_entries', ['entry_type'])
-    
+
     op.drop_index(op.f('ix_agent_sessions_agent_type'), table_name='agent_sessions')
     op.drop_index(op.f('ix_agent_sessions_created_at'), table_name='agent_sessions')
     op.alter_column('boards', 'created_at',
@@ -68,7 +68,7 @@ def downgrade() -> None:
     op.drop_index('ix_normalized_log_entries_job_sequence', table_name='normalized_log_entries')
     op.drop_index('ix_normalized_log_entries_job_id', table_name='normalized_log_entries')
     op.drop_table('normalized_log_entries')
-    
+
     op.drop_index(op.f('ix_workspaces_ticket_id'), table_name='workspaces')
     op.create_index(op.f('ix_workspaces_ticket_id'), 'workspaces', ['ticket_id'], unique=False)
     op.add_column('tickets', sa.Column('total_cost_usd', sa.FLOAT(), nullable=True))

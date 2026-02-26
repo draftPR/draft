@@ -26,6 +26,8 @@ ignore = [
     "E741",   # ambiguous variable name
     "B026",   # star-arg unpacking after keyword
     "F821",   # undefined name (false positive in dynamic imports)
+    "E722",   # bare except in test files
+    "B023",   # loop variable binding in test files
 ]
 
 [tool.ruff.lint.isort]

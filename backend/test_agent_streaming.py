@@ -4,6 +4,7 @@
 import subprocess
 from pathlib import Path
 
+
 def test_agent_streaming():
     """Test cursor-agent streaming with a real prompt."""
     print("Testing cursor-agent streaming...")

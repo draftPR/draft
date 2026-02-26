@@ -10,9 +10,9 @@ The Board is the primary permission boundary in Alma Kanban:
 - repo_root is a property of the board (single repo per board)
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "012"
@@ -33,7 +33,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    
+
     # Add board_id to goals (using batch mode for SQLite compatibility)
     with op.batch_alter_table("goals") as batch_op:
         batch_op.add_column(sa.Column("board_id", sa.String(36), nullable=True))
@@ -44,7 +44,7 @@ def upgrade() -> None:
             ["board_id"], ["id"],
             ondelete="CASCADE"
         )
-    
+
     # Add board_id to tickets
     with op.batch_alter_table("tickets") as batch_op:
         batch_op.add_column(sa.Column("board_id", sa.String(36), nullable=True))
@@ -55,7 +55,7 @@ def upgrade() -> None:
             ["board_id"], ["id"],
             ondelete="CASCADE"
         )
-    
+
     # Add board_id to jobs
     with op.batch_alter_table("jobs") as batch_op:
         batch_op.add_column(sa.Column("board_id", sa.String(36), nullable=True))
@@ -66,7 +66,7 @@ def upgrade() -> None:
             ["board_id"], ["id"],
             ondelete="CASCADE"
         )
-    
+
     # Add board_id to workspaces
     with op.batch_alter_table("workspaces") as batch_op:
         batch_op.add_column(sa.Column("board_id", sa.String(36), nullable=True))
@@ -81,31 +81,31 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Drop foreign keys and columns in reverse order (using batch mode for SQLite)
-    
+
     # workspaces
     with op.batch_alter_table("workspaces") as batch_op:
         batch_op.drop_constraint("fk_workspaces_board_id", type_="foreignkey")
         batch_op.drop_index("ix_workspaces_board_id")
         batch_op.drop_column("board_id")
-    
+
     # jobs
     with op.batch_alter_table("jobs") as batch_op:
         batch_op.drop_constraint("fk_jobs_board_id", type_="foreignkey")
         batch_op.drop_index("ix_jobs_board_id")
         batch_op.drop_column("board_id")
-    
+
     # tickets
     with op.batch_alter_table("tickets") as batch_op:
         batch_op.drop_constraint("fk_tickets_board_id", type_="foreignkey")
         batch_op.drop_index("ix_tickets_board_id")
         batch_op.drop_column("board_id")
-    
+
     # goals
     with op.batch_alter_table("goals") as batch_op:
         batch_op.drop_constraint("fk_goals_board_id", type_="foreignkey")
         batch_op.drop_index("ix_goals_board_id")
         batch_op.drop_column("board_id")
-    
+
     # boards table
     op.drop_table("boards")
 

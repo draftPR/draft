@@ -34,7 +34,7 @@ if json_match:
 
     try:
         data = json.loads(json_str)
-        print(f"✅ Parsed successfully!")
+        print("✅ Parsed successfully!")
         print(f"Tickets: {len(data.get('tickets', []))}")
         for ticket in data.get('tickets', []):
             print(f"  - {ticket.get('title')}")

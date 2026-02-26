@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixture: temp SQLite DB with job_queue table + patched _DB_PATH
 # ---------------------------------------------------------------------------

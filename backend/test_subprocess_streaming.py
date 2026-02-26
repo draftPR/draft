@@ -4,6 +4,7 @@
 import subprocess
 from pathlib import Path
 
+
 def test_subprocess_streaming():
     """Test that subprocess.Popen can stream output."""
     print("Testing subprocess streaming...")

@@ -72,14 +72,14 @@ class TestCleanupServicePathValidation:
     @pytest.mark.asyncio
     async def test_repo_path_equals_worktree_path_is_blocked(self, db: AsyncSession):
         """Test that cleanup is blocked when worktree path resolves to repo path.
-        
+
         This prevents symlink attacks where .smartkanban/worktrees/foo -> /repo
         """
         # Create test entities
         goal = Goal(id=str(uuid4()), title="Test Goal")
         db.add(goal)
         await db.flush()
-        
+
         ticket = Ticket(
             id=str(uuid4()),
             goal_id=goal.id,
@@ -93,11 +93,11 @@ class TestCleanupServicePathValidation:
             repo_path = Path(tmpdir)
             worktrees_dir = repo_path / ".smartkanban/worktrees"
             worktrees_dir.mkdir(parents=True)
-            
+
             # Create a symlink that points back to repo root
             evil_symlink = worktrees_dir / "evil-link"
             evil_symlink.symlink_to(repo_path)
-            
+
             workspace = Workspace(
                 id=str(uuid4()),
                 ticket_id=ticket.id,
@@ -107,14 +107,14 @@ class TestCleanupServicePathValidation:
             )
             db.add(workspace)
             await db.commit()
-            
+
             # Mock config service to return our temp repo
             mock_config = MagicMock()
             mock_config.get_repo_root.return_value = repo_path
-            
+
             service = CleanupService(db)
             service.config_service = mock_config
-            
+
             # Execute cleanup - should be blocked
             result = await service.delete_worktree(
                 workspace=workspace,
@@ -123,10 +123,10 @@ class TestCleanupServicePathValidation:
                 force=False,
                 delete_branch=False,
             )
-            
+
             # Assert: blocked
             assert result is False
-            
+
             # Assert: WORKTREE_CLEANUP_FAILED event
             events_result = await db.execute(
                 select(TicketEvent)
@@ -135,11 +135,11 @@ class TestCleanupServicePathValidation:
             )
             events = events_result.scalars().all()
             assert len(events) == 1
-            
+
             payload = json.loads(events[0].payload_json)
             assert payload.get("cleanup_failed") is True
             assert "repo path" in payload.get("failure_reason", "").lower()
-            
+
             # Assert: cleaned_up_at remains NULL
             await db.refresh(workspace)
             assert workspace.cleaned_up_at is None
@@ -150,7 +150,7 @@ class TestCleanupServicePathValidation:
         goal = Goal(id=str(uuid4()), title="Test Goal")
         db.add(goal)
         await db.flush()
-        
+
         ticket = Ticket(
             id=str(uuid4()),
             goal_id=goal.id,
@@ -165,11 +165,11 @@ class TestCleanupServicePathValidation:
             # Create worktrees dir but put workspace path elsewhere
             worktrees_dir = repo_path / ".smartkanban/worktrees"
             worktrees_dir.mkdir(parents=True)
-            
+
             # Path that's NOT under .smartkanban/worktrees
             evil_path = repo_path / "src" / "evil-dir"
             evil_path.mkdir(parents=True)
-            
+
             workspace = Workspace(
                 id=str(uuid4()),
                 ticket_id=ticket.id,
@@ -179,13 +179,13 @@ class TestCleanupServicePathValidation:
             )
             db.add(workspace)
             await db.commit()
-            
+
             mock_config = MagicMock()
             mock_config.get_repo_root.return_value = repo_path
-            
+
             service = CleanupService(db)
             service.config_service = mock_config
-            
+
             result = await service.delete_worktree(
                 workspace=workspace,
                 ticket_id=ticket.id,
@@ -193,9 +193,9 @@ class TestCleanupServicePathValidation:
                 force=False,
                 delete_branch=False,
             )
-            
+
             assert result is False
-            
+
             events_result = await db.execute(
                 select(TicketEvent)
                 .where(TicketEvent.ticket_id == ticket.id)
@@ -215,7 +215,7 @@ class TestCleanupServiceStillRegistered:
         goal = Goal(id=str(uuid4()), title="Test Goal")
         db.add(goal)
         await db.flush()
-        
+
         ticket = Ticket(
             id=str(uuid4()),
             goal_id=goal.id,
@@ -229,11 +229,11 @@ class TestCleanupServiceStillRegistered:
             repo_path = Path(tmpdir)
             worktrees_dir = repo_path / ".smartkanban/worktrees"
             worktrees_dir.mkdir(parents=True)
-            
+
             # Create actual worktree directory
             worktree_path = worktrees_dir / "test-worktree"
             worktree_path.mkdir()
-            
+
             workspace = Workspace(
                 id=str(uuid4()),
                 ticket_id=ticket.id,
@@ -243,17 +243,17 @@ class TestCleanupServiceStillRegistered:
             )
             db.add(workspace)
             await db.commit()
-            
+
             mock_config = MagicMock()
             mock_config.get_repo_root.return_value = repo_path
-            
+
             service = CleanupService(db)
             service.config_service = mock_config
-            
+
             # Mock subprocess: worktree remove fails, list shows still registered
             with patch('app.services.cleanup_service.subprocess.run') as mock_run, \
                  patch('app.services.cleanup_service.shutil.rmtree') as mock_rmtree:
-                
+
                 def run_side_effect(cmd, **kwargs):
                     result = MagicMock()
                     if cmd[:3] == ["git", "worktree", "remove"]:
@@ -270,9 +270,9 @@ class TestCleanupServiceStillRegistered:
                         result.stdout = ""
                         result.stderr = ""
                     return result
-                
+
                 mock_run.side_effect = run_side_effect
-                
+
                 result = await service.delete_worktree(
                     workspace=workspace,
                     ticket_id=ticket.id,
@@ -280,17 +280,17 @@ class TestCleanupServiceStillRegistered:
                     force=False,
                     delete_branch=False,
                 )
-                
+
                 # Assert: Returns False
                 assert result is False
-                
+
                 # Assert: rmtree NOT called (worktree still registered)
                 mock_rmtree.assert_not_called()
-            
+
             # Assert: cleaned_up_at remains NULL
             await db.refresh(workspace)
             assert workspace.cleaned_up_at is None
-            
+
             # Assert: WORKTREE_CLEANUP_FAILED event with still_registered=True
             events_result = await db.execute(
                 select(TicketEvent)
@@ -299,7 +299,7 @@ class TestCleanupServiceStillRegistered:
             )
             events = events_result.scalars().all()
             assert len(events) == 1
-            
+
             payload = json.loads(events[0].payload_json)
             assert payload.get("cleanup_failed") is True
             assert payload.get("still_registered") is True
@@ -308,14 +308,14 @@ class TestCleanupServiceStillRegistered:
     @pytest.mark.asyncio
     async def test_force_true_still_registered_returns_false(self, db: AsyncSession):
         """Test: force=True but still registered -> still returns False.
-        
+
         Even with force=True, we cannot safely proceed if the worktree
         is still registered. cleaned_up_at must remain NULL.
         """
         goal = Goal(id=str(uuid4()), title="Test Goal")
         db.add(goal)
         await db.flush()
-        
+
         ticket = Ticket(
             id=str(uuid4()),
             goal_id=goal.id,
@@ -329,10 +329,10 @@ class TestCleanupServiceStillRegistered:
             repo_path = Path(tmpdir)
             worktrees_dir = repo_path / ".smartkanban/worktrees"
             worktrees_dir.mkdir(parents=True)
-            
+
             worktree_path = worktrees_dir / "test-worktree"
             worktree_path.mkdir()
-            
+
             workspace = Workspace(
                 id=str(uuid4()),
                 ticket_id=ticket.id,
@@ -342,16 +342,16 @@ class TestCleanupServiceStillRegistered:
             )
             db.add(workspace)
             await db.commit()
-            
+
             mock_config = MagicMock()
             mock_config.get_repo_root.return_value = repo_path
-            
+
             service = CleanupService(db)
             service.config_service = mock_config
-            
+
             with patch('app.services.cleanup_service.subprocess.run') as mock_run, \
                  patch('app.services.cleanup_service.shutil.rmtree') as mock_rmtree:
-                
+
                 def run_side_effect(cmd, **kwargs):
                     result = MagicMock()
                     if cmd[:3] == ["git", "worktree", "remove"]:
@@ -367,9 +367,9 @@ class TestCleanupServiceStillRegistered:
                         result.stdout = ""
                         result.stderr = ""
                     return result
-                
+
                 mock_run.side_effect = run_side_effect
-                
+
                 # Call with force=True
                 result = await service.delete_worktree(
                     workspace=workspace,
@@ -378,17 +378,17 @@ class TestCleanupServiceStillRegistered:
                     force=True,  # Force flag!
                     delete_branch=False,
                 )
-                
+
                 # Assert: STILL returns False - force cannot override "still registered"
                 assert result is False
-                
+
                 # Assert: rmtree NOT called
                 mock_rmtree.assert_not_called()
-            
+
             # Assert: cleaned_up_at remains NULL (even with force!)
             await db.refresh(workspace)
             assert workspace.cleaned_up_at is None
-            
+
             # Assert: Event has force_used=True + still_registered=True
             events_result = await db.execute(
                 select(TicketEvent)
@@ -397,7 +397,7 @@ class TestCleanupServiceStillRegistered:
             )
             events = events_result.scalars().all()
             assert len(events) == 1
-            
+
             payload = json.loads(events[0].payload_json)
             assert payload.get("force_used") is True
             assert payload.get("still_registered") is True
