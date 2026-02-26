@@ -6,17 +6,17 @@ giving it time to recover.
 
 import logging
 import threading
-import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from enum import Enum
-from typing import Callable, TypeVar
+from enum import StrEnum
+from typing import TypeVar
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
 
-class CircuitState(str, Enum):
+class CircuitState(StrEnum):
     """Circuit breaker states."""
 
     CLOSED = "closed"  # Normal operation

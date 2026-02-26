@@ -4,7 +4,6 @@ import os
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import git
 from sqlalchemy import select
@@ -20,10 +19,10 @@ class DiscoveredRepo:
     path: str
     name: str
     display_name: str
-    default_branch: Optional[str] = None
-    remote_url: Optional[str] = None
+    default_branch: str | None = None
+    remote_url: str | None = None
     is_valid: bool = True
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
 
 @dataclass
@@ -32,8 +31,8 @@ class RepoValidation:
 
     is_valid: bool
     path: str
-    error_message: Optional[str] = None
-    metadata: Optional[DiscoveredRepo] = None
+    error_message: str | None = None
+    metadata: DiscoveredRepo | None = None
 
 
 class RepoDiscoveryService:
@@ -65,7 +64,7 @@ class RepoDiscoveryService:
         self,
         search_paths: list[str],
         max_depth: int = 3,
-        exclude_patterns: Optional[set[str]] = None,
+        exclude_patterns: set[str] | None = None,
     ) -> list[DiscoveredRepo]:
         """
         Scan directories for git repositories.
@@ -208,10 +207,10 @@ class RepoDiscoveryService:
     async def register_repo(
         self,
         path: str,
-        display_name: Optional[str] = None,
-        setup_script: Optional[str] = None,
-        cleanup_script: Optional[str] = None,
-        dev_server_script: Optional[str] = None,
+        display_name: str | None = None,
+        setup_script: str | None = None,
+        cleanup_script: str | None = None,
+        dev_server_script: str | None = None,
     ) -> Repo:
         """
         Register a repository in the global registry.
@@ -265,12 +264,12 @@ class RepoDiscoveryService:
 
         return repo
 
-    async def get_repo_by_id(self, repo_id: str) -> Optional[Repo]:
+    async def get_repo_by_id(self, repo_id: str) -> Repo | None:
         """Get a repo by its ID."""
         result = await self.db.execute(select(Repo).where(Repo.id == repo_id))
         return result.scalar_one_or_none()
 
-    async def get_repo_by_path(self, path: str) -> Optional[Repo]:
+    async def get_repo_by_path(self, path: str) -> Repo | None:
         """Get a repo by its path."""
         # Normalize path
         expanded = os.path.expanduser(path)
@@ -287,10 +286,10 @@ class RepoDiscoveryService:
     async def update_repo(
         self,
         repo_id: str,
-        display_name: Optional[str] = None,
-        setup_script: Optional[str] = None,
-        cleanup_script: Optional[str] = None,
-        dev_server_script: Optional[str] = None,
+        display_name: str | None = None,
+        setup_script: str | None = None,
+        cleanup_script: str | None = None,
+        dev_server_script: str | None = None,
     ) -> Repo:
         """Update a repo's configuration."""
         repo = await self.get_repo_by_id(repo_id)

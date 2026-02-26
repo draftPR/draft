@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from app.models.ticket import Ticket
 
 
-class EvidenceKind(str, Enum):
+class EvidenceKind(StrEnum):
     """Enum representing the kind of evidence.
 
     Metadata evidence (JSON in stdout_path):

@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -23,8 +22,8 @@ class CreatePRRequest(BaseModel):
     """Request to create a GitHub Pull Request."""
 
     ticket_id: str
-    title: Optional[str] = None
-    body: Optional[str] = None
+    title: str | None = None
+    body: str | None = None
     base_branch: str = "main"
 
 
@@ -34,10 +33,10 @@ class PRStatusResponse(BaseModel):
     pr_number: int
     pr_url: str
     pr_state: str
-    pr_created_at: Optional[datetime]
-    pr_merged_at: Optional[datetime]
-    pr_head_branch: Optional[str]
-    pr_base_branch: Optional[str]
+    pr_created_at: datetime | None
+    pr_merged_at: datetime | None
+    pr_head_branch: str | None
+    pr_base_branch: str | None
 
 
 class AddPRCommentRequest(BaseModel):
@@ -229,7 +228,7 @@ async def refresh_pr_status(
     if not workspace or not workspace.worktree_path:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot refresh PR status: workspace not found or no worktree path",
+            detail="Cannot refresh PR status: workspace not found or no worktree path",
         )
 
     repo_path = Path(workspace.worktree_path)

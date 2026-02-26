@@ -3,13 +3,13 @@
 import asyncio
 import logging
 from collections import deque
-from datetime import datetime, UTC
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -101,19 +101,19 @@ async def get_orchestrator_logs(
 ) -> OrchestratorLogsResponse:
     """
     Get recent orchestrator logs from the in-memory buffer.
-    
+
     These logs capture planner decisions, ticket state transitions,
     and other orchestrator-level events.
     """
     logs = list(_orchestrator_logs)
-    
+
     # Filter by timestamp if provided
     if since:
         logs = [l for l in logs if l["timestamp"] > since]
-    
+
     # Return most recent entries (buffer stores oldest to newest)
     logs = logs[-limit:]
-    
+
     return OrchestratorLogsResponse(
         logs=[OrchestratorLogEntry(**l) for l in logs],
         total=len(_orchestrator_logs),
@@ -127,36 +127,36 @@ async def get_orchestrator_logs(
 async def stream_orchestrator_logs() -> StreamingResponse:
     """
     Stream orchestrator logs in real-time using Server-Sent Events (SSE).
-    
+
     Connect to this endpoint to receive live log updates as they happen.
     Each event is a JSON object with timestamp, level, message, and data.
     """
     async def event_generator() -> AsyncGenerator[str, None]:
-        last_count = len(_orchestrator_logs)
+        len(_orchestrator_logs)
         last_timestamp = ""
-        
+
         # Send initial logs
         for log in list(_orchestrator_logs)[-20:]:  # Last 20 entries
             import json
             yield f"data: {json.dumps(log)}\n\n"
             last_timestamp = log["timestamp"]
-        
+
         # Stream new logs
         while True:
             await asyncio.sleep(0.5)  # Poll every 500ms
-            
+
             current_logs = list(_orchestrator_logs)
             if not current_logs:
                 continue
-                
+
             # Find new logs since last check
             new_logs = [l for l in current_logs if l["timestamp"] > last_timestamp]
-            
+
             for log in new_logs:
                 import json
                 yield f"data: {json.dumps(log)}\n\n"
                 last_timestamp = log["timestamp"]
-    
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -179,7 +179,7 @@ async def get_agent_logs(
 ) -> AgentLogsResponse:
     """
     Get the agent's stdout/stderr for a specific job.
-    
+
     This returns the actual output from the executor (cursor-agent, etc.)
     showing what the agent did and why.
     """
@@ -190,10 +190,10 @@ async def get_agent_logs(
         .where(Job.id == job_id)
     )
     job = result.scalar_one_or_none()
-    
+
     if not job:
         return AgentLogsResponse(logs=[], job_id=job_id, ticket_title=None)
-    
+
     # Get evidence for this job (executor stdout)
     evidence_result = await db.execute(
         select(Evidence)
@@ -201,7 +201,7 @@ async def get_agent_logs(
         .order_by(Evidence.created_at)
     )
     evidences = evidence_result.scalars().all()
-    
+
     logs = []
     for ev in evidences:
         # Try to get stdout content
@@ -214,7 +214,7 @@ async def get_agent_logs(
                     content = stdout_path.read_text()[:10000]  # Limit size
             except Exception:
                 content = f"[Error reading stdout from {ev.stdout_path}]"
-        
+
         if content:
             logs.append(AgentLogEntry(
                 timestamp=ev.created_at.isoformat() if ev.created_at else "",
@@ -224,7 +224,7 @@ async def get_agent_logs(
                 kind=ev.kind,
                 content=content,
             ))
-    
+
     return AgentLogsResponse(
         logs=logs,
         job_id=job_id,
@@ -242,40 +242,40 @@ async def stream_agent_logs(
 ) -> StreamingResponse:
     """
     Stream agent logs in real-time for a running job.
-    
+
     Tails the job's log file and streams updates as they happen.
     """
     from pathlib import Path
-    
+
     # Get job to find log path
     result = await db.execute(
         select(Job).where(Job.id == job_id)
     )
     job = result.scalar_one_or_none()
-    
+
     async def event_generator() -> AsyncGenerator[str, None]:
         import json
-        
+
         if not job or not job.log_path:
             yield f"data: {json.dumps({'error': 'No log file found'})}\n\n"
             return
-        
+
         log_path = Path(job.log_path)
         last_size = 0
-        
+
         while True:
             try:
                 if log_path.exists():
                     current_size = log_path.stat().st_size
-                    
+
                     if current_size > last_size:
-                        with open(log_path, 'r') as f:
+                        with open(log_path) as f:
                             f.seek(last_size)
                             new_content = f.read()
                             if new_content:
                                 yield f"data: {json.dumps({'content': new_content})}\n\n"
                         last_size = current_size
-                
+
                 # Check if job is still running
                 async with db.begin():
                     job_check = await db.execute(
@@ -285,12 +285,12 @@ async def stream_agent_logs(
                     if status and status not in [JobStatus.QUEUED.value, JobStatus.RUNNING.value]:
                         yield f"data: {json.dumps({'status': 'completed', 'final_status': status})}\n\n"
                         break
-                
+
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            
+
             await asyncio.sleep(0.5)
-    
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -312,7 +312,7 @@ async def get_system_status(
 ) -> SystemStatusResponse:
     """
     Get comprehensive system status for the debug panel.
-    
+
     Returns:
     - Running jobs with log previews
     - Queued job count
@@ -327,7 +327,7 @@ async def get_system_status(
         .order_by(Job.started_at)
     )
     running_jobs = running_result.scalars().all()
-    
+
     running_info = []
     for job in running_jobs:
         # Try to get last few lines of log
@@ -342,7 +342,7 @@ async def get_system_status(
                     log_preview = '\n'.join(lines[-5:])  # Last 5 lines
             except Exception:
                 pass
-        
+
         running_info.append(RunningJobInfo(
             job_id=job.id,
             ticket_id=job.ticket_id,
@@ -351,13 +351,13 @@ async def get_system_status(
             started_at=job.started_at.isoformat() if job.started_at else None,
             log_preview=log_preview,
         ))
-    
+
     # Count queued jobs
     queued_result = await db.execute(
         select(Job).where(Job.status == JobStatus.QUEUED.value)
     )
     queued_count = len(queued_result.scalars().all())
-    
+
     # Count tickets by state
     tickets_by_state = {}
     for state in TicketState:
@@ -367,7 +367,7 @@ async def get_system_status(
         count = len(result.scalars().all())
         if count > 0:
             tickets_by_state[state.value] = count
-    
+
     # Count recent events (last hour)
     from datetime import timedelta
     one_hour_ago = datetime.now(UTC) - timedelta(hours=1)
@@ -375,7 +375,7 @@ async def get_system_status(
         select(TicketEvent).where(TicketEvent.created_at >= one_hour_ago)
     )
     recent_events_count = len(events_result.scalars().all())
-    
+
     return SystemStatusResponse(
         timestamp=datetime.now(UTC).isoformat(),
         running_jobs=running_info,
@@ -405,9 +405,9 @@ async def reset_all_data(
 ) -> ResetResponse:
     """
     **DANGER:** Delete ALL tickets, goals, jobs, events, evidence, etc.
-    
+
     This is a nuclear option for development/testing. Use with caution.
-    
+
     Requires `confirm=yes-delete-everything` query parameter.
     """
     if confirm != "yes-delete-everything":
@@ -416,71 +416,71 @@ async def reset_all_data(
             status_code=400,
             detail="Must provide confirm=yes-delete-everything to proceed"
         )
-    
-    from app.models.goal import Goal
-    from app.models.workspace import Workspace
-    from app.models.revision import Revision
-    from app.models.review_summary import ReviewSummary
-    from app.models.review_comment import ReviewComment
-    from app.models.planner_lock import PlannerLock
+
     from app.models.analysis_cache import AnalysisCache
-    
+    from app.models.goal import Goal
+    from app.models.planner_lock import PlannerLock
+    from app.models.review_comment import ReviewComment
+    from app.models.review_summary import ReviewSummary
+    from app.models.revision import Revision
+    from app.models.workspace import Workspace
+
     # Count before deletion
     tickets_count = len((await db.execute(select(Ticket))).scalars().all())
     goals_count = len((await db.execute(select(Goal))).scalars().all())
     jobs_count = len((await db.execute(select(Job))).scalars().all())
     events_count = len((await db.execute(select(TicketEvent))).scalars().all())
-    
+
     # Delete in correct order (respecting foreign keys)
     # 1. Review comments and summaries
     await db.execute(select(ReviewComment).execution_options(synchronize_session=False))
     for rc in (await db.execute(select(ReviewComment))).scalars().all():
         await db.delete(rc)
-    
+
     for rs in (await db.execute(select(ReviewSummary))).scalars().all():
         await db.delete(rs)
-    
+
     # 2. Revisions
     for rev in (await db.execute(select(Revision))).scalars().all():
         await db.delete(rev)
-    
+
     # 3. Evidence
     for ev in (await db.execute(select(Evidence))).scalars().all():
         await db.delete(ev)
-    
+
     # 4. Jobs
     for job in (await db.execute(select(Job))).scalars().all():
         await db.delete(job)
-    
+
     # 5. Ticket events
     for event in (await db.execute(select(TicketEvent))).scalars().all():
         await db.delete(event)
-    
+
     # 6. Tickets
     for ticket in (await db.execute(select(Ticket))).scalars().all():
         await db.delete(ticket)
-    
+
     # 7. Workspaces
     for ws in (await db.execute(select(Workspace))).scalars().all():
         await db.delete(ws)
-    
+
     # 8. Goals
     for goal in (await db.execute(select(Goal))).scalars().all():
         await db.delete(goal)
-    
+
     # 9. Planner locks
     for lock in (await db.execute(select(PlannerLock))).scalars().all():
         await db.delete(lock)
-    
+
     # 10. Analysis cache
     for cache in (await db.execute(select(AnalysisCache))).scalars().all():
         await db.delete(cache)
-    
+
     await db.commit()
-    
+
     # Clear in-memory logs too
     _orchestrator_logs.clear()
-    
+
     return ResetResponse(
         tickets_deleted=tickets_count,
         goals_deleted=goals_count,
@@ -500,7 +500,7 @@ async def get_recent_events(
 ) -> list[dict]:
     """
     Get recent ticket events for the activity feed.
-    
+
     Returns events ordered by most recent first.
     """
     result = await db.execute(
@@ -510,7 +510,7 @@ async def get_recent_events(
         .limit(limit)
     )
     events = result.scalars().all()
-    
+
     return [
         {
             "id": ev.id,

@@ -3,13 +3,24 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import relationship
 
 from app.models.base import Base
 
 
-class LogEntryType(str, enum.Enum):
+class LogEntryType(enum.StrEnum):
     """Semantic types for normalized log entries."""
 
     THINKING = "thinking"
@@ -36,7 +47,7 @@ class NormalizedLogEntry(Base):
     """Structured, semantic log entry parsed from raw agent output."""
 
     __tablename__ = "normalized_log_entries"
-    
+
     id = Column(String(36), primary_key=True, default=lambda: str(__import__('uuid').uuid4()))
 
     # Foreign key to job

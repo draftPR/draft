@@ -14,15 +14,14 @@ from app.schemas.board import (
     BoardResponse,
     BoardUpdate,
 )
+from app.schemas.planner import AnalyzeCodebaseRequest, AnalyzeCodebaseResponse
 from app.schemas.repo import (
     BoardRepoCreate,
     BoardRepoListResponse,
     BoardRepoResponse,
     BoardRepoUpdate,
 )
-from app.schemas.planner import AnalyzeCodebaseRequest, AnalyzeCodebaseResponse
 from app.schemas.ticket import BoardResponse as KanbanBoardResponse
-from app.schemas.ticket import TicketResponse, TicketsByState
 from app.services.board_repo_service import BoardRepoService
 from app.services.board_service import BoardService
 from app.services.config_service import ConfigService
@@ -47,7 +46,7 @@ async def create_board(
     db: AsyncSession = Depends(get_db),
 ) -> BoardResponse:
     """Create a new board with a repository root.
-    
+
     **Important:** The repo_root must be an absolute path to an existing
     git repository. This becomes the authoritative path for all file
     operations on this board.
@@ -433,8 +432,9 @@ async def analyze_codebase(
     # If goal_id provided, verify it belongs to this board
     if request.goal_id:
         from sqlalchemy import select
+
         from app.models import Goal
-        
+
         result = await db.execute(
             select(Goal).where(Goal.id == request.goal_id)
         )
@@ -606,7 +606,7 @@ async def get_kanban_board(
 
     Returns tickets organized into columns by state, ordered by priority
     (highest first) within each column.
-    
+
     **Note:** This is a legacy endpoint. For multi-board support, use
     GET /boards/{board_id}/tickets instead.
     """
@@ -634,7 +634,7 @@ async def analyze_codebase_legacy(
 ) -> AnalyzeCodebaseResponse:
     """
     **DEPRECATED:** Use POST /boards/{board_id}/analyze-codebase instead.
-    
+
     This endpoint uses the repo_root from smartkanban.yaml config.
     The board-scoped endpoint is preferred for multi-board setups.
     """

@@ -53,6 +53,7 @@ from app.models.job import Job, JobKind, JobStatus
 from app.models.planner_lock import PlannerLock
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
+
 # Deferred import to avoid circular dependency with async database
 # from app.routers.debug import add_orchestrator_log  # imported inside methods
 from app.schemas.planner import PlannerAction, PlannerActionType, PlannerTickResponse
@@ -520,7 +521,7 @@ class PlannerService:
                         f"{ticket.blocked_by_ticket_id} ({blocker_title}), moving to BLOCKED"
                     )
                     ticket.state = TicketState.BLOCKED.value
-                    
+
                     # Create event for the transition
                     event = TicketEvent(
                         ticket_id=ticket.id,
@@ -664,7 +665,7 @@ class PlannerService:
                     )
                     ticket.state = TicketState.BLOCKED.value
                     blocked_count += 1
-                    
+
                     # Create event for the transition
                     event = TicketEvent(
                         ticket_id=ticket.id,
@@ -903,7 +904,7 @@ class PlannerService:
                         except (json.JSONDecodeError, TypeError):
                             blocker_payload = {}
                     break
-            
+
             # Skip: tickets with skip_followup flag (no changes needed)
             if blocker_payload.get("skip_followup"):
                 logger.debug(
@@ -911,7 +912,7 @@ class PlannerService:
                     f"skip_followup flag is set (no changes needed)"
                 )
                 continue
-            
+
             # Skip: tickets that already have a manual work follow-up
             if blocker_payload.get("manual_work_followup_id"):
                 logger.debug(
@@ -959,7 +960,6 @@ class PlannerService:
             initial_state = TicketState.PROPOSED.value
             auto_approved_followup = False
             try:
-                from app.services.autonomy_service import AutonomyService
 
                 goal = ticket.goal
                 if goal and goal.autonomy_enabled and goal.auto_approve_followups:
@@ -1254,7 +1254,6 @@ Generate a follow-up ticket proposal as JSON."""
         Returns:
             List of PlannerActions for merge results.
         """
-        from app.services.autonomy_service import AutonomyService
         from app.services.merge_service import MergeService
 
         actions: list[PlannerAction] = []
@@ -1367,8 +1366,9 @@ Generate a follow-up ticket proposal as JSON."""
         Returns:
             List of PlannerActions for follow-ups generated.
         """
-        from app.services.udar_planner_service import UDARPlannerService
         from datetime import datetime, timedelta
+
+        from app.services.udar_planner_service import UDARPlannerService
 
         actions: list[PlannerAction] = []
 
@@ -1459,11 +1459,11 @@ Generate a follow-up ticket proposal as JSON."""
         evidence_summary: str | None = None,
     ) -> ReflectionSummary:
         """Generate a reflection summary for a completed ticket using LLM.
-        
+
         Uses asyncio.to_thread() to avoid blocking the event loop during LLM calls.
         """
         import asyncio
-        
+
         context_parts = [f"Ticket: {ticket_title}"]
         if ticket_description:
             context_parts.append(f"Description: {ticket_description}")

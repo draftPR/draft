@@ -399,7 +399,10 @@ async def generate_tickets(
                 validate_tickets=config.planner_config.features.validate_tickets,
             )
         except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+            error_msg = str(e)
+            if "API key" in error_msg or "credentials" in error_msg or "unavailable" in error_msg:
+                raise HTTPException(status_code=503, detail=error_msg)
+            raise HTTPException(status_code=404, detail=error_msg)
 
     # Build response
     if len(result.tickets) == 0:

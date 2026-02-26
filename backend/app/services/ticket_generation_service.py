@@ -34,7 +34,6 @@ from app.schemas.planner import (
     CreatedTicketSchema,
     ExcludedMatch,
     FiletypeCount,
-    GeneratedTicket,
     PriorityBucket,
     ReflectionResult,
     SimilarTicketWarning,
@@ -254,7 +253,7 @@ class TicketGenerationService:
         # Track tickets that need blocked_by resolved after all are created
         pending_blocked_by: list[tuple[str, str]] = []  # (ticket_id, blocked_by_title)
 
-        for idx, raw in enumerate(raw_tickets[:MAX_TICKETS_PER_GENERATION], 1):
+        for _idx, raw in enumerate(raw_tickets[:MAX_TICKETS_PER_GENERATION], 1):
             try:
                 # Validate required fields
                 title = raw.get("title", "").strip()
@@ -397,7 +396,7 @@ class TicketGenerationService:
                 if ticket:
                     ticket.blocked_by_ticket_id = blocker_id
                     logger.info(f"Ticket '{ticket.title}' blocked by ticket ID {blocker_id}")
-                    
+
                     # Update the CreatedTicketSchema with blocked_by info
                     for created in created_tickets:
                         if created.id == ticket_id:
@@ -572,10 +571,10 @@ class TicketGenerationService:
                 self.db.add(ticket)
                 await self.db.flush()
                 await self.db.refresh(ticket)
-                
+
                 # Track title -> id mapping for blocked_by resolution
                 title_to_ticket_id[title.lower()] = ticket.id
-                
+
                 # Check if this ticket has a blocked_by reference
                 if blocked_by_title:
                     pending_blocked_by.append((ticket.id, blocked_by_title))
@@ -633,7 +632,7 @@ class TicketGenerationService:
                     if ticket:
                         ticket.blocked_by_ticket_id = blocker_id
                         logger.info(f"Ticket '{ticket.title}' blocked by ticket ID {blocker_id}")
-                        
+
                         # Update the CreatedTicketSchema with blocked_by info
                         for created in created_tickets:
                             if created.id == ticket_id:
@@ -845,7 +844,7 @@ Your response MUST be valid JSON with this exact structure:
 
 Priority Buckets:
 - P0: Critical (security, data loss, blocking bugs)
-- P1: High (performance, important features)  
+- P1: High (performance, important features)
 - P2: Medium (improvements, minor issues)
 - P3: Low (cleanup, docs, cosmetic){focus_hint}
 
@@ -956,7 +955,7 @@ Guidelines:
         if goal_description:
             parts.append(f"Goal Description: {goal_description}")
 
-        parts.append(f"\nProposed Ticket:")
+        parts.append("\nProposed Ticket:")
         parts.append(f"Title: {ticket['title']}")
         parts.append(f"Description: {ticket.get('description', 'N/A')}")
         parts.append(f"Priority: {ticket.get('priority_bucket', 'N/A')}")
@@ -1221,6 +1220,19 @@ Now analyze the codebase and generate the JSON."""
             return self.llm
 
         # CLI model — detect available API keys and pick a model
+        # Also try loading from .env file if not already in environment
+        from pathlib import Path as _Path
+        env_file = _Path(__file__).parent.parent.parent / ".env"
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AWS_ACCESS_KEY_ID") and value:
+                        os.environ.setdefault(key, value)
+
         if os.environ.get("ANTHROPIC_API_KEY"):
             api_model = "anthropic/claude-sonnet-4-5-20250929"
         elif os.environ.get("OPENAI_API_KEY"):
@@ -1229,9 +1241,9 @@ Now analyze the codebase and generate the JSON."""
             api_model = "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"
         else:
             raise ValueError(
-                "CLI agent unavailable (nested session) and no LLM API credentials found. "
-                "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or AWS credentials in backend/.env, "
-                "or turn off 'Same as executor' in Settings and pick an API model."
+                "CLI agent unavailable and no LLM API credentials found. "
+                "Uncomment and set ANTHROPIC_API_KEY or OPENAI_API_KEY in backend/.env, "
+                "or change planner model from 'cli/claude' to an API model in Settings."
             )
 
         from dataclasses import replace
@@ -1520,7 +1532,7 @@ Now analyze the codebase and generate the JSON."""
 
     def _get_git_head_sha(self, repo_root: Path) -> str | None:
         """Get the current git HEAD SHA (full 40-char SHA) for cache invalidation.
-        
+
         We store the full SHA to avoid rare collision issues with short SHAs.
         """
         try:
@@ -1539,13 +1551,13 @@ Now analyze the codebase and generate the JSON."""
 
     def _get_workspace_head_sha(self, workspace_path: Path, repo_root: Path) -> str | None:
         """Get the git HEAD SHA for a workspace path if different from repo root.
-        
+
         Worktrees may be at different SHAs than the main repo.
         Returns None if workspace_path is the same as repo_root or not a git dir.
         """
         if workspace_path.resolve() == repo_root.resolve():
             return None  # Same as repo root, no need for separate SHA
-        
+
         try:
             result = subprocess.run(
                 ["git", "rev-parse", "HEAD"],

@@ -46,29 +46,29 @@ class PlannerLockError(Exception):
 
 def run_planner_tick_sync() -> dict:
     """Run a synchronous planner tick.
-    
+
     This is the main entry point for Celery worker tasks.
-    
+
     Returns:
         Dict with tick results: executed, followups_created, reflections_added, queued_executed
-        
+
     Raises:
         PlannerLockError: If lock cannot be acquired
     """
     lock_owner_id = str(uuid.uuid4())
-    
+
     # Load config
     from pathlib import Path
     kanban_root = Path(__file__).parent.parent.parent.parent
     config_service = ConfigService(repo_path=kanban_root)
     config = config_service.get_planner_config()
-    
+
     executed = 0
     followups_created = 0
     reflections_added = 0
     queued_executed = 0
     jobs_to_enqueue: list[str] = []
-    
+
     with get_sync_db() as db:
         # Acquire lock
         _acquire_lock_sync(db, lock_owner_id)
@@ -126,11 +126,11 @@ def run_planner_tick_sync() -> dict:
         finally:
             # Always release lock
             _release_lock_sync(db, lock_owner_id)
-    
+
     # Enqueue Celery jobs AFTER commit
     for job_id in jobs_to_enqueue:
         _enqueue_celery_job_sync(job_id)
-    
+
     return {
         "executed": executed,
         "followups_created": followups_created,
@@ -144,7 +144,7 @@ def _acquire_lock_sync(db, owner_id: str) -> None:
     """Acquire the planner lock synchronously."""
     stale_threshold = datetime.now(UTC) - timedelta(minutes=LOCK_STALE_MINUTES)
     now = datetime.now(UTC)
-    
+
     # Try to claim a stale lock via UPDATE
     update_result = db.execute(
         update(PlannerLock)
@@ -159,12 +159,12 @@ def _acquire_lock_sync(db, owner_id: str) -> None:
             acquired_at=now,
         )
     )
-    
+
     if update_result.rowcount > 0:
         db.flush()
         logger.debug(f"Acquired planner lock by claiming stale (owner={owner_id})")
         return
-    
+
     # Try INSERT (no lock exists yet)
     lock = PlannerLock(
         lock_key=PLANNER_LOCK_KEY,
@@ -172,7 +172,7 @@ def _acquire_lock_sync(db, owner_id: str) -> None:
         acquired_at=now,
     )
     db.add(lock)
-    
+
     try:
         db.flush()
         logger.debug(f"Acquired planner lock via insert (owner={owner_id})")
@@ -191,7 +191,7 @@ def _acquire_lock_sync(db, owner_id: str) -> None:
 
 def _release_lock_sync(db, owner_id: str) -> None:
     """Release the planner lock synchronously.
-    
+
     Note: Does NOT commit - the caller's context manager handles the final commit.
     This avoids double-commit issues when called from within get_sync_db() context.
     """
@@ -359,13 +359,31 @@ def _pick_and_execute_next_sync(db) -> list[str]:
         if ticket.id in active_ticket_ids:
             continue
 
-        # Skip if blocked by an unfinished dependency
+        # Check dependency — push to BLOCKED if blocker isn't done
         if ticket.blocked_by_ticket_id:
             blocker = ticket.blocked_by
             if blocker is None or blocker.state != TicketState.DONE.value:
-                logger.debug(
-                    f"Skipping ticket {ticket.id}: blocked by {ticket.blocked_by_ticket_id}"
+                blocker_title = blocker.title if blocker else "unknown"
+                logger.info(
+                    "Ticket %s blocked by incomplete %s (%s), "
+                    "moving to BLOCKED",
+                    ticket.id, ticket.blocked_by_ticket_id, blocker_title,
                 )
+                ticket.state = TicketState.BLOCKED.value
+                event = TicketEvent(
+                    ticket_id=ticket.id,
+                    event_type=EventType.TRANSITIONED.value,
+                    from_state=TicketState.PLANNED.value,
+                    to_state=TicketState.BLOCKED.value,
+                    actor_type=ActorType.PLANNER.value,
+                    actor_id="planner",
+                    reason=f"Blocked by incomplete ticket: {blocker_title}",
+                    payload_json=json.dumps({
+                        "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
+                        "blocked_by_title": blocker_title,
+                    }),
+                )
+                db.add(event)
                 continue
 
         # Create execute job
@@ -409,19 +427,19 @@ def _pick_and_execute_next_sync(db) -> list[str]:
 
 def _execute_queued_message_sync(db) -> str | None:
     """Execute a queued follow-up message if one exists.
-    
+
     Checks for tickets that:
     1. Have a queued message in Redis
     2. Are in a state ready for execution (DONE with changes_requested, BLOCKED, or NEEDS_HUMAN)
     3. Have no active jobs running
-    
+
     This enables the vibe-kanban-style instant follow-up UX.
-    
+
     Returns:
         Job ID if a queued message was executed, None otherwise.
     """
     from app.services.queued_message_service import queued_message_service
-    
+
     # Find tickets that might have queued messages
     # These are tickets ready for re-execution after completing a cycle
     ready_tickets = db.execute(
@@ -433,13 +451,13 @@ def _execute_queued_message_sync(db) -> str | None:
             ])
         )
     ).scalars().all()
-    
+
     for ticket in ready_tickets:
         # Check if this ticket has a queued message
         queued = queued_message_service.take_queued(ticket.id)
         if not queued:
             continue
-        
+
         # Check no active jobs for this ticket
         active_job = db.execute(
             select(Job.id).where(
@@ -449,16 +467,16 @@ def _execute_queued_message_sync(db) -> str | None:
                 )
             ).limit(1)
         ).scalar_one_or_none()
-        
+
         if active_job:
             # Put message back if there's already an active job
             queued_message_service.queue_message(ticket.id, queued.message)
             continue
-        
+
         # Transition ticket to PLANNED (ready for execution)
         old_state = ticket.state
         ticket.state = TicketState.PLANNED.value
-        
+
         # Create event for the queued message execution
         event = TicketEvent(
             ticket_id=ticket.id,
@@ -475,11 +493,11 @@ def _execute_queued_message_sync(db) -> str | None:
             }),
         )
         db.add(event)
-        
+
         # Store follow-up prompt in Redis for the worker to pick up
         # The executor will append this to the prompt bundle
         queued_message_service.set_followup_prompt(ticket.id, queued.message)
-        
+
         # Create execute job
         job = Job(
             ticket_id=ticket.id,
@@ -490,12 +508,12 @@ def _execute_queued_message_sync(db) -> str | None:
         db.add(job)
         db.flush()
         db.refresh(job)
-        
+
         logger.info(
             f"Executing queued message for ticket {ticket.id}: {queued.message[:50]}..."
         )
         return job.id
-    
+
     return None
 
 
@@ -530,26 +548,26 @@ def _enqueue_celery_job_sync(job_id: str) -> None:
 
 def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
     """Handle blocked tickets and generate follow-ups (synchronous).
-    
+
     Returns:
         Number of follow-ups created.
     """
     followups_created = 0
-    
+
     # Find blocked tickets
     blocked_tickets = db.execute(
         select(Ticket)
         .where(Ticket.state == TicketState.BLOCKED.value)
         .options(selectinload(Ticket.goal), selectinload(Ticket.events))
     ).scalars().all()
-    
+
     llm_service = LLMService(config)
-    
+
     for ticket in blocked_tickets:
         # Cap: max follow-ups per tick
         if followups_created >= config.max_followups_per_tick:
             break
-        
+
         # Cap: count existing follow-ups
         existing_followup_count = sum(
             1 for event in ticket.events
@@ -557,7 +575,7 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
         )
         if existing_followup_count >= config.max_followups_per_ticket:
             continue
-        
+
         # Get blocker reason and payload
         blocker_reason = None
         blocker_payload = {}
@@ -570,19 +588,19 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
                     except (json.JSONDecodeError, TypeError):
                         pass
                 break
-        
+
         # Skip: tickets with skip_followup flag
         if blocker_payload.get("skip_followup"):
             continue
-        
+
         # Skip: tickets with manual work follow-up
         if blocker_payload.get("manual_work_followup_id"):
             continue
-        
+
         # Skip certain blocker reasons
         if blocker_reason and _should_skip_followup(blocker_reason, config):
             continue
-        
+
         # Fetch sibling ticket titles in the same goal to avoid duplicates
         sibling_titles: list[str] = []
         if ticket.goal_id:
@@ -611,7 +629,7 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
         except Exception as e:
             logger.error(f"Failed to generate follow-up for ticket {ticket.id}: {e}")
             continue
-        
+
         # Create follow-up ticket
         followup_ticket = Ticket(
             goal_id=ticket.goal_id,
@@ -623,7 +641,7 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
         db.add(followup_ticket)
         db.flush()
         db.refresh(followup_ticket)
-        
+
         # Create creation event
         creation_event = TicketEvent(
             ticket_id=followup_ticket.id,
@@ -639,7 +657,7 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
             }),
         )
         db.add(creation_event)
-        
+
         # Create link event on blocked ticket
         link_event = TicketEvent(
             ticket_id=ticket.id,
@@ -655,7 +673,7 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
             }),
         )
         db.add(link_event)
-        
+
         followups_created += 1
         logger.info(f"Created follow-up ticket {followup_ticket.id} for blocked ticket {ticket.id}")
 
@@ -738,7 +756,7 @@ Guidelines:
 {context}{existing_section}
 
 Generate a follow-up ticket proposal as JSON."""
-    
+
     try:
         response = llm_service.call_completion(
             messages=[{"role": "user", "content": user_prompt}],
@@ -746,7 +764,7 @@ Generate a follow-up ticket proposal as JSON."""
             system_prompt=system_prompt,
         )
         data = llm_service.safe_parse_json(response.content, {})
-        
+
         return {
             "title": data.get("title", "Follow-up for blocked ticket"),
             "description": data.get("description", "Address the blocker from the original ticket."),
@@ -763,35 +781,35 @@ Generate a follow-up ticket proposal as JSON."""
 
 def _generate_reflections_sync(db, config: PlannerConfig) -> int:
     """Generate reflections for done tickets (synchronous).
-    
+
     Returns:
         Number of reflections added.
     """
     reflections_added = 0
-    
+
     # Find done tickets
     done_tickets = db.execute(
         select(Ticket)
         .where(Ticket.state == TicketState.DONE.value)
         .options(selectinload(Ticket.events), selectinload(Ticket.evidence))
     ).scalars().all()
-    
+
     llm_service = LLMService(config)
-    
+
     for ticket in done_tickets:
         # Check if already has reflection
         has_reflection = any(
             event.payload_json and REFLECTION_MARKER in event.payload_json
             for event in ticket.events
         )
-        
+
         if has_reflection:
             continue
-        
+
         # Build summaries
         events_summary = _summarize_events(ticket.events)
         evidence_summary = _summarize_evidence(ticket.evidence)
-        
+
         # Generate reflection
         try:
             reflection = _generate_reflection_summary(
@@ -805,7 +823,7 @@ def _generate_reflections_sync(db, config: PlannerConfig) -> int:
         except Exception as e:
             logger.error(f"Failed to generate reflection for ticket {ticket.id}: {e}")
             continue
-        
+
         # Create reflection event
         reflection_event = TicketEvent(
             ticket_id=ticket.id,
@@ -821,10 +839,10 @@ def _generate_reflections_sync(db, config: PlannerConfig) -> int:
             }),
         )
         db.add(reflection_event)
-        
+
         reflections_added += 1
         logger.info(f"Generated reflection for ticket {ticket.id}")
-    
+
     return reflections_added
 
 
@@ -832,14 +850,14 @@ def _summarize_events(events) -> str:
     """Summarize ticket events."""
     if not events:
         return "No events"
-    
+
     transitions = []
     for event in events:
         if event.event_type == EventType.TRANSITIONED.value:
             transitions.append(f"{event.from_state} → {event.to_state}")
         elif event.event_type == EventType.CREATED.value:
             transitions.append(f"created ({event.to_state})")
-    
+
     if transitions:
         return " → ".join(transitions[:5])
     return "No state transitions"
@@ -849,16 +867,16 @@ def _summarize_evidence(evidence) -> str:
     """Summarize verification evidence."""
     if not evidence:
         return "No verification evidence"
-    
+
     passed = sum(1 for e in evidence if e.exit_code == 0)
     failed = len(evidence) - passed
-    
+
     parts = []
     if passed:
         parts.append(f"{passed} passed")
     if failed:
         parts.append(f"{failed} failed")
-    
+
     return ", ".join(parts) if parts else "No evidence"
 
 
@@ -878,22 +896,22 @@ def _generate_reflection_summary(
         context_parts.append(f"Journey: {events_summary}")
     if evidence_summary:
         context_parts.append(f"Evidence: {evidence_summary}")
-    
+
     context = "\n".join(context_parts)
-    
+
     system_prompt = """You are a technical project assistant. Generate a brief reflection summary for a completed ticket.
 
 Your response MUST be valid JSON with this exact structure:
 {
   "summary": "A concise 2-3 sentence reflection on what was accomplished and any lessons learned"
 }"""
-    
+
     user_prompt = f"""A ticket has been completed. Generate a reflection summary.
 
 {context}
 
 Generate a reflection summary as JSON."""
-    
+
     try:
         response = llm_service.call_completion(
             messages=[{"role": "user", "content": user_prompt}],
@@ -901,7 +919,7 @@ Generate a reflection summary as JSON."""
             system_prompt=system_prompt,
         )
         data = llm_service.safe_parse_json(response.content, {})
-        
+
         return data.get("summary", f"Completed: {ticket_title}")
     except Exception as e:
         logger.error(f"LLM API call failed: {e}")

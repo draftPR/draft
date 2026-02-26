@@ -5,7 +5,7 @@ Event types and actor types are defined in models/enums.py but re-exported
 here for backwards compatibility.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 # Re-export event types and actor types for backwards compatibility
 # The canonical definitions are in models/enums.py
@@ -23,7 +23,7 @@ __all__ = [
 ]
 
 
-class TicketState(str, Enum):
+class TicketState(StrEnum):
     """Enum representing valid ticket states."""
 
     PROPOSED = "proposed"

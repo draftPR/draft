@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import select
 import subprocess
 import threading
 import time
@@ -26,7 +25,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 from app.database_sync import get_sync_db
 from app.exceptions import (
-    ExecutorInvocationError,
     ExecutorNotFoundError,
     NotAGitRepositoryError,
     WorkspaceError,
@@ -36,14 +34,13 @@ from app.models.job import Job, JobStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.services.config_service import ConfigService, YoloStatus
+from app.services.cursor_log_normalizer import CursorLogNormalizer
 from app.services.executor_service import (
     ExecutorService,
-    ExecutorMode,
     ExecutorType,
     PromptBundleBuilder,
 )
 from app.services.log_stream_service import LogLevel, log_stream_publisher
-from app.services.cursor_log_normalizer import CursorLogNormalizer, NormalizedEntry
 from app.services.workspace_service import WorkspaceService
 from app.services.worktree_validator import WorktreeValidator
 from app.state_machine import ActorType, EventType, TicketState
@@ -425,7 +422,7 @@ def run_verification_command(
         stderr_rel = str(stderr_path.relative_to(repo_root))
         return -1, stdout_rel, stderr_rel
 
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         # Command not found in PATH
         stdout_path.write_text("")
         stderr_path.write_text(f"Command not found: {cmd_argv[0]}")
@@ -916,7 +913,7 @@ def run_executor_cli(
                     except subprocess.TimeoutExpired:
                         process.kill()  # Force kill if still alive
                         process.wait()
-                    stdout_lines.append(f"\n[CANCELED] Job canceled by user")
+                    stdout_lines.append("\n[CANCELED] Job canceled by user")
                     exit_code = -2  # Special exit code for cancellation
                     break
 
@@ -1087,7 +1084,7 @@ def capture_git_diff(
         if diff_stat:
             stat_parts.append(diff_stat)
         if untracked_files:
-            stat_parts.append(f"\nNew files (untracked):")
+            stat_parts.append("\nNew files (untracked):")
             for f in untracked_files[:20]:  # Limit to 20 files in summary
                 stat_parts.append(f"  + {f}")
             if len(untracked_files) > 20:
@@ -1168,7 +1165,7 @@ def analyze_no_changes_reason(
     ticket_title: str,
     ticket_description: str | None,
     executor_stdout: str,
-    planner_config: "PlannerConfig",
+    planner_config: PlannerConfig,
 ) -> NoChangesAnalysis:
     """
     Analyze executor output to determine why no code changes were produced.
@@ -1187,8 +1184,9 @@ def analyze_no_changes_reason(
     Returns:
         NoChangesAnalysis with categorized result
     """
-    from app.services.llm_service import LLMService
     import logging
+
+    from app.services.llm_service import LLMService
 
     logger = logging.getLogger(__name__)
 
@@ -1206,7 +1204,7 @@ Analyze the executor output and categorize the result into ONE of these categori
    - The requested functionality already exists
    - The code is already correct as-is
    - The task was a review/analysis that doesn't need modifications
-   
+
 2. MANUAL_WORK_REQUIRED - The task requires human intervention that the agent cannot do. Examples:
    - Configuration changes in external systems
    - Running commands that require special permissions
@@ -1214,7 +1212,7 @@ Analyze the executor output and categorize the result into ONE of these categori
    - Installing system packages
    - Deploying or running external services
    - Manual testing or verification steps
-   
+
 3. NEEDS_INVESTIGATION - Unable to determine clearly, needs human review
 
 Your response MUST be valid JSON with this exact structure:
@@ -1393,12 +1391,11 @@ def _get_related_tickets_context_sync(ticket_id: str) -> dict | None:
         - completed_tickets: list of DONE tickets in the same goal
         - goal_title: title of the goal this ticket belongs to
     """
-    from sqlalchemy.orm import selectinload
+    from sqlalchemy.orm import Session, selectinload
+
     from app.database_sync import sync_engine
     from app.models.ticket import Ticket
-    from app.models.goal import Goal
     from app.state_machine import TicketState
-    from sqlalchemy.orm import Session
 
     # Use the shared sync_engine instead of creating a new one each time
     # This prevents connection pool exhaustion
@@ -1480,7 +1477,6 @@ def execute_ticket_task(job_id: str) -> dict:
         # exception, properly fail the job and block the ticket instead of
         # leaving them in a zombie RUNNING/EXECUTING state.
         import logging
-        import traceback
 
         logger = logging.getLogger(__name__)
         logger.error(
@@ -2650,7 +2646,7 @@ def planner_tick_task() -> dict:
     This ensures tickets automatically flow through the queue without
     requiring the /planner/start HTTP request to stay connected.
     """
-    from app.services.planner_tick_sync import run_planner_tick_sync, PlannerLockError
+    from app.services.planner_tick_sync import PlannerLockError, run_planner_tick_sync
 
     try:
         result = run_planner_tick_sync()
@@ -2850,12 +2846,13 @@ def poll_pr_statuses():
     2. Checks PR status on GitHub
     3. Auto-transitions tickets if PR is merged
     """
-    from pathlib import Path
+    import subprocess
     from datetime import datetime
+    from pathlib import Path
+
     from app.models.workspace import Workspace
     from app.services.git_host import get_git_host_provider
     from app.state_machine import TicketState
-    import subprocess
 
     # First, collect ticket info without holding DB connection during network calls
     tickets_to_check = []

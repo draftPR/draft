@@ -395,7 +395,7 @@ class ContextGatherer:
 
     def _get_exclusion_match(self, rel_path: str, filename: str) -> str | None:
         """Check if a path matches any exclusion pattern.
-        
+
         Returns the matching pattern if excluded, None otherwise.
         """
         for pattern in self.exclusions:
@@ -452,7 +452,7 @@ class ContextGatherer:
         todo_pattern = re.compile(r"#\s*(TODO|FIXME|XXX|HACK)\b[:\s]*(.*)", re.IGNORECASE)
 
         try:
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            with open(file_path, encoding="utf-8", errors="replace") as f:
                 for line_num, line in enumerate(f, 1):
                     bytes_read += len(line.encode("utf-8", errors="replace"))
 
@@ -532,7 +532,7 @@ class ContextGatherer:
             readme_path = repo_root / name
             if readme_path.exists() and readme_path.is_file():
                 try:
-                    with open(readme_path, "r", encoding="utf-8", errors="replace") as f:
+                    with open(readme_path, encoding="utf-8", errors="replace") as f:
                         content = f.read(self.MAX_README_CHARS + 100)
                         if len(content) > self.MAX_README_CHARS:
                             # Truncate at word boundary

@@ -6,7 +6,6 @@ broadcasting for real-time updates to clients.
 
 import asyncio
 import logging
-from typing import Dict, Set
 
 from fastapi import WebSocket
 
@@ -23,7 +22,7 @@ class ConnectionManager:
 
     def __init__(self):
         # Map of channel -> set of websockets
-        self.connections: Dict[str, Set[WebSocket]] = {}
+        self.connections: dict[str, set[WebSocket]] = {}
         self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket, channel: str):

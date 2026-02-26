@@ -5,24 +5,23 @@ and doesn't make changes that could be dangerous or expensive without human revi
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
-from typing import List, Optional, Callable, Dict, Any
-from datetime import datetime
+from enum import StrEnum
+from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.ticket import Ticket
 from app.models.goal import Goal
 from app.models.job import Job
-from app.state_machine import TicketState
+from app.models.ticket import Ticket
 
 logger = logging.getLogger(__name__)
 
 
-class GateAction(str, Enum):
+class GateAction(StrEnum):
     """What to do when a gate fails."""
     BLOCK = "block"      # Stop execution, mark as blocked
     PAUSE = "pause"      # Pause for human review
@@ -33,13 +32,13 @@ class GateAction(str, Enum):
 class GateContext:
     """Context information for gate evaluation."""
     ticket: Ticket
-    goal: Optional[Goal]
+    goal: Goal | None
     total_cost_so_far: float
     total_files_changed: int
     total_lines_changed: int
     all_tests_passed: bool
-    modified_files: List[str]
-    budget_limit: Optional[float]
+    modified_files: list[str]
+    budget_limit: float | None
 
     def __post_init__(self):
         if self.modified_files is None:
@@ -52,8 +51,8 @@ class GateResult:
     gate_name: str
     passed: bool
     action: GateAction
-    reason: Optional[str] = None
-    details: Dict[str, Any] = None
+    reason: str | None = None
+    details: dict[str, Any] = None
 
     def __post_init__(self):
         if self.details is None:
@@ -317,7 +316,7 @@ class SafeAutopilot:
         BudgetGate(warning_threshold=0.8, action=GateAction.PAUSE),
     ]
 
-    def __init__(self, db: AsyncSession, gates: Optional[List[SafetyGate]] = None):
+    def __init__(self, db: AsyncSession, gates: list[SafetyGate] | None = None):
         self.db = db
         self.gates = gates if gates is not None else self.DEFAULT_GATES.copy()
 
@@ -329,7 +328,7 @@ class SafeAutopilot:
         """Remove a gate by name."""
         self.gates = [g for g in self.gates if g.name != gate_name]
 
-    async def check_gates(self, ticket: Ticket) -> List[GateResult]:
+    async def check_gates(self, ticket: Ticket) -> list[GateResult]:
         """Check all safety gates for a ticket.
 
         Returns:
@@ -360,7 +359,7 @@ class SafeAutopilot:
 
         return results
 
-    async def should_continue(self, ticket: Ticket) -> tuple[bool, List[GateResult]]:
+    async def should_continue(self, ticket: Ticket) -> tuple[bool, list[GateResult]]:
         """
         Check if autopilot should continue with this ticket.
 

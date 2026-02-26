@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 class Goal(Base):
     """Goal model representing a high-level objective.
-    
+
     IMPORTANT: Goals are scoped by board_id for permission enforcement.
     """
 

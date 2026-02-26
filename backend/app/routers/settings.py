@@ -1,15 +1,12 @@
 """Router for global project settings (smartkanban.yaml)."""
 
 import logging
-
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any
-from pydantic import BaseModel
 from pathlib import Path
-import yaml
+from typing import Any
 
-from app.database import get_db
-from sqlalchemy.ext.asyncio import AsyncSession
+import yaml
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +27,7 @@ class SettingsUpdate(BaseModel):
 
 class SettingsResponse(BaseModel):
     """Global settings response model."""
-    execute_config: Dict[str, Any]
+    execute_config: dict[str, Any]
     config_path: str
 
 
@@ -75,7 +72,7 @@ async def get_global_settings():
         if not config_path.exists():
             raise HTTPException(status_code=404, detail="smartkanban.yaml not found")
 
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config = yaml.safe_load(f)
 
         execute_config = config.get("execute_config", {})
@@ -113,7 +110,7 @@ async def update_global_settings(data: SettingsUpdate):
             raise HTTPException(status_code=404, detail="smartkanban.yaml not found")
 
         # Read current config
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config = yaml.safe_load(f)
 
         # Update execute_config fields if provided
@@ -182,7 +179,7 @@ async def update_planner_config(data: PlannerConfigUpdate):
         if not config_path.exists():
             raise HTTPException(status_code=404, detail="smartkanban.yaml not found")
 
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config = yaml.safe_load(f) or {}
 
         if "planner_config" not in config:

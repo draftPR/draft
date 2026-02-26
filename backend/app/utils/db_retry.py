@@ -8,8 +8,9 @@ with exponential backoff.
 import asyncio
 import logging
 import sqlite3
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 from sqlalchemy.exc import OperationalError
 

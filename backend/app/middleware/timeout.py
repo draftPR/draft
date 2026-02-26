@@ -2,9 +2,10 @@
 
 import asyncio
 import logging
-from starlette.middleware.base import BaseHTTPMiddleware
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
                 timeout=self.timeout_seconds
             )
             return response
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(
                 f"Request timed out after {self.timeout_seconds}s: "
                 f"{request.method} {request.url.path}"

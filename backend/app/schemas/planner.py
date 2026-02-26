@@ -1,7 +1,7 @@
 """Pydantic schemas for AI Planner feature."""
 
 import re
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -36,7 +36,7 @@ def validate_verification_command(cmd: str) -> str:
 # =============================================================================
 
 
-class PriorityBucket(str, Enum):
+class PriorityBucket(StrEnum):
     """Priority buckets for deterministic prioritization.
 
     Using buckets instead of raw 0-100 values prevents LLM "priority inflation"

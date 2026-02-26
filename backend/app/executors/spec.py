@@ -6,12 +6,12 @@ Implement this interface to create a new executor plugin.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, AsyncIterator
-from enum import Enum
+from enum import StrEnum
 
 
-class ExecutorCapability(str, Enum):
+class ExecutorCapability(StrEnum):
     """Capabilities an executor may support."""
     STREAMING_OUTPUT = "streaming_output"    # Real-time stdout
     SESSION_RESUME = "session_resume"        # Continue previous sessions
@@ -27,12 +27,12 @@ class ExecutorMetadata:
     name: str                                # e.g., "claude", "codex"
     display_name: str                        # e.g., "Claude Code", "OpenAI Codex"
     version: str                             # Executor adapter version
-    agent_version: Optional[str] = None      # Underlying agent version if detectable
-    capabilities: List[ExecutorCapability] = field(default_factory=list)
-    config_schema: Dict = field(default_factory=dict)  # JSON Schema for configuration
-    documentation_url: Optional[str] = None
-    author: Optional[str] = None             # Plugin author
-    license: Optional[str] = None            # Plugin license
+    agent_version: str | None = None      # Underlying agent version if detectable
+    capabilities: list[ExecutorCapability] = field(default_factory=list)
+    config_schema: dict = field(default_factory=dict)  # JSON Schema for configuration
+    documentation_url: str | None = None
+    author: str | None = None             # Plugin author
+    license: str | None = None            # Plugin license
 
 
 @dataclass
@@ -42,10 +42,10 @@ class ExecutionRequest:
     working_directory: str
     timeout_seconds: int = 600
     yolo_mode: bool = False
-    session_id: Optional[str] = None         # For session resume
-    environment: Dict[str, str] = field(default_factory=dict)  # Additional env vars
-    mcp_servers: List[Dict] = field(default_factory=list)      # MCP server configs
-    config: Dict[str, any] = field(default_factory=dict)       # Executor-specific config
+    session_id: str | None = None         # For session resume
+    environment: dict[str, str] = field(default_factory=dict)  # Additional env vars
+    mcp_servers: list[dict] = field(default_factory=list)      # MCP server configs
+    config: dict[str, any] = field(default_factory=dict)       # Executor-specific config
 
 
 @dataclass
@@ -54,12 +54,12 @@ class ExecutionResult:
     exit_code: int
     stdout: str
     stderr: str
-    session_id: Optional[str] = None         # For future resume
-    files_changed: List[str] = field(default_factory=list)
-    cost_usd: Optional[float] = None
-    tokens_used: Optional[Dict[str, int]] = None  # {"input": X, "output": Y}
+    session_id: str | None = None         # For future resume
+    files_changed: list[str] = field(default_factory=list)
+    cost_usd: float | None = None
+    tokens_used: dict[str, int] | None = None  # {"input": X, "output": Y}
     duration_seconds: float = 0.0
-    metadata: Dict[str, any] = field(default_factory=dict)  # Executor-specific data
+    metadata: dict[str, any] = field(default_factory=dict)  # Executor-specific data
 
 
 class ExecutorAdapter(ABC):
@@ -122,7 +122,7 @@ class ExecutorAdapter(ABC):
         if result.stderr:
             yield result.stderr
 
-    def get_mcp_config_path(self) -> Optional[str]:
+    def get_mcp_config_path(self) -> str | None:
         """Return the path to this agent's MCP config file, if applicable.
 
         Returns:
@@ -142,7 +142,7 @@ class ExecutorAdapter(ABC):
         metadata = self.get_metadata()
         return capability in metadata.capabilities
 
-    async def check_availability(self) -> Dict[str, any]:
+    async def check_availability(self) -> dict[str, any]:
         """Return detailed availability diagnostics.
 
         Returns:
@@ -176,7 +176,7 @@ class ExecutorAdapter(ABC):
         url = metadata.documentation_url or ""
         return f"Install {metadata.display_name}. See {url}" if url else f"Install {metadata.display_name}."
 
-    async def validate_config(self, config: Dict) -> bool:
+    async def validate_config(self, config: dict) -> bool:
         """Validate executor-specific configuration.
 
         Args:
@@ -205,7 +205,7 @@ class ExecutorNotFoundError(ExecutorError):
 class ExecutorInvocationError(ExecutorError):
     """Raised when executor CLI invocation fails."""
 
-    def __init__(self, message: str, exit_code: Optional[int] = None, stderr: Optional[str] = None):
+    def __init__(self, message: str, exit_code: int | None = None, stderr: str | None = None):
         super().__init__(message)
         self.exit_code = exit_code
         self.stderr = stderr

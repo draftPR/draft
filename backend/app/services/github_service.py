@@ -5,7 +5,6 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from app.exceptions import ConfigurationError
 
@@ -27,8 +26,8 @@ class GitHubService:
     """Service for interacting with GitHub via CLI."""
 
     def __init__(self):
-        self._gh_path: Optional[str] = None
-        self._authenticated: Optional[bool] = None
+        self._gh_path: str | None = None
+        self._authenticated: bool | None = None
 
     @property
     def gh_path(self) -> str:
@@ -225,7 +224,7 @@ class GitHubService:
 
 
 # Singleton instance
-_github_service: Optional[GitHubService] = None
+_github_service: GitHubService | None = None
 
 
 def get_github_service() -> GitHubService:

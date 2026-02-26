@@ -12,7 +12,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Board, Goal, Ticket, Job, Workspace
+from app.models import Board, Goal, Job, Ticket, Workspace
 from app.schemas.board import BoardCreate, BoardUpdate
 
 
@@ -88,11 +88,11 @@ class BoardService:
     async def update_board(self, board_id: str, data: BoardUpdate) -> Board:
         """Update a board."""
         board = await self.get_board_by_id(board_id)
-        
+
         update_data = data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(board, field, value)
-        
+
         await self.db.commit()
         await self.db.refresh(board)
         return board
@@ -148,7 +148,7 @@ class BoardService:
 
     async def get_repo_root(self, board_id: str) -> Path:
         """Get the repo_root path for a board.
-        
+
         CRITICAL: This is the ONLY authoritative way to get a repo path.
         NEVER accept paths from client requests.
         NEVER use global config repo_root when board_id is available.
@@ -162,7 +162,7 @@ class BoardService:
 
     async def verify_goal_in_board(self, goal_id: str, board_id: str) -> Goal:
         """Verify a goal belongs to a board.
-        
+
         Raises ValueError if goal doesn't exist or doesn't belong to board.
         """
         result = await self.db.execute(
@@ -171,17 +171,17 @@ class BoardService:
         goal = result.scalar_one_or_none()
         if not goal:
             raise ValueError(f"Goal not found: {goal_id}")
-        
+
         if goal.board_id and goal.board_id != board_id:
             raise ValueError(
                 f"Goal {goal_id} belongs to board {goal.board_id}, not {board_id}"
             )
-        
+
         return goal
 
     async def verify_ticket_in_board(self, ticket_id: str, board_id: str) -> Ticket:
         """Verify a ticket belongs to a board.
-        
+
         Raises ValueError if ticket doesn't exist or doesn't belong to board.
         """
         result = await self.db.execute(
@@ -190,19 +190,19 @@ class BoardService:
         ticket = result.scalar_one_or_none()
         if not ticket:
             raise ValueError(f"Ticket not found: {ticket_id}")
-        
+
         if ticket.board_id and ticket.board_id != board_id:
             raise ValueError(
                 f"Ticket {ticket_id} belongs to board {ticket.board_id}, not {board_id}"
             )
-        
+
         return ticket
 
     async def verify_tickets_in_board(
         self, ticket_ids: list[str], board_id: str
     ) -> list[Ticket]:
         """Verify multiple tickets belong to a board.
-        
+
         Raises ValueError if any ticket doesn't exist or doesn't belong.
         """
         tickets = []
@@ -219,12 +219,12 @@ class BoardService:
         job = result.scalar_one_or_none()
         if not job:
             raise ValueError(f"Job not found: {job_id}")
-        
+
         if job.board_id and job.board_id != board_id:
             raise ValueError(
                 f"Job {job_id} belongs to board {job.board_id}, not {board_id}"
             )
-        
+
         return job
 
     async def verify_workspace_in_board(
@@ -237,33 +237,33 @@ class BoardService:
         workspace = result.scalar_one_or_none()
         if not workspace:
             raise ValueError(f"Workspace not found: {workspace_id}")
-        
+
         if workspace.board_id and workspace.board_id != board_id:
             raise ValueError(
                 f"Workspace {workspace_id} belongs to board {workspace.board_id}, "
                 f"not {board_id}"
             )
-        
+
         return workspace
 
     async def verify_path_under_repo_root(
         self, path: str | Path, board_id: str
     ) -> Path:
         """Verify a path is under the board's repo_root.
-        
+
         CRITICAL: Use this to validate any filesystem paths before operations.
         Prevents directory traversal attacks.
         """
         repo_root = await self.get_repo_root(board_id)
         target_path = Path(path).resolve()
-        
+
         try:
             target_path.relative_to(repo_root)
         except ValueError:
             raise ValueError(
                 f"Path {target_path} is not under board repo_root {repo_root}"
             )
-        
+
         return target_path
 
     async def get_board_for_goal(self, goal_id: str) -> Board | None:
@@ -274,7 +274,7 @@ class BoardService:
         goal = result.scalar_one_or_none()
         if not goal or not goal.board_id:
             return None
-        
+
         return await self.get_board_by_id(goal.board_id)
 
     async def get_board_for_ticket(self, ticket_id: str) -> Board | None:
@@ -285,5 +285,5 @@ class BoardService:
         ticket = result.scalar_one_or_none()
         if not ticket or not ticket.board_id:
             return None
-        
+
         return await self.get_board_by_id(ticket.board_id)

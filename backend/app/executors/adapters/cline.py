@@ -1,21 +1,21 @@
 """Cline AI assistant adapter."""
 
 import asyncio
-import shutil
 import os
-from typing import AsyncIterator
+import shutil
+from collections.abc import AsyncIterator
 
+from app.executors.registry import ExecutorRegistry
 from app.executors.spec import (
-    ExecutorAdapter,
-    ExecutorMetadata,
-    ExecutorCapability,
     ExecutionRequest,
     ExecutionResult,
-    ExecutorNotFoundError,
+    ExecutorAdapter,
+    ExecutorCapability,
     ExecutorInvocationError,
-    ExecutorTimeoutError
+    ExecutorMetadata,
+    ExecutorNotFoundError,
+    ExecutorTimeoutError,
 )
-from app.executors.registry import ExecutorRegistry
 
 
 @ExecutorRegistry.register("cline")
@@ -94,7 +94,7 @@ class ClineAdapter(ExecutorAdapter):
                 duration_seconds=0.0
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             raise ExecutorTimeoutError(f"Cline execution timed out after {request.timeout_seconds}s")
         except Exception as e:

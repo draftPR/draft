@@ -39,7 +39,7 @@ def _get_conn() -> sqlite3.Connection:
 def idempotency_try_acquire(cache_key: str, lock_value: str, ttl_seconds: int) -> bool:
     """Try to acquire an idempotency lock. Returns True if acquired."""
     now = time.time()
-    expires_at = now + ttl_seconds
+    now + ttl_seconds
     conn = _get_conn()
     try:
         # Clean expired locks first

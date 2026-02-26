@@ -7,17 +7,24 @@
     <meta name="description" content="Agent-native project management. AI agents execute tickets, write code, and submit PRs. You review and merge.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons - hand-drawn style -->
+    <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
     <style>
         :root {
             --text: #1a1a1a;
             --text-secondary: #6b7280;
             --text-light: #9ca3af;
-            --accent: #6366f1;
-            --accent-hover: #4f46e5;
+            --accent: #a78bfa;
+            --accent-deep: #8b5cf6;
+            --accent-hover: #7c3aed;
+            --accent-bg: #f5f3ff;
             --bg: #ffffff;
-            --bg-soft: #f9fafb;
-            --green: #10b981;
-            --radius: 16px;
+            --bg-soft: #faf9fb;
+            --green: #34d399;
+            --green-bg: #ecfdf5;
+            --amber-bg: #fffbeb;
+            --rose-bg: #fff1f2;
+            --radius: 20px;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -27,7 +34,7 @@
             line-height: 1.6;
             -webkit-font-smoothing: antialiased;
         }
-        a { color: var(--accent); text-decoration: none; }
+        a { color: var(--accent-deep); text-decoration: none; }
 
         /* Nav */
         nav {
@@ -47,10 +54,10 @@
             gap: 0.6rem;
         }
         .logo-dot {
-            width: 28px;
-            height: 28px;
-            background: var(--accent);
-            border-radius: 8px;
+            width: 30px;
+            height: 30px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -71,37 +78,23 @@
             font-weight: 600;
             cursor: pointer;
             border: none;
-            transition: all 0.15s ease;
+            transition: all 0.2s ease;
         }
-        .btn-primary { background: var(--accent); color: white; }
-        .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+            color: white;
+            box-shadow: 0 2px 12px rgba(139, 92, 246, 0.25);
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35); }
         .btn-secondary { background: var(--bg-soft); color: var(--text); }
-        .btn-secondary:hover { background: #f3f4f6; }
+        .btn-secondary:hover { background: #f0eef2; }
 
         /* Hero */
         .hero {
             text-align: center;
-            padding: 7rem 2rem 5rem;
+            padding: 8rem 2rem 6rem;
             max-width: 800px;
             margin: 0 auto;
-        }
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.4rem 1rem;
-            background: #eef2ff;
-            color: var(--accent);
-            border-radius: 100px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            margin-bottom: 2rem;
-        }
-        .hero-badge .dot {
-            width: 6px;
-            height: 6px;
-            background: var(--green);
-            border-radius: 50%;
         }
         h1 {
             font-size: 3.75rem;
@@ -119,20 +112,20 @@
             line-height: 1.7;
         }
         .hero-buttons { display: flex; gap: 0.75rem; justify-content: center; }
-        .hero-buttons .btn { padding: 0.8rem 2rem; font-size: 0.95rem; }
+        .hero-buttons .btn { padding: 0.85rem 2.25rem; font-size: 0.95rem; }
 
-        /* How it works */
+        /* Sections */
         .section {
             max-width: 1100px;
             margin: 0 auto;
             padding: 6rem 2rem;
         }
         .section-eyebrow {
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--accent);
+            letter-spacing: 0.12em;
+            color: var(--accent-deep);
             text-align: center;
             margin-bottom: 0.75rem;
         }
@@ -144,35 +137,38 @@
             margin-bottom: 4rem;
             color: var(--text);
         }
+
+        /* Steps */
         .steps {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 3rem;
+            gap: 2.5rem;
         }
         .step { text-align: center; }
         .step-icon {
-            width: 56px;
-            height: 56px;
-            border-radius: 16px;
+            width: 64px;
+            height: 64px;
+            border-radius: 20px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.5rem;
             margin: 0 auto 1.25rem;
+            font-size: 1.75rem;
+            color: var(--accent-deep);
         }
-        .step:nth-child(1) .step-icon { background: #eef2ff; }
-        .step:nth-child(2) .step-icon { background: #fef3c7; }
-        .step:nth-child(3) .step-icon { background: #d1fae5; }
-        .step:nth-child(4) .step-icon { background: #ede9fe; }
+        .step:nth-child(1) .step-icon { background: var(--accent-bg); color: var(--accent-deep); }
+        .step:nth-child(2) .step-icon { background: var(--amber-bg); color: #d97706; }
+        .step:nth-child(3) .step-icon { background: var(--green-bg); color: #059669; }
+        .step:nth-child(4) .step-icon { background: var(--rose-bg); color: #e11d48; }
         .step h3 {
             font-size: 1.05rem;
             font-weight: 700;
             margin-bottom: 0.5rem;
         }
         .step p {
-            font-size: 0.9rem;
+            font-size: 0.88rem;
             color: var(--text-secondary);
-            line-height: 1.6;
+            line-height: 1.65;
         }
 
         /* Features */
@@ -180,23 +176,34 @@
         .feature-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 2rem;
+            gap: 1.75rem;
         }
         .feature-card {
             background: white;
             border-radius: var(--radius);
             padding: 2rem;
-            transition: transform 0.15s ease;
+            transition: transform 0.2s ease;
         }
-        .feature-card:hover { transform: translateY(-2px); }
-        .feature-emoji {
-            font-size: 2rem;
-            margin-bottom: 1rem;
+        .feature-card:hover { transform: translateY(-3px); }
+        .feature-icon-wrap {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.25rem;
+            font-size: 1.4rem;
         }
+        .fi-purple { background: var(--accent-bg); color: var(--accent-deep); }
+        .fi-green { background: var(--green-bg); color: #059669; }
+        .fi-amber { background: var(--amber-bg); color: #d97706; }
+        .fi-rose { background: var(--rose-bg); color: #e11d48; }
+        .fi-blue { background: #eff6ff; color: #2563eb; }
         .feature-card h3 {
             font-size: 1rem;
             font-weight: 700;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.4rem;
         }
         .feature-card p {
             font-size: 0.88rem;
@@ -211,7 +218,7 @@
             font-size: 0.9rem;
         }
         .comp-table th {
-            font-size: 0.75rem;
+            font-size: 0.72rem;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.08em;
@@ -231,8 +238,8 @@
             font-weight: 500;
         }
         .comp-table tr { border-bottom: 1px solid #f3f4f6; }
-        .comp-table thead tr { border-bottom: 2px solid #e5e7eb; }
-        .comp-table .alma-col { color: var(--accent); font-weight: 600; }
+        .comp-table thead tr { border-bottom: 2px solid #ede9fe; }
+        .comp-table .alma-col { color: var(--accent-deep); font-weight: 600; }
         .yes { color: var(--green); font-weight: 600; }
         .no { color: #d1d5db; }
 
@@ -245,28 +252,27 @@
             margin: 0 auto;
         }
         .price-card {
-            background: var(--bg-soft);
+            background: white;
             border-radius: var(--radius);
             padding: 2.5rem 2rem;
             text-align: center;
-            position: relative;
         }
         .price-card.featured {
             background: var(--text);
             color: white;
         }
         .price-card.featured .price-desc,
-        .price-card.featured .price-features li { color: rgba(255,255,255,0.7); }
-        .price-card.featured .price-features li::before { color: #a5b4fc; }
+        .price-card.featured .price-features li { color: rgba(255,255,255,0.65); }
+        .price-card.featured .price-features li::before { color: var(--accent); }
         .price-tier {
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.12em;
             margin-bottom: 1rem;
             color: var(--text-secondary);
         }
-        .price-card.featured .price-tier { color: rgba(255,255,255,0.5); }
+        .price-card.featured .price-tier { color: rgba(255,255,255,0.4); }
         .price-amount {
             font-size: 3rem;
             font-weight: 800;
@@ -298,7 +304,7 @@
             font-size: 0.85rem;
         }
         .price-card .btn { width: 100%; justify-content: center; padding: 0.75rem; }
-        .price-card.featured .btn-primary { background: white; color: var(--text); }
+        .price-card.featured .btn-primary { background: white; color: var(--text); box-shadow: none; }
         .price-card.featured .btn-primary:hover { background: #f3f4f6; }
 
         /* CTA */
@@ -309,8 +315,8 @@
             margin: 0 auto;
         }
         .code-block {
-            background: var(--text);
-            color: #e5e7eb;
+            background: #1e1b2e;
+            color: #e2dff0;
             border-radius: var(--radius);
             padding: 2rem 2.5rem;
             text-align: left;
@@ -320,8 +326,8 @@
             margin: 2rem auto 0;
             max-width: 550px;
         }
-        .code-block .comment { color: #6b7280; }
-        .code-block .cmd { color: #a5b4fc; }
+        .code-block .comment { color: #6b6684; }
+        .code-block .cmd { color: var(--accent); }
 
         /* Footer */
         footer {
@@ -330,13 +336,18 @@
             font-size: 0.85rem;
             color: var(--text-light);
         }
+        footer a { color: var(--text-light); }
+        footer a:hover { color: var(--text-secondary); }
+
+        /* Phosphor icons in steps/features */
+        .ph { font-size: inherit; }
 
         @media (max-width: 768px) {
             h1 { font-size: 2.5rem; }
             h2 { font-size: 1.75rem; }
             .steps, .feature-grid, .pricing-grid { grid-template-columns: 1fr; }
             .nav-links { display: none; }
-            .hero { padding: 4rem 1.5rem 3rem; }
+            .hero { padding: 5rem 1.5rem 3rem; }
         }
     </style>
 </head>
@@ -357,10 +368,6 @@
 </nav>
 
 <section class="hero">
-    <div class="hero-badge">
-        <span class="dot"></span>
-        Open Source &middot; Agent-Native
-    </div>
     <h1>Your agents write the code. You review and merge.</h1>
     <p>The first kanban board where AI agents pick up tickets, write code in isolated branches, and submit diffs for your review.</p>
     <div class="hero-buttons">
@@ -374,22 +381,22 @@
     <h2>From idea to merged code in minutes</h2>
     <div class="steps">
         <div class="step">
-            <div class="step-icon">🎯</div>
+            <div class="step-icon"><i class="ph-duotone ph-target"></i></div>
             <h3>Describe the goal</h3>
             <p>Point at your codebase. Alma analyzes the code and generates scoped, accurate tickets.</p>
         </div>
         <div class="step">
-            <div class="step-icon">⚡</div>
+            <div class="step-icon"><i class="ph-duotone ph-lightning"></i></div>
             <h3>Agents execute</h3>
             <p>AI agents pick up tickets and write real code in isolated git worktrees. Run many in parallel.</p>
         </div>
         <div class="step">
-            <div class="step-icon">👀</div>
+            <div class="step-icon"><i class="ph-duotone ph-eye"></i></div>
             <h3>You review</h3>
             <p>GitHub-style diff viewer with inline comments. Approve, request changes, or let agents iterate.</p>
         </div>
         <div class="step">
-            <div class="step-icon">🚀</div>
+            <div class="step-icon"><i class="ph-duotone ph-rocket-launch"></i></div>
             <h3>Merge and ship</h3>
             <p>One click to merge to main. Or auto-create a GitHub PR. Full lifecycle, one tool.</p>
         </div>
@@ -402,47 +409,47 @@
     <h2>Everything you need to ship with agents</h2>
     <div class="feature-grid">
         <div class="feature-card">
-            <div class="feature-emoji">🧠</div>
+            <div class="feature-icon-wrap fi-purple"><i class="ph-duotone ph-brain"></i></div>
             <h3>Codebase Analysis</h3>
             <p>Point at a repo and Alma generates tickets from actual code. No hallucinated functions.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-emoji">🔀</div>
+            <div class="feature-icon-wrap fi-green"><i class="ph-duotone ph-git-branch"></i></div>
             <h3>Git Worktree Isolation</h3>
             <p>Each ticket runs in its own worktree. Agents never conflict with each other or your main branch.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-emoji">💬</div>
+            <div class="feature-icon-wrap fi-amber"><i class="ph-duotone ph-chat-circle-text"></i></div>
             <h3>Code Review Built In</h3>
             <p>Full diff viewer with syntax highlighting and inline comments. No context switching.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-emoji">🤖</div>
+            <div class="feature-icon-wrap fi-rose"><i class="ph-duotone ph-robot"></i></div>
             <h3>Multi-Agent Support</h3>
             <p>Run Claude Code, Codex, or any agent. Assign by capability. Track performance per agent.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-emoji">📡</div>
+            <div class="feature-icon-wrap fi-blue"><i class="ph-duotone ph-plugs-connected"></i></div>
             <h3>REST API and MCP</h3>
             <p>Full API for programmatic access. MCP server so agents can discover and work tickets natively.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-emoji">🔄</div>
+            <div class="feature-icon-wrap fi-green"><i class="ph-duotone ph-arrows-clockwise"></i></div>
             <h3>GitHub Sync</h3>
             <p>Import issues, export PRs. Two-way sync keeps your existing workflow intact.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-emoji">📊</div>
+            <div class="feature-icon-wrap fi-amber"><i class="ph-duotone ph-chart-line-up"></i></div>
             <h3>Live Dashboard</h3>
             <p>See what every agent is working on. Streaming logs, cost tracking, completion estimates.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-emoji">🔐</div>
+            <div class="feature-icon-wrap fi-purple"><i class="ph-duotone ph-shield-check"></i></div>
             <h3>Autonomy Controls</h3>
             <p>Auto-approve low-risk changes, require review for sensitive code. You set the guardrails.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-emoji">🏠</div>
+            <div class="feature-icon-wrap fi-rose"><i class="ph-duotone ph-house-simple"></i></div>
             <h3>Self-Hostable</h3>
             <p>SQLite backend, zero dependencies. Run on your machine with full control. Or use cloud.</p>
         </div>

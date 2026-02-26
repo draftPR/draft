@@ -94,7 +94,7 @@ def git_merge_worktree_branch(
                         f"The base branch has moved forward since the task was created. "
                         f"Rebase the task branch onto {target_branch} first."
                     )
-                logger.info(f"✓ No divergence detected")
+                logger.info("✓ No divergence detected")
             else:
                 logger.warning(f"Divergence check failed: {result.stderr}")
 

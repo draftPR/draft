@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db
-from app.exceptions import ResourceNotFoundError, ValidationError
+from app.exceptions import ResourceNotFoundError
 from app.models.job import JobKind
 from app.schemas.job import (
     CancelJobResponse,
@@ -16,8 +16,8 @@ from app.schemas.job import (
     QueueStatusResponse,
 )
 from app.services.job_service import JobService
-from app.services.log_stream_service import log_stream_service, LogLevel
 from app.services.log_normalizer import LogNormalizerService
+from app.services.log_stream_service import LogLevel, log_stream_service
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -106,22 +106,22 @@ async def stream_job_logs(
 ) -> EventSourceResponse:
     """
     Stream job logs in real-time using Server-Sent Events (SSE).
-    
+
     This provides instant feedback during job execution - similar to
     vibe-kanban's WebSocket streaming but using SSE for simplicity.
-    
+
     Events:
         - stdout: Standard output from executor
-        - stderr: Standard error from executor  
+        - stderr: Standard error from executor
         - info: Informational messages
         - error: Error messages
         - finished: Job has completed
-    
+
     The stream will:
     1. First send all historical messages (catch-up)
     2. Then stream live updates as they happen
     3. Close when job finishes or client disconnects
-    
+
     Example client usage (JavaScript):
         const es = new EventSource('/api/jobs/{job_id}/logs/stream');
         es.addEventListener('stdout', (e) => console.log(e.data));
@@ -130,7 +130,7 @@ async def stream_job_logs(
     # Verify job exists
     service = JobService(db)
     await service.get_job_by_id(job_id)
-    
+
     async def event_generator():
         """Generate SSE events from log stream."""
         import json
@@ -145,7 +145,7 @@ async def stream_job_logs(
                     })
                 else:
                     data = msg.content
-                
+
                 yield {
                     "event": msg.level.value,
                     "data": data,
@@ -155,7 +155,7 @@ async def stream_job_logs(
                 "event": "error",
                 "data": f"Stream error: {str(e)}",
             }
-    
+
     return EventSourceResponse(
         event_generator(),
         ping=15,  # Send keepalive every 15 seconds
@@ -335,6 +335,7 @@ async def normalize_logs(
 
     # Delete existing normalized logs (if any)
     from sqlalchemy import delete
+
     from app.models.normalized_log import NormalizedLogEntry
 
     await db.execute(delete(NormalizedLogEntry).where(NormalizedLogEntry.job_id == job_id))

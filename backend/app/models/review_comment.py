@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from app.models.revision import Revision
 
 
-class AuthorType(str, Enum):
+class AuthorType(StrEnum):
     """Enum representing the type of author for a review comment."""
 
     HUMAN = "human"

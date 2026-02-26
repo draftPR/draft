@@ -5,10 +5,10 @@ ticket state machine. The state machine (TicketState, transitions) lives
 in state_machine.py. Event types are audit log entries, not state rules.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Enum representing types of ticket events.
 
     These are audit log event types, NOT state transition rules.
@@ -31,7 +31,7 @@ class EventType(str, Enum):
     WORKTREE_CLEANUP_FAILED = "worktree_cleanup_failed"
 
 
-class ActorType(str, Enum):
+class ActorType(StrEnum):
     """Enum representing who performed an action."""
 
     HUMAN = "human"

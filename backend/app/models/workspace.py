@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 class Workspace(Base):
     """Workspace model representing an isolated git worktree for a ticket.
-    
+
     IMPORTANT: Workspaces are scoped by board_id for permission enforcement.
     """
 

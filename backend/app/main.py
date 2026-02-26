@@ -45,8 +45,8 @@ from app.routers import (
 from app.routers.agents import router as agents_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.executors import router as executors_router
-from app.routers.settings import router as settings_router
 from app.routers.pull_requests import router as pull_requests_router
+from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
 
 load_dotenv()

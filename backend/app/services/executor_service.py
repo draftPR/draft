@@ -3,14 +3,14 @@
 import os
 import shutil
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from textwrap import dedent
 
 from app.exceptions import ExecutorNotFoundError
 
 
-class ExecutorType(str, Enum):
+class ExecutorType(StrEnum):
     """Supported executor CLI types."""
 
     CLAUDE = "claude"  # Headless executor - can run automatically
@@ -24,7 +24,7 @@ class ExecutorType(str, Enum):
     CURSOR = "cursor"  # Interactive executor - requires human completion
 
 
-class ExecutorMode(str, Enum):
+class ExecutorMode(StrEnum):
     """Execution mode for the executor."""
 
     HEADLESS = "headless"  # Fully automated, no human intervention
@@ -264,7 +264,7 @@ class ExecutorService:
         # If a preferred executor is specified, move it to the front
         if preferred:
             preferred_lower = preferred.lower()
-            for i, (exec_type, cmd) in enumerate(cli_order):
+            for i, (exec_type, _cmd) in enumerate(cli_order):
                 if exec_type.value == preferred_lower:
                     cli_order.insert(0, cli_order.pop(i))
                     break
@@ -493,14 +493,14 @@ class PromptBundleBuilder:
                - Naming conventions and patterns
                - Where similar functionality already exists
                - Dependencies and existing modules
-            
+
             2. **Validate the approach**:
                - If the ticket mentions specific paths, verify they match the actual structure
                - If paths don't exist, decide: create them OR adapt to existing structure
                - Choose the approach that's most consistent with the codebase
-            
+
             3. **Implement the changes** described in the task
-            
+
             4. **Provide a summary** explaining:
                - What files were modified or created
                - What changes were made

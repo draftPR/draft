@@ -67,7 +67,7 @@ def _matches_pattern(path: str, patterns: set[str]) -> tuple[bool, str | None]:
             continue
 
         match = True
-        for p_part, path_part in zip(pattern_parts, path_parts):
+        for p_part, path_part in zip(pattern_parts, path_parts, strict=False):
             if p_part.startswith("{") and p_part.endswith("}"):
                 continue
             if p_part != path_part:

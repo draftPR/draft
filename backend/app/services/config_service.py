@@ -2,14 +2,14 @@
 
 import os
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 
-class YoloStatus(str, Enum):
+class YoloStatus(StrEnum):
     """Result of YOLO mode check."""
 
     DISABLED = "disabled"  # yolo_mode: false

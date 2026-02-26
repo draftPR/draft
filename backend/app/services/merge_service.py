@@ -6,18 +6,17 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.exceptions import ResourceNotFoundError, ValidationError
 from app.models.enums import ActorType, EventType
 from app.models.evidence import Evidence, EvidenceKind
-from app.models.revision import Revision, RevisionStatus
+from app.models.revision import RevisionStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.models.workspace import Workspace
@@ -27,7 +26,7 @@ from app.state_machine import TicketState
 logger = logging.getLogger(__name__)
 
 
-class MergeStrategy(str, Enum):
+class MergeStrategy(StrEnum):
     """Supported merge strategies."""
 
     MERGE = "merge"

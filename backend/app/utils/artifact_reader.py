@@ -67,7 +67,7 @@ def read_artifact(repo_root: Path, relpath: str | None) -> str | None:
                 data = f.read(MAX_ARTIFACT_BYTES)
             return data.decode("utf-8", errors="replace") + "\n\n[truncated]"
         return target.read_text(encoding="utf-8", errors="replace")
-    except (OSError, IOError):
+    except OSError:
         return None
 
 

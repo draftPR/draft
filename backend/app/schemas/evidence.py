@@ -1,12 +1,12 @@
 """Pydantic schemas for Evidence entity."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class EvidenceKind(str, Enum):
+class EvidenceKind(StrEnum):
     """Enum representing the kind of evidence.
 
     Metadata evidence (JSON in stdout_path):

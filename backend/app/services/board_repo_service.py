@@ -1,7 +1,6 @@
 """Service for managing Board-Repo associations."""
 
 import uuid
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +22,8 @@ class BoardRepoService:
         board_id: str,
         repo_id: str,
         is_primary: bool = False,
-        custom_setup_script: Optional[str] = None,
-        custom_cleanup_script: Optional[str] = None,
+        custom_setup_script: str | None = None,
+        custom_cleanup_script: str | None = None,
     ) -> BoardRepo:
         """
         Add a repository to a board.
@@ -105,7 +104,7 @@ class BoardRepoService:
         )
         return list(result.scalars().all())
 
-    async def get_board_repo(self, board_id: str, repo_id: str) -> Optional[BoardRepo]:
+    async def get_board_repo(self, board_id: str, repo_id: str) -> BoardRepo | None:
         """Get a specific board-repo association."""
         result = await self.db.execute(
             select(BoardRepo)
@@ -118,9 +117,9 @@ class BoardRepoService:
         self,
         board_id: str,
         repo_id: str,
-        is_primary: Optional[bool] = None,
-        custom_setup_script: Optional[str] = None,
-        custom_cleanup_script: Optional[str] = None,
+        is_primary: bool | None = None,
+        custom_setup_script: str | None = None,
+        custom_cleanup_script: str | None = None,
     ) -> BoardRepo:
         """
         Update a board-repo association.
@@ -189,7 +188,7 @@ class BoardRepoService:
         """Unset is_primary for all repos on a board."""
         result = await self.db.execute(
             select(BoardRepo).where(
-                BoardRepo.board_id == board_id, BoardRepo.is_primary == True
+                BoardRepo.board_id == board_id, BoardRepo.is_primary
             )
         )
         primary_repos = list(result.scalars().all())

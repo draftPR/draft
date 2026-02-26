@@ -1,7 +1,9 @@
 """Reusable FastAPI dependencies for validation and DI."""
 
 from typing import Annotated
+
 from fastapi import Path
+
 from app.utils.validators import validate_uuid
 
 

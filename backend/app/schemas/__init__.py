@@ -3,8 +3,10 @@
 from app.schemas.board import (
     BoardCreate,
     BoardListResponse,
-    BoardResponse as BoardEntityResponse,
     BoardUpdate,
+)
+from app.schemas.board import (
+    BoardResponse as BoardEntityResponse,
 )
 from app.schemas.common import ErrorResponse, SuccessResponse
 from app.schemas.evidence import (

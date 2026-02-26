@@ -4,24 +4,25 @@ This service orchestrates the complete workflow:
 Goal → Tickets → Execute → Verify → PR → Review → Merge
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.exceptions import SmartKanbanError
-from app.models.ticket import Ticket
-from app.models.job import Job
 from app.models.goal import Goal
-from app.models.evidence import Evidence
-from app.state_machine import TicketState, JobStatus
+from app.models.job import Job
+from app.models.ticket import Ticket
 from app.services.reliability_wrapper import ReliabilityWrapper, RetryConfig
-from app.services.safe_autopilot import SafeAutopilot, GateAction, create_default_autopilot
+from app.services.safe_autopilot import (
+    GateAction,
+    SafeAutopilot,
+    create_default_autopilot,
+)
+from app.state_machine import JobStatus, TicketState
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +31,12 @@ logger = logging.getLogger(__name__)
 class PipelineResult:
     """Result of running the full delivery pipeline."""
     status: str  # "ready_for_merge", "blocked", "in_progress"
-    reason: Optional[str] = None
-    tickets_completed: List[str] = None
-    tickets_blocked: List[str] = None
-    pr_url: Optional[str] = None
-    checklist_id: Optional[str] = None
-    evidence: Dict[str, Any] = None
+    reason: str | None = None
+    tickets_completed: list[str] = None
+    tickets_blocked: list[str] = None
+    pr_url: str | None = None
+    checklist_id: str | None = None
+    evidence: dict[str, Any] = None
     total_cost_usd: float = 0.0
 
     def __post_init__(self):
@@ -62,8 +63,8 @@ class DeliveryPipeline:
     def __init__(
         self,
         db: AsyncSession,
-        retry_config: Optional[RetryConfig] = None,
-        autopilot: Optional[SafeAutopilot] = None
+        retry_config: RetryConfig | None = None,
+        autopilot: SafeAutopilot | None = None
     ):
         self.db = db
         self.reliability_wrapper = ReliabilityWrapper(
@@ -191,7 +192,7 @@ class DeliveryPipeline:
             logger.exception(f"Pipeline failed for goal {goal_id}")
             raise PipelineError(f"Pipeline execution failed: {str(e)}") from e
 
-    async def _validate_and_load(self, goal_id: str) -> tuple[Goal, List[Ticket]]:
+    async def _validate_and_load(self, goal_id: str) -> tuple[Goal, list[Ticket]]:
         """Validate goal exists and load all its tickets."""
         result = await self.db.execute(
             select(Goal)
@@ -213,7 +214,7 @@ class DeliveryPipeline:
 
         return goal, tickets
 
-    def _topological_sort(self, tickets: List[Ticket]) -> List[Ticket]:
+    def _topological_sort(self, tickets: list[Ticket]) -> list[Ticket]:
         """Sort tickets by dependencies (topological order).
 
         Tickets with no dependencies come first.
@@ -256,7 +257,7 @@ class DeliveryPipeline:
         self,
         ticket: Ticket,
         max_retries: int = 2
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Execute a ticket with automatic retry, checkpointing, and recovery.
 
         Uses ReliabilityWrapper for robust execution with:
@@ -315,7 +316,7 @@ class DeliveryPipeline:
                 "reason": str(e)
             }
 
-    async def _verify_all(self, tickets: List[Ticket]) -> Dict[str, Any]:
+    async def _verify_all(self, tickets: list[Ticket]) -> dict[str, Any]:
         """Run verification for all tickets and aggregate results.
 
         Returns:
@@ -323,7 +324,7 @@ class DeliveryPipeline:
         """
         from app.services.job_service import JobService
 
-        job_service = JobService(self.db)
+        JobService(self.db)
         failures = []
 
         for ticket in tickets:
@@ -349,7 +350,7 @@ class DeliveryPipeline:
             "failures": failures
         }
 
-    async def _collect_evidence(self, tickets: List[Ticket]) -> Dict[str, Any]:
+    async def _collect_evidence(self, tickets: list[Ticket]) -> dict[str, Any]:
         """Collect all evidence (diffs, tests, logs) for tickets.
 
         Returns:
@@ -397,7 +398,7 @@ class DeliveryPipeline:
         return 0.0
 
 
-async def get_pipeline_status(db: AsyncSession, goal_id: str) -> Dict[str, Any]:
+async def get_pipeline_status(db: AsyncSession, goal_id: str) -> dict[str, Any]:
     """Get the current status of the delivery pipeline for a goal.
 
     Returns:

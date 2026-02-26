@@ -71,7 +71,7 @@ def _matches_pattern(path: str, patterns: set[str]) -> tuple[bool, dict[str, str
 
         match = True
         params = {}
-        for p_part, path_part in zip(pattern_parts, path_parts):
+        for p_part, path_part in zip(pattern_parts, path_parts, strict=False):
             if p_part.startswith("{") and p_part.endswith("}"):
                 param_name = p_part[1:-1]
                 params[param_name] = path_part

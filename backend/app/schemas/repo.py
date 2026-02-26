@@ -1,10 +1,8 @@
 """Pydantic schemas for Repo and BoardRepo models."""
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
-
 
 # ============================================================================
 # Repo schemas
@@ -17,25 +15,25 @@ class RepoBase(BaseModel):
     path: str = Field(..., description="Filesystem path to git repository")
     name: str = Field(..., description="Repository name (derived from path)")
     display_name: str = Field(..., description="User-friendly display name")
-    setup_script: Optional[str] = Field(None, description="Optional setup script")
-    cleanup_script: Optional[str] = Field(None, description="Optional cleanup script")
-    dev_server_script: Optional[str] = Field(
+    setup_script: str | None = Field(None, description="Optional setup script")
+    cleanup_script: str | None = Field(None, description="Optional cleanup script")
+    dev_server_script: str | None = Field(
         None, description="Optional dev server script"
     )
-    default_branch: Optional[str] = Field(None, description="Default git branch")
-    remote_url: Optional[str] = Field(None, description="Git remote URL")
+    default_branch: str | None = Field(None, description="Default git branch")
+    remote_url: str | None = Field(None, description="Git remote URL")
 
 
 class RepoCreate(BaseModel):
     """Schema for creating a new repo."""
 
     path: str = Field(..., description="Filesystem path to git repository")
-    display_name: Optional[str] = Field(
+    display_name: str | None = Field(
         None, description="Optional display name (defaults to repo name)"
     )
-    setup_script: Optional[str] = Field(None, description="Optional setup script")
-    cleanup_script: Optional[str] = Field(None, description="Optional cleanup script")
-    dev_server_script: Optional[str] = Field(
+    setup_script: str | None = Field(None, description="Optional setup script")
+    cleanup_script: str | None = Field(None, description="Optional cleanup script")
+    dev_server_script: str | None = Field(
         None, description="Optional dev server script"
     )
 
@@ -43,10 +41,10 @@ class RepoCreate(BaseModel):
 class RepoUpdate(BaseModel):
     """Schema for updating a repo."""
 
-    display_name: Optional[str] = Field(None, description="User-friendly display name")
-    setup_script: Optional[str] = Field(None, description="Optional setup script")
-    cleanup_script: Optional[str] = Field(None, description="Optional cleanup script")
-    dev_server_script: Optional[str] = Field(
+    display_name: str | None = Field(None, description="User-friendly display name")
+    setup_script: str | None = Field(None, description="Optional setup script")
+    cleanup_script: str | None = Field(None, description="Optional cleanup script")
+    dev_server_script: str | None = Field(
         None, description="Optional dev server script"
     )
 
@@ -80,10 +78,10 @@ class DiscoveredRepoResponse(BaseModel):
     path: str = Field(..., description="Filesystem path to git repository")
     name: str = Field(..., description="Repository name")
     display_name: str = Field(..., description="Display name")
-    default_branch: Optional[str] = Field(None, description="Default git branch")
-    remote_url: Optional[str] = Field(None, description="Git remote URL")
+    default_branch: str | None = Field(None, description="Default git branch")
+    remote_url: str | None = Field(None, description="Git remote URL")
     is_valid: bool = Field(..., description="Whether repo is valid")
-    error_message: Optional[str] = Field(None, description="Error message if invalid")
+    error_message: str | None = Field(None, description="Error message if invalid")
 
 
 class DiscoverReposRequest(BaseModel):
@@ -95,7 +93,7 @@ class DiscoverReposRequest(BaseModel):
     max_depth: int = Field(
         3, description="Maximum directory depth to scan", ge=1, le=10
     )
-    exclude_patterns: Optional[list[str]] = Field(
+    exclude_patterns: list[str] | None = Field(
         None, description="Additional patterns to exclude"
     )
 
@@ -120,8 +118,8 @@ class ValidateRepoResponse(BaseModel):
 
     is_valid: bool = Field(..., description="Whether path is valid git repo")
     path: str = Field(..., description="Normalized path")
-    error_message: Optional[str] = Field(None, description="Error message if invalid")
-    metadata: Optional[DiscoveredRepoResponse] = Field(
+    error_message: str | None = Field(None, description="Error message if invalid")
+    metadata: DiscoveredRepoResponse | None = Field(
         None, description="Repo metadata if valid"
     )
 
@@ -137,10 +135,10 @@ class BoardRepoBase(BaseModel):
     board_id: str = Field(..., description="Board UUID")
     repo_id: str = Field(..., description="Repo UUID")
     is_primary: bool = Field(False, description="Whether this is the primary repo")
-    custom_setup_script: Optional[str] = Field(
+    custom_setup_script: str | None = Field(
         None, description="Per-board setup script override"
     )
-    custom_cleanup_script: Optional[str] = Field(
+    custom_cleanup_script: str | None = Field(
         None, description="Per-board cleanup script override"
     )
 
@@ -150,10 +148,10 @@ class BoardRepoCreate(BaseModel):
 
     repo_id: str = Field(..., description="Repo UUID to add")
     is_primary: bool = Field(False, description="Whether this is the primary repo")
-    custom_setup_script: Optional[str] = Field(
+    custom_setup_script: str | None = Field(
         None, description="Per-board setup script override"
     )
-    custom_cleanup_script: Optional[str] = Field(
+    custom_cleanup_script: str | None = Field(
         None, description="Per-board cleanup script override"
     )
 
@@ -161,11 +159,11 @@ class BoardRepoCreate(BaseModel):
 class BoardRepoUpdate(BaseModel):
     """Schema for updating board-repo association."""
 
-    is_primary: Optional[bool] = Field(None, description="Set as primary repo")
-    custom_setup_script: Optional[str] = Field(
+    is_primary: bool | None = Field(None, description="Set as primary repo")
+    custom_setup_script: str | None = Field(
         None, description="Per-board setup script override"
     )
-    custom_cleanup_script: Optional[str] = Field(
+    custom_cleanup_script: str | None = Field(
         None, description="Per-board cleanup script override"
     )
 

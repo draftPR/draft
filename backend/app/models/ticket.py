@@ -24,10 +24,10 @@ if TYPE_CHECKING:
 
 class Ticket(Base):
     """Ticket model representing a unit of work.
-    
+
     IMPORTANT: Tickets are scoped by board_id for permission enforcement.
     The board_id should match the goal's board_id.
-    
+
     BLOCKING/DEPENDENCIES:
     - blocked_by_ticket_id: If set, this ticket is blocked by another ticket
     - A ticket cannot be queued for execution until its blocker is DONE
@@ -83,7 +83,7 @@ class Ticket(Base):
         onupdate=func.now(),
         nullable=False,
     )
-    
+
     # GitHub Pull Request fields
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     pr_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -132,7 +132,7 @@ class Ticket(Base):
         cascade="all, delete-orphan",
         order_by="AgentSession.created_at.desc()",
     )
-    
+
     # Blocking relationship (self-referential)
     blocked_by: Mapped["Ticket | None"] = relationship(
         "Ticket",
@@ -156,11 +156,11 @@ class Ticket(Base):
     @property
     def is_blocked_by_dependency(self) -> bool:
         """Check if this ticket is blocked by an incomplete dependency.
-        
+
         Returns True if:
         - blocked_by_ticket_id is set, AND
         - The blocking ticket's state is NOT 'done'
-        
+
         Note: This requires the blocked_by relationship to be loaded.
         Use selectinload(Ticket.blocked_by) when querying.
         """
@@ -187,11 +187,11 @@ class Ticket(Base):
         if not commands:
             self.verification_commands_json = None
             return
-        
+
         # Validation constants
         MAX_COMMANDS = 5
         MAX_CMD_LENGTH = 500
-        
+
         # Validate and sanitize
         validated = []
         for cmd in commands[:MAX_COMMANDS]:
@@ -205,7 +205,7 @@ class Ticket(Base):
             # Remove null bytes and control chars
             cmd = "".join(c for c in cmd if ord(c) >= 32 or c in "\t\n\r")
             validated.append(cmd)
-        
+
         if validated:
             self.verification_commands_json = json.dumps(validated)
         else:

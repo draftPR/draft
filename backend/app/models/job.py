@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from app.models.ticket import Ticket
 
 
-class JobKind(str, Enum):
+class JobKind(StrEnum):
     """Enum representing the kind of job."""
 
     EXECUTE = "execute"
@@ -26,7 +26,7 @@ class JobKind(str, Enum):
     RESUME = "resume"  # Resume after interactive (human) completion
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Enum representing the status of a job."""
 
     QUEUED = "queued"
@@ -38,7 +38,7 @@ class JobStatus(str, Enum):
 
 class Job(Base):
     """Job model representing a long-running task execution.
-    
+
     IMPORTANT: Jobs are scoped by board_id for permission enforcement.
     """
 

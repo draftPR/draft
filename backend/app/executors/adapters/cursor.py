@@ -1,21 +1,19 @@
 """Cursor AI IDE adapter."""
 
 import asyncio
-import shutil
 import os
-from typing import AsyncIterator
+import shutil
 
+from app.executors.registry import ExecutorRegistry
 from app.executors.spec import (
-    ExecutorAdapter,
-    ExecutorMetadata,
-    ExecutorCapability,
     ExecutionRequest,
     ExecutionResult,
-    ExecutorNotFoundError,
+    ExecutorAdapter,
+    ExecutorCapability,
     ExecutorInvocationError,
-    ExecutorTimeoutError
+    ExecutorMetadata,
+    ExecutorNotFoundError,
 )
-from app.executors.registry import ExecutorRegistry
 
 
 @ExecutorRegistry.register("cursor")
@@ -66,7 +64,7 @@ class CursorAdapter(ExecutorAdapter):
         # This will open the IDE and the human must complete the work
 
         try:
-            process = await asyncio.create_subprocess_exec(
+            await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

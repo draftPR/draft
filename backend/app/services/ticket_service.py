@@ -394,7 +394,7 @@ class TicketService:
             Number of tickets deleted
         """
         from sqlalchemy import delete
-        from app.models.workspace import Workspace
+
 
         # Build query
         query = select(Ticket)
@@ -423,7 +423,7 @@ class TicketService:
                     asyncio.gather(*cleanup_tasks, return_exceptions=True),
                     timeout=30.0
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Workspace cleanup timed out during bulk ticket deletion")
 
         # Delete all tickets (cascade will handle related records)

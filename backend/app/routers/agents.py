@@ -1,18 +1,17 @@
 """AI Agent management API endpoints."""
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.agent_session import AgentSession, AgentMessage
+from app.models.agent_session import AgentMessage, AgentSession
 from app.services.agent_registry import (
-    AgentType,
     AGENT_REGISTRY,
+    AgentType,
     agent_registry,
 )
 
@@ -33,8 +32,8 @@ class AgentInfo(BaseModel):
     supports_yolo: bool = False
     supports_session_resume: bool = False
     supports_mcp: bool = False
-    cost_per_1k_input: Optional[float] = None
-    cost_per_1k_output: Optional[float] = None
+    cost_per_1k_input: float | None = None
+    cost_per_1k_output: float | None = None
     description: str = ""
 
 
@@ -49,16 +48,16 @@ class SessionInfo(BaseModel):
     id: str
     ticket_id: str
     agent_type: str
-    agent_session_id: Optional[str] = None
+    agent_session_id: str | None = None
     is_active: bool
     turn_count: int
     total_input_tokens: int
     total_output_tokens: int
     estimated_cost_usd: float
-    last_prompt: Optional[str] = None
+    last_prompt: str | None = None
     created_at: str
     updated_at: str
-    ended_at: Optional[str] = None
+    ended_at: str | None = None
 
 
 class SessionListResponse(BaseModel):
@@ -74,7 +73,7 @@ class MessageInfo(BaseModel):
     content: str
     input_tokens: int
     output_tokens: int
-    tool_name: Optional[str] = None
+    tool_name: str | None = None
     created_at: str
 
 
@@ -115,15 +114,15 @@ AGENT_DISPLAY_NAMES = {
 async def list_agents() -> AgentListResponse:
     """List all known AI agents and their availability."""
     agents = []
-    
+
     for agent_type in AgentType:
         config = AGENT_REGISTRY.get(agent_type)
         if not config:
             continue
-        
+
         executor = agent_registry.get_executor(agent_type)
         is_available = executor.is_available() if executor else False
-        
+
         agents.append(AgentInfo(
             type=agent_type.value,
             name=AGENT_DISPLAY_NAMES.get(agent_type, agent_type.value),
@@ -135,10 +134,10 @@ async def list_agents() -> AgentListResponse:
             cost_per_1k_output=config.cost_per_1k_output,
             description=AGENT_DESCRIPTIONS.get(agent_type, ""),
         ))
-    
+
     # Sort: available first, then by name
     agents.sort(key=lambda a: (not a.available, a.name))
-    
+
     return AgentListResponse(
         agents=agents,
         default_agent="claude"
@@ -159,14 +158,14 @@ async def get_agent(agent_type: str) -> AgentInfo:
         agent_enum = AgentType(agent_type)
     except ValueError:
         raise HTTPException(status_code=404, detail=f"Unknown agent type: {agent_type}")
-    
+
     config = AGENT_REGISTRY.get(agent_enum)
     if not config:
         raise HTTPException(status_code=404, detail=f"Agent not configured: {agent_type}")
-    
+
     executor = agent_registry.get_executor(agent_enum)
     is_available = executor.is_available() if executor else False
-    
+
     return AgentInfo(
         type=agent_enum.value,
         name=AGENT_DISPLAY_NAMES.get(agent_enum, agent_enum.value),
@@ -188,15 +187,15 @@ async def list_ticket_sessions(
 ) -> SessionListResponse:
     """List all agent sessions for a ticket."""
     query = select(AgentSession).where(AgentSession.ticket_id == ticket_id)
-    
+
     if not include_ended:
-        query = query.where(AgentSession.is_active == True)
-    
+        query = query.where(AgentSession.is_active)
+
     query = query.order_by(AgentSession.created_at.desc())
-    
+
     result = await db.execute(query)
     sessions = result.scalars().all()
-    
+
     return SessionListResponse(
         sessions=[
             SessionInfo(
@@ -230,10 +229,10 @@ async def get_session(
         select(AgentSession).where(AgentSession.id == session_id)
     )
     session = result.scalar_one_or_none()
-    
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     # Load messages
     msg_result = await db.execute(
         select(AgentMessage)
@@ -241,7 +240,7 @@ async def get_session(
         .order_by(AgentMessage.created_at)
     )
     messages = msg_result.scalars().all()
-    
+
     return SessionDetailResponse(
         session=SessionInfo(
             id=session.id,
@@ -283,14 +282,14 @@ async def end_session(
         select(AgentSession).where(AgentSession.id == session_id)
     )
     session = result.scalar_one_or_none()
-    
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     if not session.is_active:
         raise HTTPException(status_code=400, detail="Session already ended")
-    
+
     session.end_session()
     await db.commit()
-    
+
     return {"message": "Session ended", "session_id": session_id}

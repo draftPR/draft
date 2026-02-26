@@ -2,20 +2,18 @@
 
 import asyncio
 import time
-from datetime import datetime, timedelta
-from typing import Optional, Callable, Any, Dict
+from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from datetime import datetime
+from enum import StrEnum
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
-from app.models.ticket import Ticket
-from app.models.job import Job
 from app.exceptions import ExecutorError, ExecutorTimeoutError
 
 
-class CheckpointType(str, Enum):
+class CheckpointType(StrEnum):
     """Types of execution checkpoints."""
     START = "start"
     PROGRESS = "progress"
@@ -29,12 +27,12 @@ class ExecutionCheckpoint:
     """Represents a point in execution that can be resumed from."""
     checkpoint_id: str
     ticket_id: str
-    job_id: Optional[str]
+    job_id: str | None
     checkpoint_type: CheckpointType
     timestamp: datetime
     retry_count: int
-    state_snapshot: Dict[str, Any]
-    error_message: Optional[str] = None
+    state_snapshot: dict[str, Any]
+    error_message: str | None = None
 
 
 @dataclass
@@ -74,23 +72,23 @@ class ReliabilityWrapper:
     def __init__(
         self,
         db: AsyncSession,
-        retry_config: Optional[RetryConfig] = None,
+        retry_config: RetryConfig | None = None,
         checkpoint_interval_seconds: int = 300,  # 5 minutes
     ):
         self.db = db
         self.retry_config = retry_config or RetryConfig()
         self.checkpoint_interval_seconds = checkpoint_interval_seconds
-        self._checkpoints: Dict[str, ExecutionCheckpoint] = {}
-        self._last_checkpoint_time: Dict[str, float] = {}
+        self._checkpoints: dict[str, ExecutionCheckpoint] = {}
+        self._last_checkpoint_time: dict[str, float] = {}
 
     async def execute_with_reliability(
         self,
         func: Callable,
         *args,
         ticket_id: str,
-        job_id: Optional[str] = None,
-        validation_func: Optional[Callable[[Any], bool]] = None,
-        checkpoint_key: Optional[str] = None,
+        job_id: str | None = None,
+        validation_func: Callable[[Any], bool] | None = None,
+        checkpoint_key: str | None = None,
         **kwargs
     ) -> Any:
         """
@@ -224,7 +222,7 @@ class ReliabilityWrapper:
         func: Callable,
         checkpoint_key: str,
         ticket_id: str,
-        job_id: Optional[str],
+        job_id: str | None,
         retry_count: int,
         *args,
         **kwargs
@@ -308,11 +306,11 @@ class ReliabilityWrapper:
         self,
         checkpoint_key: str,
         ticket_id: str,
-        job_id: Optional[str],
+        job_id: str | None,
         checkpoint_type: CheckpointType,
         retry_count: int,
-        state_snapshot: Dict[str, Any],
-        error_message: Optional[str] = None,
+        state_snapshot: dict[str, Any],
+        error_message: str | None = None,
     ):
         """Create an execution checkpoint."""
         checkpoint = ExecutionCheckpoint(
@@ -331,7 +329,7 @@ class ReliabilityWrapper:
         # TODO: Persist checkpoint to database for true resumability
         # For now, keeping in memory is sufficient for single-session reliability
 
-    async def get_last_checkpoint(self, checkpoint_key: str) -> Optional[ExecutionCheckpoint]:
+    async def get_last_checkpoint(self, checkpoint_key: str) -> ExecutionCheckpoint | None:
         """Get the last checkpoint for a given key."""
         return self._checkpoints.get(checkpoint_key)
 

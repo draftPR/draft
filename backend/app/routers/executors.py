@@ -21,7 +21,7 @@ async def list_available_executors():
         # Get all registered executors
         all_executors = []
 
-        for name, adapter_class in ExecutorRegistry._adapters.items():
+        for _name, adapter_class in ExecutorRegistry._adapters.items():
             adapter = adapter_class()
             metadata = adapter.get_metadata()
             is_available = await adapter.is_available()

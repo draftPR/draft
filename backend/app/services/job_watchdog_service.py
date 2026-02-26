@@ -1,6 +1,5 @@
 """Service for monitoring and recovering stuck jobs."""
 
-import json
 import logging
 import time
 from dataclasses import dataclass

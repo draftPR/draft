@@ -1,9 +1,8 @@
 """Executor plugin registry with dynamic loading."""
 
 import importlib
-import pkgutil
 import logging
-from typing import Dict, Type, List, Optional
+import pkgutil
 from pathlib import Path
 
 from app.executors.spec import ExecutorAdapter, ExecutorMetadata, ExecutorNotFoundError
@@ -14,8 +13,8 @@ logger = logging.getLogger(__name__)
 class ExecutorRegistry:
     """Registry for executor plugins with dynamic loading."""
 
-    _adapters: Dict[str, Type[ExecutorAdapter]] = {}
-    _instances: Dict[str, ExecutorAdapter] = {}
+    _adapters: dict[str, type[ExecutorAdapter]] = {}
+    _instances: dict[str, ExecutorAdapter] = {}
     _loaded: bool = False
 
     @classmethod
@@ -27,7 +26,7 @@ class ExecutorRegistry:
             class ClaudeAdapter(ExecutorAdapter):
                 ...
         """
-        def decorator(adapter_class: Type[ExecutorAdapter]):
+        def decorator(adapter_class: type[ExecutorAdapter]):
             if name in cls._adapters:
                 logger.warning(f"Overwriting existing executor adapter: {name}")
             cls._adapters[name] = adapter_class
@@ -64,7 +63,7 @@ class ExecutorRegistry:
         return cls._instances[name]
 
     @classmethod
-    async def get_available(cls) -> List[ExecutorMetadata]:
+    async def get_available(cls) -> list[ExecutorMetadata]:
         """List all available executors (installed and accessible).
 
         Returns:
@@ -74,7 +73,7 @@ class ExecutorRegistry:
             cls.load_all_plugins()
 
         available = []
-        for name, adapter_class in cls._adapters.items():
+        for name, _adapter_class in cls._adapters.items():
             try:
                 adapter = cls.get(name)
                 if await adapter.is_available():
@@ -85,7 +84,7 @@ class ExecutorRegistry:
         return available
 
     @classmethod
-    def list_all(cls) -> List[ExecutorMetadata]:
+    def list_all(cls) -> list[ExecutorMetadata]:
         """List all registered executors (may not be installed).
 
         Returns:
@@ -95,7 +94,7 @@ class ExecutorRegistry:
             cls.load_all_plugins()
 
         all_executors = []
-        for name, adapter_class in cls._adapters.items():
+        for name, _adapter_class in cls._adapters.items():
             try:
                 adapter = cls.get(name)
                 all_executors.append(adapter.get_metadata())
@@ -132,7 +131,7 @@ class ExecutorRegistry:
             package = importlib.import_module(package_name)
             package_path = Path(package.__file__).parent
 
-            for finder, name, ispkg in pkgutil.iter_modules([str(package_path)]):
+            for _finder, name, _ispkg in pkgutil.iter_modules([str(package_path)]):
                 if name.startswith("_"):
                     continue
 
@@ -182,7 +181,7 @@ def get_executor(name: str) -> ExecutorAdapter:
     return ExecutorRegistry.get(name)
 
 
-async def list_available_executors() -> List[ExecutorMetadata]:
+async def list_available_executors() -> list[ExecutorMetadata]:
     """List all available executors.
 
     Returns:
@@ -191,7 +190,7 @@ async def list_available_executors() -> List[ExecutorMetadata]:
     return await ExecutorRegistry.get_available()
 
 
-def list_all_executors() -> List[ExecutorMetadata]:
+def list_all_executors() -> list[ExecutorMetadata]:
     """List all registered executors.
 
     Returns:

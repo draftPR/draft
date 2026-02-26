@@ -463,6 +463,7 @@ async def submit_review(
             target_branch = "main"  # fallback
             if ticket.board_id:
                 from sqlalchemy import select as sql_select_board
+
                 from app.models.board import Board
 
                 board_result = await db.execute(
@@ -478,10 +479,12 @@ async def submit_review(
 
             if data.create_pr:
                 # Create a GitHub PR instead of merging directly
-                from app.services.git_host import get_git_host_provider
-                from sqlalchemy import select as sql_select
-                from app.models.workspace import Workspace
                 from pathlib import Path
+
+                from sqlalchemy import select as sql_select
+
+                from app.models.workspace import Workspace
+                from app.services.git_host import get_git_host_provider
 
                 # Get workspace to find worktree path and branch
                 workspace_result = await db.execute(
@@ -545,16 +548,18 @@ async def submit_review(
                     )
             else:
                 # Auto-merge using simple git operations (no state coupling)
+                from datetime import UTC, datetime
+                from pathlib import Path
+
+                from sqlalchemy import select as sql_select
+
+                from app.models.workspace import Workspace
                 from app.services.git_merge_simple import (
-                    git_merge_worktree_branch,
-                    cleanup_worktree,
                     GitMergeError,
+                    cleanup_worktree,
+                    git_merge_worktree_branch,
                 )
                 from app.services.workspace_service import WorkspaceService
-                from sqlalchemy import select as sql_select
-                from app.models.workspace import Workspace
-                from pathlib import Path
-                from datetime import UTC, datetime
 
                 # Track merge status to return to frontend
                 merge_attempted = True
@@ -623,6 +628,32 @@ async def submit_review(
                             logger.info(
                                 f"Merge result for ticket {revision.ticket_id}: {merge_message}"
                             )
+
+                            # Record merge event so merge-status correctly reports is_merged
+                            if merge_success:
+                                import json as _json
+
+                                from app.models.ticket_event import TicketEvent
+                                from app.state_machine import (
+                                    TicketState as SM_TicketState,
+                                )
+
+                                merge_event = TicketEvent(
+                                    ticket_id=revision.ticket_id,
+                                    event_type="merge_succeeded",
+                                    from_state=SM_TicketState.DONE.value,
+                                    to_state=SM_TicketState.DONE.value,
+                                    actor_type="system",
+                                    actor_id="review_auto_merge",
+                                    reason=f"Auto-merged on approval: {merge_message}",
+                                    payload_json=_json.dumps({
+                                        "strategy": "merge",
+                                        "worktree_branch": branch_name,
+                                        "base_branch": target_branch,
+                                        "auto_merge": True,
+                                    }),
+                                )
+                                db.add(merge_event)
 
                             # Cleanup worktree
                             if merge_success:

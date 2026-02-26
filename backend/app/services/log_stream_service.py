@@ -12,13 +12,13 @@ from collections import defaultdict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from weakref import WeakSet
 
 logger = logging.getLogger(__name__)
 
 
-class LogLevel(str, Enum):
+class LogLevel(StrEnum):
     """Log message levels."""
     STDOUT = "stdout"
     STDERR = "stderr"

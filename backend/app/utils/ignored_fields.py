@@ -46,34 +46,34 @@ def check_ignored_fields(
     allowed_fields: set[str],
 ) -> list[str]:
     """Check for ignored/deprecated fields in request body.
-    
+
     SECURITY: Only KNOWN_DEPRECATED_FIELDS are returned for echoing.
     Unknown extra fields are logged internally but NOT returned.
-    
+
     Args:
         request: The FastAPI request
         raw_body: Parsed request body dict
         allowed_fields: Fields that are actually used by the endpoint
-    
+
     Returns:
         List of KNOWN deprecated field names that were sent (safe to echo)
     """
     if not raw_body:
         return []
-    
+
     sent_fields = set(raw_body.keys())
     all_ignored = sent_fields - allowed_fields
-    
+
     if not all_ignored:
         return []
-    
+
     client_id = get_client_id(request)
     today = date.today()
-    
+
     # Split into known deprecated (safe to echo) and unknown (log only)
     known_deprecated_sent = all_ignored & KNOWN_DEPRECATED_FIELDS
     unknown_sent = all_ignored - KNOWN_DEPRECATED_FIELDS
-    
+
     # Log known deprecated fields (once per client per day)
     for field in known_deprecated_sent:
         cache_key = (client_id, field)
@@ -84,7 +84,7 @@ def check_ignored_fields(
                 f"Please remove it from your requests."
             )
             _warned_today[cache_key] = today
-    
+
     # Log unknown fields internally only (do NOT echo to client)
     if unknown_sent:
         # Only log once per client per day to avoid spam
@@ -95,14 +95,14 @@ def check_ignored_fields(
                 f"these are silently ignored."
             )
             _warned_today[cache_key] = today
-    
+
     # Return ONLY known deprecated fields (safe to echo)
     return sorted(known_deprecated_sent)
 
 
 def add_ignored_fields_header(response: Response, ignored_fields: list[str]) -> None:
     """Add X-Ignored-Fields header to response.
-    
+
     SECURITY: Only adds header if ignored_fields contains known deprecated fields.
     The ignored_fields list should come from check_ignored_fields() which already
     filters to KNOWN_DEPRECATED_FIELDS only.

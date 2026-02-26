@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from app.models.revision import Revision
 
 
-class ReviewDecision(str, Enum):
+class ReviewDecision(StrEnum):
     """Enum representing the review decision."""
 
     APPROVED = "approved"

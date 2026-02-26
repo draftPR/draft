@@ -71,7 +71,7 @@ async def run_cleanup(
 
 class ReenqueueResponse(BaseModel):
     """Response from re-enqueue operation."""
-    
+
     jobs_reenqueued: int
     details: list[str]
 
@@ -86,32 +86,33 @@ async def reenqueue_lost_jobs(
 ) -> ReenqueueResponse:
     """
     Re-enqueue jobs that are stuck in QUEUED status but missing from the Celery queue.
-    
+
     This can happen if:
     - Redis was restarted/flushed
     - The Celery worker was down when jobs were created
     - Task messages were lost
-    
+
     For each QUEUED job, this re-sends the Celery task and updates the celery_task_id.
     """
     from sqlalchemy import select
-    from app.models.job import Job, JobStatus, JobKind
+
+    from app.models.job import Job, JobKind, JobStatus
     from app.services.task_dispatch import enqueue_task
-    
+
     result = await db.execute(
         select(Job).where(Job.status == JobStatus.QUEUED.value)
     )
     queued_jobs = result.scalars().all()
-    
+
     details = []
     count = 0
-    
+
     task_names = {
         JobKind.EXECUTE.value: "execute_ticket",
         JobKind.VERIFY.value: "verify_ticket",
         JobKind.RESUME.value: "resume_ticket",
     }
-    
+
     for job in queued_jobs:
         try:
             # Re-enqueue based on job kind using send_task
@@ -119,18 +120,18 @@ async def reenqueue_lost_jobs(
             if not task_name:
                 details.append(f"Job {job.id}: Unknown kind {job.kind}")
                 continue
-            
+
             task = enqueue_task(task_name, args=[job.id])
-            
+
             # Update task ID
             job.celery_task_id = task.id
             details.append(f"Job {job.id} ({job.kind}): Re-enqueued as {task.id}")
             count += 1
         except Exception as e:
             details.append(f"Job {job.id}: Error re-enqueueing: {e}")
-    
+
     await db.commit()
-    
+
     return ReenqueueResponse(
         jobs_reenqueued=count,
         details=details,

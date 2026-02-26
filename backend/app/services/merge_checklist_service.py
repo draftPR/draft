@@ -2,20 +2,18 @@
 
 import json
 import logging
-from typing import Dict, Any, List
+from typing import Any
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.exceptions import ResourceNotFoundError
-from app.models.merge_checklist import MergeChecklist
-from app.models.goal import Goal
-from app.models.ticket import Ticket
-from app.models.job import Job
 from app.models.evidence import Evidence
-from app.models.revision import Revision
-from app.state_machine import TicketState, JobStatus
+from app.models.job import Job
+from app.models.merge_checklist import MergeChecklist
+from app.models.ticket import Ticket
+from app.state_machine import JobStatus, TicketState
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +90,7 @@ class MergeChecklistService:
         # Check 4: Check budget
         checklist.budget_exceeded = await self._check_budget_exceeded(goal_id)
 
-    async def _check_all_tests_passed(self, tickets: List[Ticket]) -> bool:
+    async def _check_all_tests_passed(self, tickets: list[Ticket]) -> bool:
         """Check if all verification jobs succeeded."""
         for ticket in tickets:
             # Skip tickets that aren't done yet
@@ -110,7 +108,7 @@ class MergeChecklistService:
 
         return True
 
-    async def _count_changes(self, tickets: List[Ticket]) -> Dict[str, int]:
+    async def _count_changes(self, tickets: list[Ticket]) -> dict[str, int]:
         """Count total files and lines changed across all tickets."""
         total_files = set()
         total_lines = 0
@@ -128,7 +126,7 @@ class MergeChecklistService:
                     if stat_evidence and stat_evidence.stdout_path:
                         # Parse diff stat (format: "X files changed, Y insertions(+), Z deletions(-)")
                         try:
-                            with open(stat_evidence.stdout_path, 'r') as f:
+                            with open(stat_evidence.stdout_path) as f:
                                 stat_line = f.read().strip()
                                 # Simple parsing
                                 if "files changed" in stat_line or "file changed" in stat_line:
@@ -159,7 +157,7 @@ class MergeChecklistService:
         # TODO: Check against cost_budget table
         return False
 
-    async def _generate_rollback_plan(self, goal_id: str) -> Dict[str, Any]:
+    async def _generate_rollback_plan(self, goal_id: str) -> dict[str, Any]:
         """Generate rollback plan for all changes."""
         result = await self.db.execute(
             select(Ticket)

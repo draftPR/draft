@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from app.models.ticket import Ticket
 
 
-class RevisionStatus(str, Enum):
+class RevisionStatus(StrEnum):
     """Enum representing the status of a revision."""
 
     OPEN = "open"

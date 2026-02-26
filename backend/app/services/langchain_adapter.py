@@ -4,10 +4,10 @@ This adapter allows UDAR agent to use Alma Kanban's existing LLM infrastructure
 (LiteLLM with multi-provider support) without refactoring.
 """
 
-from typing import Any, Optional
+from typing import Any
 
-from langchain_core.language_models.llms import LLM
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.language_models.llms import LLM
 
 from app.services.llm_service import LLMService
 
@@ -41,8 +41,8 @@ class LangChainLLMAdapter(LLM):
     def _call(
         self,
         prompt: str,
-        stop: Optional[list[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> str:
         """Call the LLM with a prompt and return the response.
@@ -78,8 +78,8 @@ class LangChainLLMAdapter(LLM):
     async def _acall(
         self,
         prompt: str,
-        stop: Optional[list[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> str:
         """Async version of _call.

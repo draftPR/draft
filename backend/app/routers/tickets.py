@@ -15,10 +15,10 @@ from app.models.ticket_event import TicketEvent
 from app.schemas.evidence import EvidenceListResponse, EvidenceResponse
 from app.schemas.job import JobCreateResponse, JobListResponse, JobResponse
 from app.schemas.planner import (
-    bucket_to_priority,
     BulkPriorityUpdateRequest,
     BulkPriorityUpdateResponse,
     BulkPriorityUpdateResult,
+    bucket_to_priority,
     priority_to_bucket,
 )
 from app.schemas.ticket import (
@@ -127,7 +127,7 @@ async def delete_ticket(
     service = TicketService(db)
 
     # Verify ticket exists
-    ticket = await service.get_ticket_by_id(ticket_id)
+    await service.get_ticket_by_id(ticket_id)
 
     # Clean up workspace (best effort, don't block deletion if it fails)
     try:
@@ -771,9 +771,10 @@ async def bulk_update_priority(
     - P2 → 50 (Medium)
     - P3 → 30 (Low)
     """
+    from fastapi.responses import JSONResponse
+
     from app.schemas.planner import MAX_P0_PER_REQUEST, PriorityBucket
     from app.services.board_service import BoardService
-    from fastapi.responses import JSONResponse
 
     # AUTHORIZATION: Verify board exists
     board_service = BoardService(db)
@@ -803,7 +804,7 @@ async def bulk_update_priority(
             return JSONResponse(
                 status_code=400,
                 content={
-                    "detail": f"P0 assignments require allow_p0=true flag.",
+                    "detail": "P0 assignments require allow_p0=true flag.",
                     "error_type": "p0_flag_required",
                     "p0_count": p0_count,
                     "p0_ticket_ids": p0_ticket_ids,
@@ -942,7 +943,8 @@ async def bulk_update_priority(
 
 
 from pydantic import BaseModel, Field
-from app.services.queued_message_service import queued_message_service, QueuedMessage
+
+from app.services.queued_message_service import queued_message_service
 
 
 class QueueMessageRequest(BaseModel):
@@ -1046,14 +1048,13 @@ async def cancel_queued_message(
 # Aggregated view of all agent execution logs for a ticket
 
 
-from app.models.normalized_log import NormalizedLogEntry
-from app.models.job import Job
-from app.models.evidence import Evidence, EvidenceKind
-from datetime import datetime as dt
-from typing import Optional
-from pathlib import Path
 import re
 import uuid as uuid_module
+from pathlib import Path
+
+from app.models.evidence import EvidenceKind
+from app.models.job import Job
+from app.models.normalized_log import NormalizedLogEntry
 
 
 class AgentLogEntry(BaseModel):
@@ -1076,9 +1077,9 @@ class JobExecutionSummary(BaseModel):
     job_id: str
     job_kind: str
     job_status: str
-    started_at: Optional[str] = None
-    finished_at: Optional[str] = None
-    duration_seconds: Optional[float] = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_seconds: float | None = None
     entry_count: int = 0
     entries: list[AgentLogEntry] = Field(default_factory=list)
 
@@ -1412,7 +1413,7 @@ def _parse_cursor_tool_call(tool_call: dict) -> tuple[str, str]:
         command = args.get("command", "")
         return "shell", f"💻 Shell: {command}"
 
-    return "unknown", f"🔧 Tool call"
+    return "unknown", "🔧 Tool call"
 
 
 def _extract_cursor_tool_result(tool_call: dict) -> str:
@@ -1505,9 +1506,11 @@ async def get_ticket_agent_logs(
     Returns:
         All agent conversation/output grouped by job execution.
     """
-    from sqlalchemy.orm import selectinload
-    from app.models.board import Board
     import os
+
+    from sqlalchemy.orm import selectinload
+
+    from app.models.board import Board
 
     # Verify ticket exists and get title
     service = TicketService(db)

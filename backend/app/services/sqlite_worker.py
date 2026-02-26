@@ -10,9 +10,8 @@ import sqlite3
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
-from typing import Callable
 
 from app.sqlite_kv import _DB_PATH
 
@@ -253,19 +252,21 @@ def setup_worker() -> SQLiteWorker:
     # Register task functions (import here to avoid circular imports)
     from app.worker import (
         _execute_ticket_task_impl,
-        _verify_ticket_task_impl,
         _resume_ticket_task_impl,
+        _verify_ticket_task_impl,
     )
-    from app.services.log_stream_service import log_stream_publisher
 
     def execute_ticket_wrapper(job_id: str) -> dict:
         """Wrapper that sets up streaming context for execute_ticket."""
-        from app.worker import (
-            set_current_job, stream_finished, update_job_finished,
-            get_job_with_ticket, transition_ticket_sync,
-        )
         from app.models.job import JobStatus
         from app.state_machine import TicketState
+        from app.worker import (
+            get_job_with_ticket,
+            set_current_job,
+            stream_finished,
+            transition_ticket_sync,
+            update_job_finished,
+        )
         set_current_job(job_id)
         try:
             return _execute_ticket_task_impl(job_id)
@@ -296,11 +297,13 @@ def setup_worker() -> SQLiteWorker:
 
     def verify_ticket_wrapper(job_id: str) -> dict:
         """Wrapper for verify_ticket."""
-        from app.worker import (
-            update_job_finished, get_job_with_ticket, transition_ticket_sync,
-        )
         from app.models.job import JobStatus
         from app.state_machine import TicketState
+        from app.worker import (
+            get_job_with_ticket,
+            transition_ticket_sync,
+            update_job_finished,
+        )
         try:
             return _verify_ticket_task_impl(job_id)
         except Exception as e:
@@ -339,7 +342,10 @@ def setup_worker() -> SQLiteWorker:
         run_job_watchdog()
 
     def run_planner_tick():
-        from app.services.planner_tick_sync import run_planner_tick_sync, PlannerLockError
+        from app.services.planner_tick_sync import (
+            PlannerLockError,
+            run_planner_tick_sync,
+        )
         try:
             run_planner_tick_sync()
         except PlannerLockError:

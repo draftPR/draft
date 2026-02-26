@@ -1,12 +1,12 @@
 """Pydantic schemas for Review entities (comments and summaries)."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class AuthorType(str, Enum):
+class AuthorType(StrEnum):
     """Enum representing the type of author for a review comment."""
 
     HUMAN = "human"
@@ -14,7 +14,7 @@ class AuthorType(str, Enum):
     SYSTEM = "system"
 
 
-class ReviewDecision(str, Enum):
+class ReviewDecision(StrEnum):
     """Enum representing the review decision."""
 
     APPROVED = "approved"

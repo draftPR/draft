@@ -1,19 +1,19 @@
 """Pydantic schemas for Job entity."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class JobKind(str, Enum):
+class JobKind(StrEnum):
     """Enum representing the kind of job."""
 
     EXECUTE = "execute"
     VERIFY = "verify"
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Enum representing the status of a job."""
 
     QUEUED = "queued"

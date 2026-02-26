@@ -1,13 +1,11 @@
 """Pydantic schemas for merge operations."""
 
-from datetime import datetime
-from enum import Enum
-from typing import Literal
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class MergeStrategy(str, Enum):
+class MergeStrategy(StrEnum):
     """Supported merge strategies."""
 
     MERGE = "merge"

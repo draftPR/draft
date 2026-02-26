@@ -2,9 +2,9 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Boolean, Integer, String, Text, ForeignKey, Float, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -37,7 +37,7 @@ class MergeChecklist(Base):
     all_tests_passed: Mapped[bool] = mapped_column(Boolean, default=False)
     total_files_changed: Mapped[int] = mapped_column(Integer, default=0)
     total_lines_changed: Mapped[int] = mapped_column(Integer, default=0)
-    total_cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    total_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     budget_exceeded: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Manual checks (require human confirmation)
@@ -47,7 +47,7 @@ class MergeChecklist(Base):
     documentation_updated: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Rollback plan
-    rollback_plan_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rollback_plan_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     risk_level: Mapped[str] = mapped_column(
         String(20),
         default="low"  # low, medium, high
@@ -55,7 +55,7 @@ class MergeChecklist(Base):
 
     # Status
     ready_to_merge: Mapped[bool] = mapped_column(Boolean, default=False)
-    merged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,

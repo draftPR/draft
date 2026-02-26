@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, JSON, String, Text, func
+from sqlalchemy import JSON, DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -18,12 +18,12 @@ if TYPE_CHECKING:
 
 class Board(Base):
     """Board represents a project/repository boundary.
-    
+
     Key properties:
     - Single repo per board (repo_root is authoritative)
     - All goals, tickets, jobs, workspaces belong to a board
     - board_id is the permission boundary for all operations
-    
+
     This prevents cross-tenant/cross-project data access.
     """
 
@@ -32,11 +32,11 @@ class Board(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+
     # The authoritative repo root for this board
     # All file operations use this path - NOT client-provided paths
     repo_root: Mapped[str] = mapped_column(String(1024), nullable=False)
-    
+
     # Optional: default branch for this repo
     default_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

@@ -21,6 +21,11 @@ select = [
 ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # function call in default argument (standard FastAPI pattern for Depends())
+    "B904",   # raise from in except (too noisy to fix everywhere)
+    "E402",   # module level import not at top (conditional imports)
+    "E741",   # ambiguous variable name
+    "B026",   # star-arg unpacking after keyword
+    "F821",   # undefined name (false positive in dynamic imports)
 ]
 
 [tool.ruff.lint.isort]

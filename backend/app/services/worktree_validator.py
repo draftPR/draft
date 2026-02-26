@@ -6,11 +6,11 @@ properly isolated worktrees, not the main repository.
 
 import subprocess
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 
-class WorktreeValidationError(str, Enum):
+class WorktreeValidationError(StrEnum):
     """Types of worktree validation failures."""
 
     NOT_IN_SMARTKANBAN_DIR = "not_in_smartkanban_dir"
