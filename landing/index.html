@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alma Kanban — Where Agents Ship and Humans Review</title>
+    <meta name="description" content="Agent-native project management. AI agents execute tickets, write code, and submit PRs. You review and merge.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --text: #1a1a1a;
+            --text-secondary: #6b7280;
+            --text-light: #9ca3af;
+            --accent: #6366f1;
+            --accent-hover: #4f46e5;
+            --bg: #ffffff;
+            --bg-soft: #f9fafb;
+            --green: #10b981;
+            --radius: 16px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--text);
+            background: var(--bg);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+        a { color: var(--accent); text-decoration: none; }
+
+        /* Nav */
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 2.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .logo {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+        .logo-dot {
+            width: 28px;
+            height: 28px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .nav-links { display: flex; gap: 2.5rem; align-items: center; }
+        .nav-links a { color: var(--text-secondary); font-size: 0.9rem; font-weight: 500; }
+        .nav-links a:hover { color: var(--text); }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.65rem 1.5rem;
+            border-radius: 100px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s ease;
+        }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-secondary { background: var(--bg-soft); color: var(--text); }
+        .btn-secondary:hover { background: #f3f4f6; }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            padding: 7rem 2rem 5rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 1rem;
+            background: #eef2ff;
+            color: var(--accent);
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 2rem;
+        }
+        .hero-badge .dot {
+            width: 6px;
+            height: 6px;
+            background: var(--green);
+            border-radius: 50%;
+        }
+        h1 {
+            font-size: 3.75rem;
+            font-weight: 800;
+            line-height: 1.08;
+            letter-spacing: -0.035em;
+            margin-bottom: 1.5rem;
+            color: var(--text);
+        }
+        .hero p {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            max-width: 520px;
+            margin: 0 auto 2.5rem;
+            line-height: 1.7;
+        }
+        .hero-buttons { display: flex; gap: 0.75rem; justify-content: center; }
+        .hero-buttons .btn { padding: 0.8rem 2rem; font-size: 0.95rem; }
+
+        /* How it works */
+        .section {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 6rem 2rem;
+        }
+        .section-eyebrow {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+            text-align: center;
+            margin-bottom: 0.75rem;
+        }
+        h2 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            text-align: center;
+            margin-bottom: 4rem;
+            color: var(--text);
+        }
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 3rem;
+        }
+        .step { text-align: center; }
+        .step-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin: 0 auto 1.25rem;
+        }
+        .step:nth-child(1) .step-icon { background: #eef2ff; }
+        .step:nth-child(2) .step-icon { background: #fef3c7; }
+        .step:nth-child(3) .step-icon { background: #d1fae5; }
+        .step:nth-child(4) .step-icon { background: #ede9fe; }
+        .step h3 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .step p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* Features */
+        .features-bg { background: var(--bg-soft); }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+        }
+        .feature-card {
+            background: white;
+            border-radius: var(--radius);
+            padding: 2rem;
+            transition: transform 0.15s ease;
+        }
+        .feature-card:hover { transform: translateY(-2px); }
+        .feature-emoji {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+        .feature-card h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .feature-card p {
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* Comparison */
+        .comp-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .comp-table th {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-light);
+            padding: 1rem;
+            text-align: center;
+        }
+        .comp-table th:first-child { text-align: left; }
+        .comp-table td {
+            padding: 1rem;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        .comp-table td:first-child {
+            text-align: left;
+            color: var(--text);
+            font-weight: 500;
+        }
+        .comp-table tr { border-bottom: 1px solid #f3f4f6; }
+        .comp-table thead tr { border-bottom: 2px solid #e5e7eb; }
+        .comp-table .alma-col { color: var(--accent); font-weight: 600; }
+        .yes { color: var(--green); font-weight: 600; }
+        .no { color: #d1d5db; }
+
+        /* Pricing */
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        .price-card {
+            background: var(--bg-soft);
+            border-radius: var(--radius);
+            padding: 2.5rem 2rem;
+            text-align: center;
+            position: relative;
+        }
+        .price-card.featured {
+            background: var(--text);
+            color: white;
+        }
+        .price-card.featured .price-desc,
+        .price-card.featured .price-features li { color: rgba(255,255,255,0.7); }
+        .price-card.featured .price-features li::before { color: #a5b4fc; }
+        .price-tier {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+            color: var(--text-secondary);
+        }
+        .price-card.featured .price-tier { color: rgba(255,255,255,0.5); }
+        .price-amount {
+            font-size: 3rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1;
+        }
+        .price-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin: 0.5rem 0 2rem;
+        }
+        .price-features {
+            list-style: none;
+            text-align: left;
+            margin-bottom: 2rem;
+        }
+        .price-features li {
+            padding: 0.4rem 0;
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+        .price-features li::before {
+            content: '✓';
+            color: var(--green);
+            font-weight: 700;
+            font-size: 0.85rem;
+        }
+        .price-card .btn { width: 100%; justify-content: center; padding: 0.75rem; }
+        .price-card.featured .btn-primary { background: white; color: var(--text); }
+        .price-card.featured .btn-primary:hover { background: #f3f4f6; }
+
+        /* CTA */
+        .cta {
+            text-align: center;
+            padding: 6rem 2rem;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .code-block {
+            background: var(--text);
+            color: #e5e7eb;
+            border-radius: var(--radius);
+            padding: 2rem 2.5rem;
+            text-align: left;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.85rem;
+            line-height: 2;
+            margin: 2rem auto 0;
+            max-width: 550px;
+        }
+        .code-block .comment { color: #6b7280; }
+        .code-block .cmd { color: #a5b4fc; }
+
+        /* Footer */
+        footer {
+            padding: 3rem 2rem;
+            text-align: center;
+            font-size: 0.85rem;
+            color: var(--text-light);
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 2.5rem; }
+            h2 { font-size: 1.75rem; }
+            .steps, .feature-grid, .pricing-grid { grid-template-columns: 1fr; }
+            .nav-links { display: none; }
+            .hero { padding: 4rem 1.5rem 3rem; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <div class="logo-dot">A</div>
+        Alma Kanban
+    </div>
+    <div class="nav-links">
+        <a href="#how-it-works">How it Works</a>
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="https://github.com/doramirdor/alma-kanban" target="_blank">GitHub</a>
+        <a href="#get-started" class="btn btn-primary">Get Started</a>
+    </div>
+</nav>
+
+<section class="hero">
+    <div class="hero-badge">
+        <span class="dot"></span>
+        Open Source &middot; Agent-Native
+    </div>
+    <h1>Your agents write the code. You review and merge.</h1>
+    <p>The first kanban board where AI agents pick up tickets, write code in isolated branches, and submit diffs for your review.</p>
+    <div class="hero-buttons">
+        <a href="#get-started" class="btn btn-primary">Get Started Free →</a>
+        <a href="https://github.com/doramirdor/alma-kanban" class="btn btn-secondary" target="_blank">☆ Star on GitHub</a>
+    </div>
+</section>
+
+<section class="section" id="how-it-works">
+    <div class="section-eyebrow">How it Works</div>
+    <h2>From idea to merged code in minutes</h2>
+    <div class="steps">
+        <div class="step">
+            <div class="step-icon">🎯</div>
+            <h3>Describe the goal</h3>
+            <p>Point at your codebase. Alma analyzes the code and generates scoped, accurate tickets.</p>
+        </div>
+        <div class="step">
+            <div class="step-icon">⚡</div>
+            <h3>Agents execute</h3>
+            <p>AI agents pick up tickets and write real code in isolated git worktrees. Run many in parallel.</p>
+        </div>
+        <div class="step">
+            <div class="step-icon">👀</div>
+            <h3>You review</h3>
+            <p>GitHub-style diff viewer with inline comments. Approve, request changes, or let agents iterate.</p>
+        </div>
+        <div class="step">
+            <div class="step-icon">🚀</div>
+            <h3>Merge and ship</h3>
+            <p>One click to merge to main. Or auto-create a GitHub PR. Full lifecycle, one tool.</p>
+        </div>
+    </div>
+</section>
+
+<div class="features-bg">
+<section class="section" id="features">
+    <div class="section-eyebrow">Features</div>
+    <h2>Everything you need to ship with agents</h2>
+    <div class="feature-grid">
+        <div class="feature-card">
+            <div class="feature-emoji">🧠</div>
+            <h3>Codebase Analysis</h3>
+            <p>Point at a repo and Alma generates tickets from actual code. No hallucinated functions.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-emoji">🔀</div>
+            <h3>Git Worktree Isolation</h3>
+            <p>Each ticket runs in its own worktree. Agents never conflict with each other or your main branch.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-emoji">💬</div>
+            <h3>Code Review Built In</h3>
+            <p>Full diff viewer with syntax highlighting and inline comments. No context switching.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-emoji">🤖</div>
+            <h3>Multi-Agent Support</h3>
+            <p>Run Claude Code, Codex, or any agent. Assign by capability. Track performance per agent.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-emoji">📡</div>
+            <h3>REST API and MCP</h3>
+            <p>Full API for programmatic access. MCP server so agents can discover and work tickets natively.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-emoji">🔄</div>
+            <h3>GitHub Sync</h3>
+            <p>Import issues, export PRs. Two-way sync keeps your existing workflow intact.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-emoji">📊</div>
+            <h3>Live Dashboard</h3>
+            <p>See what every agent is working on. Streaming logs, cost tracking, completion estimates.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-emoji">🔐</div>
+            <h3>Autonomy Controls</h3>
+            <p>Auto-approve low-risk changes, require review for sensitive code. You set the guardrails.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-emoji">🏠</div>
+            <h3>Self-Hostable</h3>
+            <p>SQLite backend, zero dependencies. Run on your machine with full control. Or use cloud.</p>
+        </div>
+    </div>
+</section>
+</div>
+
+<section class="section">
+    <div class="section-eyebrow">Comparison</div>
+    <h2>Why teams choose Alma</h2>
+    <table class="comp-table">
+        <thead>
+            <tr>
+                <th></th>
+                <th class="alma-col">Alma Kanban</th>
+                <th>Vibe Kanban</th>
+                <th>Linear</th>
+                <th>GitHub Issues</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Generate tickets from code</td>
+                <td class="yes">✓</td>
+                <td class="no">—</td>
+                <td class="no">—</td>
+                <td class="no">—</td>
+            </tr>
+            <tr>
+                <td>Agent executes code</td>
+                <td class="yes">✓</td>
+                <td class="yes">✓</td>
+                <td class="no">—</td>
+                <td class="no">—</td>
+            </tr>
+            <tr>
+                <td>Built-in code review</td>
+                <td class="yes">✓</td>
+                <td class="yes">✓</td>
+                <td class="no">—</td>
+                <td class="no">—</td>
+            </tr>
+            <tr>
+                <td>Auto-merge to main</td>
+                <td class="yes">✓</td>
+                <td class="no">—</td>
+                <td class="no">—</td>
+                <td class="no">—</td>
+            </tr>
+            <tr>
+                <td>Self-hostable (free)</td>
+                <td class="yes">✓</td>
+                <td class="no">—</td>
+                <td class="no">—</td>
+                <td class="yes">✓</td>
+            </tr>
+            <tr>
+                <td>Open source</td>
+                <td class="yes">✓</td>
+                <td class="yes">✓</td>
+                <td class="no">—</td>
+                <td class="no">—</td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+
+<div class="features-bg">
+<section class="section" id="pricing">
+    <div class="section-eyebrow">Pricing</div>
+    <h2>Start free, scale when ready</h2>
+    <div class="pricing-grid">
+        <div class="price-card">
+            <div class="price-tier">Free</div>
+            <div class="price-amount">$0</div>
+            <div class="price-desc">Self-hosted, forever</div>
+            <ul class="price-features">
+                <li>Unlimited repos</li>
+                <li>1 agent at a time</li>
+                <li>Full code review</li>
+                <li>Codebase analysis</li>
+                <li>REST API</li>
+            </ul>
+            <a href="#get-started" class="btn btn-secondary">Self-Host Free</a>
+        </div>
+        <div class="price-card featured">
+            <div class="price-tier">Pro</div>
+            <div class="price-amount">$29</div>
+            <div class="price-desc">per month</div>
+            <ul class="price-features">
+                <li>Everything in Free</li>
+                <li>5 parallel agents</li>
+                <li>GitHub PR sync</li>
+                <li>Slack notifications</li>
+                <li>Cloud hosted</li>
+            </ul>
+            <a href="#" class="btn btn-primary">Coming Soon</a>
+        </div>
+        <div class="price-card">
+            <div class="price-tier">Team</div>
+            <div class="price-amount">$99</div>
+            <div class="price-desc">per month</div>
+            <ul class="price-features">
+                <li>Everything in Pro</li>
+                <li>Unlimited agents</li>
+                <li>Team workspaces</li>
+                <li>SSO</li>
+                <li>Audit log</li>
+            </ul>
+            <a href="#" class="btn btn-secondary">Contact Us</a>
+        </div>
+    </div>
+</section>
+</div>
+
+<section class="cta" id="get-started">
+    <div class="section-eyebrow">Get Started</div>
+    <h2>Up and running in 60 seconds</h2>
+    <div class="code-block">
+        <span class="comment"># Clone and start</span><br>
+        <span class="cmd">git clone</span> https://github.com/doramirdor/alma-kanban<br>
+        <span class="cmd">cd</span> alma-kanban<br>
+        <span class="cmd">docker compose up</span><br><br>
+        <span class="comment"># Open http://localhost:8000</span><br>
+        <span class="comment"># Point at your repo. Let agents work.</span>
+    </div>
+</section>
+
+<footer>
+    Built by <a href="https://github.com/doramirdor">@doramirdor</a> · 
+    <a href="https://github.com/doramirdor/alma-kanban">GitHub</a> · 
+    MIT License
+</footer>
+
+</body>
+</html>
