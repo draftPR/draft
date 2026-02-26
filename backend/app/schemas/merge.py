@@ -35,7 +35,7 @@ class MergeResponse(BaseModel):
     evidence_id: str | None = None
     pull_warning: str | None = Field(
         default=None,
-        description="Warning if merge succeeded without pulling latest (local-only merge)"
+        description="Warning if merge succeeded without pulling latest (local-only merge)",
     )
 
 
@@ -131,10 +131,9 @@ class CleanupResponse(BaseModel):
     worktrees_failed: int
     worktrees_skipped: int = Field(
         default=0,
-        description="Worktrees skipped due to ticket state (executing/verifying/needs_human)"
+        description="Worktrees skipped due to ticket state (executing/verifying/needs_human)",
     )
     evidence_files_deleted: int
     evidence_files_failed: int
     bytes_freed: int
     details: list[str]
-

@@ -89,4 +89,3 @@ class ReviewComment(Base):
 
     def __repr__(self) -> str:
         return f"<ReviewComment(id={self.id}, file={self.file_path}, line={self.line_number}, resolved={self.resolved})>"
-

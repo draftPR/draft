@@ -60,9 +60,7 @@ class AutonomyService:
         - goal.auto_approve_tickets
         - max_auto_approvals not exceeded
         """
-        result = await db.execute(
-            select(Goal).where(Goal.id == ticket.goal_id)
-        )
+        result = await db.execute(select(Goal).where(Goal.id == ticket.goal_id))
         goal = result.scalar_one_or_none()
         if goal is None:
             return AutonomyCheckResult(False, "Goal not found")
@@ -81,9 +79,7 @@ class AutonomyService:
         - No sensitive files in diff
         - max_auto_approvals not reached
         """
-        result = await db.execute(
-            select(Goal).where(Goal.id == ticket.goal_id)
-        )
+        result = await db.execute(select(Goal).where(Goal.id == ticket.goal_id))
         goal = result.scalar_one_or_none()
         if goal is None:
             return AutonomyCheckResult(False, "Goal not found")
@@ -105,9 +101,7 @@ class AutonomyService:
         - goal.auto_merge
         - Pre-check merge conflicts
         """
-        result = await db.execute(
-            select(Goal).where(Goal.id == ticket.goal_id)
-        )
+        result = await db.execute(select(Goal).where(Goal.id == ticket.goal_id))
         goal = result.scalar_one_or_none()
         if goal is None:
             return AutonomyCheckResult(False, "Goal not found")
@@ -140,7 +134,9 @@ class AutonomyService:
         """Record an autonomy action as a TicketEvent and increment counter."""
         event = TicketEvent(
             ticket_id=ticket.id,
-            event_type=EventType.TRANSITIONED.value if from_state != to_state else EventType.COMMENT.value,
+            event_type=EventType.TRANSITIONED.value
+            if from_state != to_state
+            else EventType.COMMENT.value,
             from_state=from_state or ticket.state,
             to_state=to_state or ticket.state,
             actor_type=ActorType.SYSTEM.value,
@@ -151,9 +147,7 @@ class AutonomyService:
         db.add(event)
 
         # Increment auto_approval_count on goal
-        result = await db.execute(
-            select(Goal).where(Goal.id == ticket.goal_id)
-        )
+        result = await db.execute(select(Goal).where(Goal.id == ticket.goal_id))
         goal = result.scalar_one_or_none()
         if goal:
             goal.auto_approval_count += 1
@@ -177,11 +171,7 @@ class AutonomyService:
         if goal is None:
             return AutonomyCheckResult(False, "Goal not found")
 
-        evidence_list = (
-            db.query(Evidence)
-            .filter(Evidence.ticket_id == ticket.id)
-            .all()
-        )
+        evidence_list = db.query(Evidence).filter(Evidence.ticket_id == ticket.id).all()
         return self._check_revision_approval(goal, evidence_list)
 
     def record_auto_action_sync(
@@ -196,7 +186,9 @@ class AutonomyService:
         """Sync version of record_auto_action for Celery worker."""
         event = TicketEvent(
             ticket_id=ticket.id,
-            event_type=EventType.TRANSITIONED.value if from_state != to_state else EventType.COMMENT.value,
+            event_type=EventType.TRANSITIONED.value
+            if from_state != to_state
+            else EventType.COMMENT.value,
             from_state=from_state or ticket.state,
             to_state=to_state or ticket.state,
             actor_type=ActorType.SYSTEM.value,
@@ -218,8 +210,13 @@ class AutonomyService:
             return AutonomyCheckResult(False, "Autonomy not enabled for this goal")
         if not goal.auto_approve_tickets:
             return AutonomyCheckResult(False, "Auto-approve tickets not enabled")
-        if goal.max_auto_approvals is not None and goal.auto_approval_count >= goal.max_auto_approvals:
-            return AutonomyCheckResult(False, f"Max auto-approvals reached ({goal.max_auto_approvals})")
+        if (
+            goal.max_auto_approvals is not None
+            and goal.auto_approval_count >= goal.max_auto_approvals
+        ):
+            return AutonomyCheckResult(
+                False, f"Max auto-approvals reached ({goal.max_auto_approvals})"
+            )
         return AutonomyCheckResult(True, "Ticket auto-approval allowed")
 
     def _check_revision_approval(
@@ -230,13 +227,19 @@ class AutonomyService:
             return AutonomyCheckResult(False, "Autonomy not enabled for this goal")
         if not goal.auto_approve_revisions:
             return AutonomyCheckResult(False, "Auto-approve revisions not enabled")
-        if goal.max_auto_approvals is not None and goal.auto_approval_count >= goal.max_auto_approvals:
-            return AutonomyCheckResult(False, f"Max auto-approvals reached ({goal.max_auto_approvals})")
+        if (
+            goal.max_auto_approvals is not None
+            and goal.auto_approval_count >= goal.max_auto_approvals
+        ):
+            return AutonomyCheckResult(
+                False, f"Max auto-approvals reached ({goal.max_auto_approvals})"
+            )
 
         # Check verification evidence
         if self.config.require_verification_pass:
             verify_evidence = [
-                e for e in evidence_list
+                e
+                for e in evidence_list
                 if e.kind in (EvidenceKind.VERIFY_META.value, EvidenceKind.VERIFY_META)
             ]
             if verify_evidence:
@@ -248,7 +251,8 @@ class AutonomyService:
 
         # Check diff size
         diff_stat_evidence = [
-            e for e in evidence_list
+            e
+            for e in evidence_list
             if e.kind in (EvidenceKind.GIT_DIFF_STAT.value, EvidenceKind.GIT_DIFF_STAT)
         ]
         if diff_stat_evidence:
@@ -261,8 +265,10 @@ class AutonomyService:
 
         # Check for sensitive files in diff
         diff_patch_evidence = [
-            e for e in evidence_list
-            if e.kind in (EvidenceKind.GIT_DIFF_PATCH.value, EvidenceKind.GIT_DIFF_PATCH)
+            e
+            for e in evidence_list
+            if e.kind
+            in (EvidenceKind.GIT_DIFF_PATCH.value, EvidenceKind.GIT_DIFF_PATCH)
         ]
         if diff_patch_evidence:
             sensitive = self._check_sensitive_files(diff_patch_evidence[-1])

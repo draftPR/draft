@@ -63,6 +63,7 @@ class ReviewService:
         # Block comments on superseded revisions
         if revision.status == RevisionStatus.SUPERSEDED.value:
             from app.exceptions import ConflictError
+
             raise ConflictError(
                 "Revision is superseded. Please review the latest revision."
             )
@@ -88,7 +89,9 @@ class ReviewService:
         await self.db.flush()
         await self.db.refresh(comment)
 
-        logger.info(f"Added comment {comment.id} on revision {revision_id} at {file_path}:{line_number}")
+        logger.info(
+            f"Added comment {comment.id} on revision {revision_id} at {file_path}:{line_number}"
+        )
         return comment
 
     async def get_comments_for_revision(
@@ -182,8 +185,7 @@ class ReviewService:
             Number of unresolved comments
         """
         result = await self.db.execute(
-            select(ReviewComment)
-            .where(
+            select(ReviewComment).where(
                 ReviewComment.revision_id == revision_id,
                 ReviewComment.resolved == False,  # noqa: E712
             )
@@ -228,6 +230,7 @@ class ReviewService:
         # Block reviews on superseded revisions
         if revision.status == RevisionStatus.SUPERSEDED.value:
             from app.exceptions import ConflictError
+
             raise ConflictError(
                 "Revision is superseded. Please review the latest revision."
             )
@@ -329,4 +332,3 @@ class ReviewService:
             summary=summary_text,
             comments=feedback_comments,
         )
-

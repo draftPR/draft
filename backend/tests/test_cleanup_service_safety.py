@@ -131,7 +131,9 @@ class TestCleanupServicePathValidation:
             events_result = await db.execute(
                 select(TicketEvent)
                 .where(TicketEvent.ticket_id == ticket.id)
-                .where(TicketEvent.event_type == EventType.WORKTREE_CLEANUP_FAILED.value)
+                .where(
+                    TicketEvent.event_type == EventType.WORKTREE_CLEANUP_FAILED.value
+                )
             )
             events = events_result.scalars().all()
             assert len(events) == 1
@@ -199,7 +201,9 @@ class TestCleanupServicePathValidation:
             events_result = await db.execute(
                 select(TicketEvent)
                 .where(TicketEvent.ticket_id == ticket.id)
-                .where(TicketEvent.event_type == EventType.WORKTREE_CLEANUP_FAILED.value)
+                .where(
+                    TicketEvent.event_type == EventType.WORKTREE_CLEANUP_FAILED.value
+                )
             )
             events = events_result.scalars().all()
             assert len(events) == 1
@@ -210,7 +214,9 @@ class TestCleanupServiceStillRegistered:
     """Test handling of worktrees that remain registered after removal attempt."""
 
     @pytest.mark.asyncio
-    async def test_still_registered_after_remove_fails_returns_false(self, db: AsyncSession):
+    async def test_still_registered_after_remove_fails_returns_false(
+        self, db: AsyncSession
+    ):
         """Test: git worktree remove fails AND path still registered -> returns False."""
         goal = Goal(id=str(uuid4()), title="Test Goal")
         db.add(goal)
@@ -251,8 +257,10 @@ class TestCleanupServiceStillRegistered:
             service.config_service = mock_config
 
             # Mock subprocess: worktree remove fails, list shows still registered
-            with patch('app.services.cleanup_service.subprocess.run') as mock_run, \
-                 patch('app.services.cleanup_service.shutil.rmtree') as mock_rmtree:
+            with (
+                patch("app.services.cleanup_service.subprocess.run") as mock_run,
+                patch("app.services.cleanup_service.shutil.rmtree") as mock_rmtree,
+            ):
 
                 def run_side_effect(cmd, **kwargs):
                     result = MagicMock()
@@ -295,7 +303,9 @@ class TestCleanupServiceStillRegistered:
             events_result = await db.execute(
                 select(TicketEvent)
                 .where(TicketEvent.ticket_id == ticket.id)
-                .where(TicketEvent.event_type == EventType.WORKTREE_CLEANUP_FAILED.value)
+                .where(
+                    TicketEvent.event_type == EventType.WORKTREE_CLEANUP_FAILED.value
+                )
             )
             events = events_result.scalars().all()
             assert len(events) == 1
@@ -349,8 +359,10 @@ class TestCleanupServiceStillRegistered:
             service = CleanupService(db)
             service.config_service = mock_config
 
-            with patch('app.services.cleanup_service.subprocess.run') as mock_run, \
-                 patch('app.services.cleanup_service.shutil.rmtree') as mock_rmtree:
+            with (
+                patch("app.services.cleanup_service.subprocess.run") as mock_run,
+                patch("app.services.cleanup_service.shutil.rmtree") as mock_rmtree,
+            ):
 
                 def run_side_effect(cmd, **kwargs):
                     result = MagicMock()
@@ -393,7 +405,9 @@ class TestCleanupServiceStillRegistered:
             events_result = await db.execute(
                 select(TicketEvent)
                 .where(TicketEvent.ticket_id == ticket.id)
-                .where(TicketEvent.event_type == EventType.WORKTREE_CLEANUP_FAILED.value)
+                .where(
+                    TicketEvent.event_type == EventType.WORKTREE_CLEANUP_FAILED.value
+                )
             )
             events = events_result.scalars().all()
             assert len(events) == 1

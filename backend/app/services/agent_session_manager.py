@@ -89,8 +89,7 @@ class AgentSessionManager:
             The active AgentSession if one exists
         """
         query = select(AgentSession).where(
-            AgentSession.ticket_id == ticket_id,
-            AgentSession.is_active
+            AgentSession.ticket_id == ticket_id, AgentSession.is_active
         )
 
         if agent_type:
@@ -167,11 +166,11 @@ class AgentSessionManager:
             agent_type = AgentType(session.agent_type)
             config = AGENT_REGISTRY.get(agent_type)
             if config and config.cost_per_1k_input and config.cost_per_1k_output:
-                usage = TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
+                usage = TokenUsage(
+                    input_tokens=input_tokens, output_tokens=output_tokens
+                )
                 turn_cost = self.cost_service.calculate_cost(
-                    usage,
-                    config.cost_per_1k_input,
-                    config.cost_per_1k_output
+                    usage, config.cost_per_1k_input, config.cost_per_1k_output
                 )
             else:
                 turn_cost = 0.0
@@ -184,7 +183,9 @@ class AgentSessionManager:
         session.total_output_tokens += output_tokens
         session.estimated_cost_usd += turn_cost
         session.last_prompt = prompt[:2000] if prompt else None  # Truncate for storage
-        session.last_response_summary = response[:500] if response else None  # Summary only
+        session.last_response_summary = (
+            response[:500] if response else None
+        )  # Summary only
         session.updated_at = datetime.utcnow()
 
         # Create message record for user prompt

@@ -602,7 +602,9 @@ async def submit_review(
                             config_service = ConfigService()
 
                             # Reuse board fetched earlier for target_branch detection
-                            board_config = board.config if board and board.config else None
+                            board_config = (
+                                board.config if board and board.config else None
+                            )
 
                             # Load config with board overrides applied
                             config = config_service.load_config_with_board_overrides(
@@ -646,12 +648,14 @@ async def submit_review(
                                     actor_type="system",
                                     actor_id="review_auto_merge",
                                     reason=f"Auto-merged on approval: {merge_message}",
-                                    payload_json=_json.dumps({
-                                        "strategy": "merge",
-                                        "worktree_branch": branch_name,
-                                        "base_branch": target_branch,
-                                        "auto_merge": True,
-                                    }),
+                                    payload_json=_json.dumps(
+                                        {
+                                            "strategy": "merge",
+                                            "worktree_branch": branch_name,
+                                            "base_branch": target_branch,
+                                            "auto_merge": True,
+                                        }
+                                    ),
                                 )
                                 db.add(merge_event)
 

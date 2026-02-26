@@ -237,9 +237,7 @@ class RepoDiscoveryService:
             raise ValueError("Repository validation returned no metadata")
 
         # Check if repo already exists
-        result = await self.db.execute(
-            select(Repo).where(Repo.path == validation.path)
-        )
+        result = await self.db.execute(select(Repo).where(Repo.path == validation.path))
         existing = result.scalar_one_or_none()
         if existing:
             raise ValueError(f"Repository already registered: {validation.path}")

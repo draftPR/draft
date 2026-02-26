@@ -544,22 +544,20 @@ function ExecutionCard({
   onJobComplete?: () => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [wasRunning, setWasRunning] = useState(
-    execution.job_status === "running" || execution.job_status === "queued"
-  );
   const status = JOB_STATUS[execution.job_status] || JOB_STATUS.queued;
   const StatusIcon = status.icon;
   
   const isRunning = execution.job_status === "running" || execution.job_status === "queued";
   
   // Detect when job transitions from running to completed
+  const wasRunningRef = useRef(isRunning);
   useEffect(() => {
-    if (wasRunning && !isRunning) {
+    if (wasRunningRef.current && !isRunning) {
       // Job just finished - trigger refresh to get parsed logs
       onJobComplete?.();
     }
-    setWasRunning(isRunning);
-  }, [isRunning, wasRunning, onJobComplete]);
+    wasRunningRef.current = isRunning;
+  }, [isRunning, onJobComplete]);
 
   return (
     <div className="rounded-md border overflow-hidden bg-card">

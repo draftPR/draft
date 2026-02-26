@@ -251,17 +251,18 @@ export function TicketGenerationProgress({
     }
   }, [normalizedEntries, rawLines, tickets]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset is intentional on open transition
   useEffect(() => {
-    if (!open) {
-      setNormalizedEntries(new Map());
-      setRawLines([]);
-      setTickets([]);
-      setIsComplete(false);
-      setHasError(false);
-      setErrorMessage(null);
-      setTicketCount(0);
-      return;
-    }
+    if (!open) return;
+
+    // Reset state at the start of a new stream
+    setNormalizedEntries(new Map());
+    setRawLines([]);
+    setTickets([]);
+    setIsComplete(false);
+    setHasError(false);
+    setErrorMessage(null);
+    setTicketCount(0);
 
     const eventSource = new EventSource(
       `${config.backendBaseUrl}/goals/${goalId}/generate-tickets/stream`

@@ -50,7 +50,9 @@ def sqlite_db(tmp_path):
         yield db_path
 
 
-def _insert_task(db_path: str, task_id: str, task_name: str, args: list, priority: int = 0):
+def _insert_task(
+    db_path: str, task_id: str, task_name: str, args: list, priority: int = 0
+):
     """Helper to insert a pending task."""
     conn = sqlite3.connect(db_path)
     conn.execute(

@@ -47,5 +47,3 @@ class AnalysisCache(Base):
 
     def __repr__(self) -> str:
         return f"<AnalysisCache(id={self.id}, expires_at={self.expires_at})>"
-
-

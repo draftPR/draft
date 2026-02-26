@@ -27,16 +27,18 @@ class TestOpenRouterProvider:
             "choices": [
                 {
                     "message": {
-                        "content": json.dumps({
-                            "tickets": [
-                                {
-                                    "title": "Test Ticket",
-                                    "description": "Test Description",
-                                    "verification": ["echo 'test'"],
-                                    "notes": None,
-                                }
-                            ]
-                        })
+                        "content": json.dumps(
+                            {
+                                "tickets": [
+                                    {
+                                        "title": "Test Ticket",
+                                        "description": "Test Description",
+                                        "verification": ["echo 'test'"],
+                                        "notes": None,
+                                    }
+                                ]
+                            }
+                        )
                     }
                 }
             ]
@@ -44,18 +46,24 @@ class TestOpenRouterProvider:
 
         with patch("httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = httpx.Response(
-                200, json=mock_response, request=httpx.Request("POST", "https://example.com")
+                200,
+                json=mock_response,
+                request=httpx.Request("POST", "https://example.com"),
             )
             result = await call_openrouter("test prompt", "fake-key")
             assert "Test Ticket" in result
 
     async def test_authentication_error(self):
         """Test OpenRouter authentication error."""
-        mock_response = {"error": {"message": "Invalid API key", "code": "invalid_api_key"}}
+        mock_response = {
+            "error": {"message": "Invalid API key", "code": "invalid_api_key"}
+        }
 
         with patch("httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = httpx.Response(
-                401, json=mock_response, request=httpx.Request("POST", "https://example.com")
+                401,
+                json=mock_response,
+                request=httpx.Request("POST", "https://example.com"),
             )
             with pytest.raises(LLMAPIError) as exc_info:
                 await call_openrouter("test prompt", "invalid-key")
@@ -69,12 +77,17 @@ class TestOpenRouterProvider:
 
         with patch("httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = httpx.Response(
-                429, json=mock_response, request=httpx.Request("POST", "https://example.com")
+                429,
+                json=mock_response,
+                request=httpx.Request("POST", "https://example.com"),
             )
             with pytest.raises(LLMAPIError) as exc_info:
                 await call_openrouter("test prompt", "fake-key")
 
-            assert "429" in str(exc_info.value) or "rate limit" in str(exc_info.value).lower()
+            assert (
+                "429" in str(exc_info.value)
+                or "rate limit" in str(exc_info.value).lower()
+            )
 
     async def test_timeout_handled(self):
         """Test that timeouts are handled gracefully."""
@@ -94,17 +107,24 @@ class TestOpenRouterProvider:
             with pytest.raises(LLMAPIError) as exc_info:
                 await call_openrouter("test prompt", "fake-key")
 
-            assert "connection" in str(exc_info.value).lower() or "network" in str(exc_info.value).lower()
+            assert (
+                "connection" in str(exc_info.value).lower()
+                or "network" in str(exc_info.value).lower()
+            )
 
     async def test_invalid_json_response_returns_raw_text(self):
         """Test that invalid JSON in response body still returns text content."""
         invalid_response = {
-            "choices": [{"message": {"content": "Here's some text before {invalid json"}}]
+            "choices": [
+                {"message": {"content": "Here's some text before {invalid json"}}
+            ]
         }
 
         with patch("httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = httpx.Response(
-                200, json=invalid_response, request=httpx.Request("POST", "https://example.com")
+                200,
+                json=invalid_response,
+                request=httpx.Request("POST", "https://example.com"),
             )
             # call_openrouter extracts text content as-is (no JSON validation)
             result = await call_openrouter("test prompt", "fake-key")
@@ -119,33 +139,41 @@ class TestAnthropicProvider:
         mock_response = {
             "content": [
                 {
-                    "text": json.dumps({
-                        "tickets": [
-                            {
-                                "title": "Anthropic Ticket",
-                                "description": "Test Description",
-                                "verification": ["echo 'test'"],
-                            }
-                        ]
-                    })
+                    "text": json.dumps(
+                        {
+                            "tickets": [
+                                {
+                                    "title": "Anthropic Ticket",
+                                    "description": "Test Description",
+                                    "verification": ["echo 'test'"],
+                                }
+                            ]
+                        }
+                    )
                 }
             ]
         }
 
         with patch("httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = httpx.Response(
-                200, json=mock_response, request=httpx.Request("POST", "https://example.com")
+                200,
+                json=mock_response,
+                request=httpx.Request("POST", "https://example.com"),
             )
             result = await call_anthropic("test prompt", "fake-key")
             assert "Anthropic Ticket" in result
 
     async def test_authentication_error(self):
         """Test Anthropic authentication error."""
-        mock_response = {"error": {"type": "authentication_error", "message": "Invalid API key"}}
+        mock_response = {
+            "error": {"type": "authentication_error", "message": "Invalid API key"}
+        }
 
         with patch("httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = httpx.Response(
-                401, json=mock_response, request=httpx.Request("POST", "https://example.com")
+                401,
+                json=mock_response,
+                request=httpx.Request("POST", "https://example.com"),
             )
             with pytest.raises(LLMAPIError) as exc_info:
                 await call_anthropic("test prompt", "invalid-key")
@@ -158,12 +186,17 @@ class TestAnthropicProvider:
 
         with patch("httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = httpx.Response(
-                200, json=mock_response, request=httpx.Request("POST", "https://example.com")
+                200,
+                json=mock_response,
+                request=httpx.Request("POST", "https://example.com"),
             )
             with pytest.raises(LLMAPIError) as exc_info:
                 await call_anthropic("test prompt", "fake-key")
 
-            assert "empty" in str(exc_info.value).lower() or "content" in str(exc_info.value).lower()
+            assert (
+                "empty" in str(exc_info.value).lower()
+                or "content" in str(exc_info.value).lower()
+            )
 
 
 class TestOpenAIProvider:
@@ -175,15 +208,17 @@ class TestOpenAIProvider:
             "choices": [
                 {
                     "message": {
-                        "content": json.dumps({
-                            "tickets": [
-                                {
-                                    "title": "OpenAI Ticket",
-                                    "description": "Test Description",
-                                    "verification": ["echo 'test'"],
-                                }
-                            ]
-                        })
+                        "content": json.dumps(
+                            {
+                                "tickets": [
+                                    {
+                                        "title": "OpenAI Ticket",
+                                        "description": "Test Description",
+                                        "verification": ["echo 'test'"],
+                                    }
+                                ]
+                            }
+                        )
                     }
                 }
             ]
@@ -191,7 +226,9 @@ class TestOpenAIProvider:
 
         with patch("httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = httpx.Response(
-                200, json=mock_response, request=httpx.Request("POST", "https://example.com")
+                200,
+                json=mock_response,
+                request=httpx.Request("POST", "https://example.com"),
             )
             result = await call_openai("test prompt", "fake-key")
             assert "OpenAI Ticket" in result
@@ -208,7 +245,9 @@ class TestOpenAIProvider:
 
         with patch("httpx.AsyncClient.post") as mock_post:
             mock_post.return_value = httpx.Response(
-                401, json=mock_response, request=httpx.Request("POST", "https://example.com")
+                401,
+                json=mock_response,
+                request=httpx.Request("POST", "https://example.com"),
             )
             with pytest.raises(LLMAPIError) as exc_info:
                 await call_openai("test prompt", "invalid-key")

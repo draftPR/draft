@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PipelineResult:
     """Result of running the full delivery pipeline."""
+
     status: str  # "ready_for_merge", "blocked", "in_progress"
     reason: str | None = None
     tickets_completed: list[str] = None
@@ -50,6 +51,7 @@ class PipelineResult:
 
 class PipelineError(SmartKanbanError):
     """Error during pipeline execution."""
+
     pass
 
 
@@ -64,20 +66,16 @@ class DeliveryPipeline:
         self,
         db: AsyncSession,
         retry_config: RetryConfig | None = None,
-        autopilot: SafeAutopilot | None = None
+        autopilot: SafeAutopilot | None = None,
     ):
         self.db = db
         self.reliability_wrapper = ReliabilityWrapper(
-            db=db,
-            retry_config=retry_config or RetryConfig(max_retries=3)
+            db=db, retry_config=retry_config or RetryConfig(max_retries=3)
         )
         self.autopilot = autopilot or create_default_autopilot(db)
 
     async def run_full_pipeline(
-        self,
-        goal_id: str,
-        auto_approve: bool = False,
-        dry_run: bool = False
+        self, goal_id: str, auto_approve: bool = False, dry_run: bool = False
     ) -> PipelineResult:
         """Run the complete pipeline from goal to merge-ready state.
 
@@ -89,7 +87,9 @@ class DeliveryPipeline:
         Returns:
             PipelineResult with status and details
         """
-        logger.info(f"Starting delivery pipeline for goal {goal_id} (auto_approve={auto_approve}, dry_run={dry_run})")
+        logger.info(
+            f"Starting delivery pipeline for goal {goal_id} (auto_approve={auto_approve}, dry_run={dry_run})"
+        )
 
         try:
             # Stage 1: Validate goal exists and get tickets
@@ -98,7 +98,7 @@ class DeliveryPipeline:
             if not tickets:
                 return PipelineResult(
                     status="blocked",
-                    reason="No tickets found for this goal. Generate tickets first."
+                    reason="No tickets found for this goal. Generate tickets first.",
                 )
 
             # Stage 2: Topologically sort tickets by dependencies
@@ -111,7 +111,9 @@ class DeliveryPipeline:
 
             for ticket in sorted_tickets:
                 if dry_run:
-                    logger.info(f"[DRY RUN] Would execute ticket {ticket.id}: {ticket.title}")
+                    logger.info(
+                        f"[DRY RUN] Would execute ticket {ticket.id}: {ticket.title}"
+                    )
                     completed.append(ticket.id)
                     continue
 
@@ -122,13 +124,17 @@ class DeliveryPipeline:
                     completed.append(ticket.id)
 
                     # Check safety gates after successful execution
-                    can_continue, gate_results = await self.autopilot.should_continue(ticket)
+                    can_continue, gate_results = await self.autopilot.should_continue(
+                        ticket
+                    )
 
                     if not can_continue:
                         # Find blocking or pausing gates
                         blocking_gates = [
-                            r for r in gate_results
-                            if not r.passed and r.action in [GateAction.BLOCK, GateAction.PAUSE]
+                            r
+                            for r in gate_results
+                            if not r.passed
+                            and r.action in [GateAction.BLOCK, GateAction.PAUSE]
                         ]
 
                         reasons = [f"{r.gate_name}: {r.reason}" for r in blocking_gates]
@@ -142,16 +148,19 @@ class DeliveryPipeline:
                                 status="blocked",
                                 reason=f"Safety gates failed: {', '.join(reasons)}",
                                 tickets_completed=completed,
-                                tickets_blocked=[ticket.id]
+                                tickets_blocked=[ticket.id],
                             )
 
                     # Log any alert-level gate failures
                     alert_gates = [
-                        r for r in gate_results
+                        r
+                        for r in gate_results
                         if not r.passed and r.action == GateAction.ALERT
                     ]
                     for alert in alert_gates:
-                        logger.warning(f"Gate alert for ticket {ticket.id}: {alert.reason}")
+                        logger.warning(
+                            f"Gate alert for ticket {ticket.id}: {alert.reason}"
+                        )
 
                 else:
                     blocked.append(ticket.id)
@@ -161,7 +170,7 @@ class DeliveryPipeline:
                             status="blocked",
                             reason=f"Ticket {ticket.id} failed: {result.get('reason')}",
                             tickets_completed=completed,
-                            tickets_blocked=blocked
+                            tickets_blocked=blocked,
                         )
 
             # Stage 4: Verify all tickets passed
@@ -172,7 +181,7 @@ class DeliveryPipeline:
                         status="blocked",
                         reason=f"Verification failed: {verification['failures']}",
                         tickets_completed=completed,
-                        tickets_blocked=blocked
+                        tickets_blocked=blocked,
                     )
 
             # Stage 5: Collect evidence for review
@@ -185,7 +194,7 @@ class DeliveryPipeline:
                 status="ready_for_merge",
                 tickets_completed=completed,
                 evidence=evidence,
-                total_cost_usd=total_cost
+                total_cost_usd=total_cost,
             )
 
         except Exception as e:
@@ -195,9 +204,7 @@ class DeliveryPipeline:
     async def _validate_and_load(self, goal_id: str) -> tuple[Goal, list[Ticket]]:
         """Validate goal exists and load all its tickets."""
         result = await self.db.execute(
-            select(Goal)
-            .where(Goal.id == goal_id)
-            .options(selectinload(Goal.tickets))
+            select(Goal).where(Goal.id == goal_id).options(selectinload(Goal.tickets))
         )
         goal = result.scalar_one_or_none()
 
@@ -248,15 +255,15 @@ class DeliveryPipeline:
 
         # Check for cycles
         if len(sorted_ids) != len(tickets):
-            logger.warning("Cycle detected in ticket dependencies, using original order")
+            logger.warning(
+                "Cycle detected in ticket dependencies, using original order"
+            )
             return tickets
 
         return [ticket_map[tid] for tid in sorted_ids]
 
     async def _execute_with_retry(
-        self,
-        ticket: Ticket,
-        max_retries: int = 2
+        self, ticket: Ticket, max_retries: int = 2
     ) -> dict[str, Any]:
         """Execute a ticket with automatic retry, checkpointing, and recovery.
 
@@ -274,7 +281,7 @@ class DeliveryPipeline:
         if ticket.state not in [TicketState.PLANNED.value, TicketState.BLOCKED.value]:
             return {
                 "status": "skipped",
-                "reason": f"Ticket in state {ticket.state}, not ready for execution"
+                "reason": f"Ticket in state {ticket.state}, not ready for execution",
             }
 
         job_service = JobService(self.db)
@@ -283,9 +290,7 @@ class DeliveryPipeline:
             """Inner function that creates job and executes ticket."""
             # Create execution job
             job = await job_service.create_job(
-                ticket_id=ticket.id,
-                job_type="execute",
-                board_id=ticket.board_id
+                ticket_id=ticket.id, job_type="execute", board_id=ticket.board_id
             )
 
             logger.info(f"Executing ticket {ticket.id} with job {job.id}")
@@ -293,10 +298,7 @@ class DeliveryPipeline:
             # TODO: Actually call the Celery task and wait for completion
             # For now, just mark as success if job created
 
-            return {
-                "status": "success",
-                "job_id": job.id
-            }
+            return {"status": "success", "job_id": job.id}
 
         try:
             # Execute with reliability wrapper (automatic retry, checkpointing)
@@ -304,17 +306,14 @@ class DeliveryPipeline:
                 func=execute_ticket_with_job,
                 ticket_id=ticket.id,
                 job_id=None,  # Job created inside function
-                checkpoint_key=f"pipeline:execute:{ticket.id}"
+                checkpoint_key=f"pipeline:execute:{ticket.id}",
             )
 
             return result
 
         except Exception as e:
             logger.error(f"Ticket {ticket.id} execution failed after all retries: {e}")
-            return {
-                "status": "failed",
-                "reason": str(e)
-            }
+            return {"status": "failed", "reason": str(e)}
 
     async def _verify_all(self, tickets: list[Ticket]) -> dict[str, Any]:
         """Run verification for all tickets and aggregate results.
@@ -345,10 +344,7 @@ class DeliveryPipeline:
             if verify_job.status != JobStatus.SUCCEEDED.value:
                 failures.append(f"Ticket {ticket.id}: Verification {verify_job.status}")
 
-        return {
-            "passed": len(failures) == 0,
-            "failures": failures
-        }
+        return {"passed": len(failures) == 0, "failures": failures}
 
     async def _collect_evidence(self, tickets: list[Ticket]) -> dict[str, Any]:
         """Collect all evidence (diffs, tests, logs) for tickets.
@@ -361,7 +357,7 @@ class DeliveryPipeline:
             "files_changed": [],
             "tests_run": 0,
             "tests_passed": 0,
-            "diffs": []
+            "diffs": [],
         }
 
         for ticket in tickets:
@@ -375,15 +371,17 @@ class DeliveryPipeline:
 
             for job in jobs:
                 if job.evidence:
-                    evidence["diffs"].extend([
-                        {
-                            "ticket_id": ticket.id,
-                            "job_id": job.id,
-                            "evidence_id": e.id,
-                            "type": e.evidence_type
-                        }
-                        for e in job.evidence
-                    ])
+                    evidence["diffs"].extend(
+                        [
+                            {
+                                "ticket_id": ticket.id,
+                                "job_id": job.id,
+                                "evidence_id": e.id,
+                                "type": e.evidence_type,
+                            }
+                            for e in job.evidence
+                        ]
+                    )
 
         return evidence
 
@@ -404,17 +402,11 @@ async def get_pipeline_status(db: AsyncSession, goal_id: str) -> dict[str, Any]:
     Returns:
         Dict with pipeline status, progress, and blocking issues
     """
-    result = await db.execute(
-        select(Ticket)
-        .where(Ticket.goal_id == goal_id)
-    )
+    result = await db.execute(select(Ticket).where(Ticket.goal_id == goal_id))
     tickets = list(result.scalars().all())
 
     if not tickets:
-        return {
-            "status": "not_started",
-            "reason": "No tickets generated yet"
-        }
+        return {"status": "not_started", "reason": "No tickets generated yet"}
 
     state_counts = {}
     for ticket in tickets:
@@ -424,7 +416,9 @@ async def get_pipeline_status(db: AsyncSession, goal_id: str) -> dict[str, Any]:
     total = len(tickets)
     completed = state_counts.get(TicketState.DONE.value, 0)
     blocked = state_counts.get(TicketState.BLOCKED.value, 0)
-    executing = state_counts.get(TicketState.EXECUTING.value, 0) + state_counts.get(TicketState.VERIFYING.value, 0)
+    executing = state_counts.get(TicketState.EXECUTING.value, 0) + state_counts.get(
+        TicketState.VERIFYING.value, 0
+    )
 
     if blocked > 0:
         status = "blocked"
@@ -442,5 +436,5 @@ async def get_pipeline_status(db: AsyncSession, goal_id: str) -> dict[str, Any]:
         "blocked": blocked,
         "executing": executing,
         "progress_percent": int((completed / total) * 100) if total > 0 else 0,
-        "state_breakdown": state_counts
+        "state_breakdown": state_counts,
     }

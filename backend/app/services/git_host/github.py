@@ -74,7 +74,9 @@ class GitHubProvider:
 
         push_result = push_branch(repo_path, head_branch)
         if not push_result.success:
-            raise RuntimeError(f"Failed to push branch before PR creation: {push_result.message}")
+            raise RuntimeError(
+                f"Failed to push branch before PR creation: {push_result.message}"
+            )
 
         cmd = [
             self.gh_path,
@@ -166,9 +168,7 @@ class GitHubProvider:
         except Exception as e:
             raise RuntimeError(f"Failed to get PR details: {e}")
 
-    async def add_pr_comment(
-        self, repo_path: Path, pr_number: int, body: str
-    ) -> dict:
+    async def add_pr_comment(self, repo_path: Path, pr_number: int, body: str) -> dict:
         """Add a comment to a PR."""
         await self.ensure_authenticated()
 
@@ -195,9 +195,7 @@ class GitHubProvider:
         except Exception as e:
             raise RuntimeError(f"Failed to add PR comment: {e}")
 
-    async def list_pr_comments(
-        self, repo_path: Path, pr_number: int
-    ) -> list[dict]:
+    async def list_pr_comments(self, repo_path: Path, pr_number: int) -> list[dict]:
         """List comments on a PR."""
         await self.ensure_authenticated()
 
@@ -217,7 +215,9 @@ class GitHubProvider:
                 cmd, cwd=repo_path, capture_output=True, text=True, timeout=10
             )
             if result.returncode != 0:
-                raise RuntimeError(f"Failed to list PR comments: {result.stderr.strip()}")
+                raise RuntimeError(
+                    f"Failed to list PR comments: {result.stderr.strip()}"
+                )
             return json.loads(result.stdout) if result.stdout.strip() else []
         except Exception as e:
             raise RuntimeError(f"Failed to list PR comments: {e}")

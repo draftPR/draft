@@ -54,38 +54,48 @@ async def job_output_stream(websocket: WebSocket, job_id: str):
             async for msg in log_stream_service.subscribe(job_id):
                 try:
                     if msg.level == LogLevel.FINISHED:
-                        await websocket.send_json({
-                            "type": "complete",
-                            "content": "",
-                            "timestamp": msg.timestamp.isoformat(),
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "complete",
+                                "content": "",
+                                "timestamp": msg.timestamp.isoformat(),
+                            }
+                        )
                         return
                     elif msg.level in (LogLevel.STDOUT, LogLevel.STDERR):
-                        await websocket.send_json({
-                            "type": "output",
-                            "content": msg.content,
-                            "timestamp": msg.timestamp.isoformat(),
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "output",
+                                "content": msg.content,
+                                "timestamp": msg.timestamp.isoformat(),
+                            }
+                        )
                     elif msg.level == LogLevel.ERROR:
-                        await websocket.send_json({
-                            "type": "error",
-                            "content": msg.content,
-                            "timestamp": msg.timestamp.isoformat(),
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "content": msg.content,
+                                "timestamp": msg.timestamp.isoformat(),
+                            }
+                        )
                     elif msg.level == LogLevel.PROGRESS:
-                        await websocket.send_json({
-                            "type": "status",
-                            "content": msg.content,
-                            "status": msg.stage or "running",
-                            "progress_pct": msg.progress_pct,
-                            "timestamp": msg.timestamp.isoformat(),
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "status",
+                                "content": msg.content,
+                                "status": msg.stage or "running",
+                                "progress_pct": msg.progress_pct,
+                                "timestamp": msg.timestamp.isoformat(),
+                            }
+                        )
                     else:
-                        await websocket.send_json({
-                            "type": "output",
-                            "content": msg.content,
-                            "timestamp": msg.timestamp.isoformat(),
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "output",
+                                "content": msg.content,
+                                "timestamp": msg.timestamp.isoformat(),
+                            }
+                        )
                 except Exception:
                     return  # WebSocket closed
         except asyncio.CancelledError:

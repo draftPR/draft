@@ -35,7 +35,7 @@ RATE_LIMITED_ENDPOINTS = {
     "/planner/tick",
     "/planner/start",
     "/udar/{goal_id}/generate",  # UDAR agent initial generation
-    "/udar/{goal_id}/replan",    # UDAR agent incremental replanning
+    "/udar/{goal_id}/replan",  # UDAR agent incremental replanning
 }
 
 # Cost-based rate limit configuration
@@ -51,7 +51,7 @@ COST_GENERATE_TICKETS = 5
 COST_REFLECT = 5
 COST_PLANNER_TICK = 3
 COST_UDAR_GENERATE = 8  # UDAR initial generation (1-2 LLM calls)
-COST_UDAR_REPLAN = 3    # UDAR replanning (0-1 LLM calls)
+COST_UDAR_REPLAN = 3  # UDAR replanning (0-1 LLM calls)
 
 # Redis key prefix
 REDIS_KEY_PREFIX = "ratelimit:"
@@ -95,6 +95,7 @@ def _get_client_id(request: Request) -> str:
 def _get_route_key(path: str) -> str:
     """Normalize path to route key."""
     import re
+
     return re.sub(
         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         "{id}",
@@ -185,20 +186,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.budget = budget
         self.window_seconds = window_seconds
 
-    async def dispatch(
-        self, request: Request, call_next: Callable
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Only rate-limit POST requests to specific endpoints
         if request.method != "POST":
             return await call_next(request)
 
-        matches, matched_pattern = _matches_pattern(request.url.path, RATE_LIMITED_ENDPOINTS)
+        matches, matched_pattern = _matches_pattern(
+            request.url.path, RATE_LIMITED_ENDPOINTS
+        )
         if not matches:
             return await call_next(request)
 
         # Backend REQUIRED
         if not _backend_available():
-            logger.error(f"Backend unavailable for rate-limited endpoint: {request.url.path}")
+            logger.error(
+                f"Backend unavailable for rate-limited endpoint: {request.url.path}"
+            )
             return JSONResponse(
                 status_code=503,
                 content={
@@ -262,6 +265,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Reconstruct request with body
         async def receive():
             return {"type": "http.request", "body": body}
+
         request._receive = receive
 
         # Execute request (budget already reserved)
@@ -306,4 +310,3 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await asyncio.to_thread(
             rate_limit_check_and_record, client_key, estimated_cost, self.window_seconds
         )
-

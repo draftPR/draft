@@ -76,7 +76,9 @@ class QueuedJobResponse(BaseModel):
     status: JobStatus
     created_at: datetime
     started_at: datetime | None = None
-    queue_position: int | None = Field(None, description="Position in queue (1-based, None if running)")
+    queue_position: int | None = Field(
+        None, description="Position in queue (1-based, None if running)"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -84,7 +86,11 @@ class QueuedJobResponse(BaseModel):
 class QueueStatusResponse(BaseModel):
     """Schema for queue status response."""
 
-    running: list[QueuedJobResponse] = Field(default_factory=list, description="Currently running jobs")
-    queued: list[QueuedJobResponse] = Field(default_factory=list, description="Jobs waiting in queue (ordered)")
+    running: list[QueuedJobResponse] = Field(
+        default_factory=list, description="Currently running jobs"
+    )
+    queued: list[QueuedJobResponse] = Field(
+        default_factory=list, description="Jobs waiting in queue (ordered)"
+    )
     total_running: int = 0
     total_queued: int = 0

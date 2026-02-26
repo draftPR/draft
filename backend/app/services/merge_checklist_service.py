@@ -71,7 +71,7 @@ class MergeChecklistService:
             .where(Ticket.goal_id == goal_id)
             .options(
                 selectinload(Ticket.jobs).selectinload(Job.evidence),
-                selectinload(Ticket.revisions)
+                selectinload(Ticket.revisions),
             )
         )
         tickets = list(result.scalars().all())
@@ -119,7 +119,9 @@ class MergeChecklistService:
                 if revision.diff_stat_evidence_id:
                     # Parse diff stat from evidence
                     stat_result = await self.db.execute(
-                        select(Evidence).where(Evidence.id == revision.diff_stat_evidence_id)
+                        select(Evidence).where(
+                            Evidence.id == revision.diff_stat_evidence_id
+                        )
                     )
                     stat_evidence = stat_result.scalar_one_or_none()
 
@@ -129,7 +131,10 @@ class MergeChecklistService:
                             with open(stat_evidence.stdout_path) as f:
                                 stat_line = f.read().strip()
                                 # Simple parsing
-                                if "files changed" in stat_line or "file changed" in stat_line:
+                                if (
+                                    "files changed" in stat_line
+                                    or "file changed" in stat_line
+                                ):
                                     parts = stat_line.split(",")
                                     files_part = parts[0].strip().split()[0]
                                     total_files.add(f"{ticket.id}:{files_part}")
@@ -142,10 +147,7 @@ class MergeChecklistService:
                         except Exception as e:
                             logger.warning(f"Failed to parse diff stat: {e}")
 
-        return {
-            "files": len(total_files),
-            "lines": total_lines
-        }
+        return {"files": len(total_files), "lines": total_lines}
 
     async def _calculate_cost(self, goal_id: str) -> float:
         """Calculate total LLM API cost for all tickets."""
@@ -170,36 +172,42 @@ class MergeChecklistService:
 
         # Step 1: Git revert for all merged changes
         if tickets:
-            steps.append({
-                "order": 1,
-                "type": "git",
-                "description": f"Revert all commits for {len(tickets)} tickets",
-                "command": "git log --grep='ticket_id' --oneline | awk '{print $1}' | xargs git revert --no-commit",
-                "is_automated": True,
-                "risk": "low"
-            })
+            steps.append(
+                {
+                    "order": 1,
+                    "type": "git",
+                    "description": f"Revert all commits for {len(tickets)} tickets",
+                    "command": "git log --grep='ticket_id' --oneline | awk '{print $1}' | xargs git revert --no-commit",
+                    "is_automated": True,
+                    "risk": "low",
+                }
+            )
 
         # Step 2: Check for database migrations
         has_migrations = False  # TODO: Detect if any ticket modified migrations
         if has_migrations:
-            steps.append({
-                "order": 2,
-                "type": "migration",
-                "description": "Rollback database migrations",
-                "command": "alembic downgrade -1",
-                "is_automated": False,
-                "risk": "high"
-            })
+            steps.append(
+                {
+                    "order": 2,
+                    "type": "migration",
+                    "description": "Rollback database migrations",
+                    "command": "alembic downgrade -1",
+                    "is_automated": False,
+                    "risk": "high",
+                }
+            )
 
         # Step 3: Cache invalidation
-        steps.append({
-            "order": 3,
-            "type": "cache",
-            "description": "Clear application caches",
-            "command": "redis-cli FLUSHDB",
-            "is_automated": True,
-            "risk": "low"
-        })
+        steps.append(
+            {
+                "order": 3,
+                "type": "cache",
+                "description": "Clear application caches",
+                "command": "redis-cli FLUSHDB",
+                "is_automated": True,
+                "risk": "low",
+            }
+        )
 
         # Assess overall risk
         risk_level = "high" if has_migrations else "low"
@@ -208,14 +216,11 @@ class MergeChecklistService:
             "steps": steps,
             "risk_level": risk_level,
             "estimated_time": "5-10 minutes",
-            "requires_human": any(s["risk"] == "high" for s in steps)
+            "requires_human": any(s["risk"] == "high" for s in steps),
         }
 
     async def update_manual_check(
-        self,
-        checklist_id: str,
-        check_name: str,
-        value: bool
+        self, checklist_id: str, check_name: str, value: bool
     ) -> MergeChecklist:
         """Update a manual checklist item.
 

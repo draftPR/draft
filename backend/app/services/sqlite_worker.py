@@ -232,6 +232,7 @@ def get_worker() -> SQLiteWorker:
         max_workers = 1
         try:
             from app.services.config_service import ConfigService
+
             config = ConfigService().load_config()
             max_workers = config.execute_config.max_parallel_jobs
         except Exception:
@@ -267,13 +268,12 @@ def setup_worker() -> SQLiteWorker:
             transition_ticket_sync,
             update_job_finished,
         )
+
         set_current_job(job_id)
         try:
             return _execute_ticket_task_impl(job_id)
         except Exception as e:
-            logger.error(
-                f"execute_ticket crashed for job {job_id}: {e}", exc_info=True
-            )
+            logger.error(f"execute_ticket crashed for job {job_id}: {e}", exc_info=True)
             try:
                 update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
             except Exception:
@@ -304,12 +304,11 @@ def setup_worker() -> SQLiteWorker:
             transition_ticket_sync,
             update_job_finished,
         )
+
         try:
             return _verify_ticket_task_impl(job_id)
         except Exception as e:
-            logger.error(
-                f"verify_ticket crashed for job {job_id}: {e}", exc_info=True
-            )
+            logger.error(f"verify_ticket crashed for job {job_id}: {e}", exc_info=True)
             try:
                 update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
             except Exception:
@@ -339,6 +338,7 @@ def setup_worker() -> SQLiteWorker:
     # Register periodic tasks (replaces Celery Beat)
     def run_job_watchdog():
         from app.services.job_watchdog_service import run_job_watchdog
+
         run_job_watchdog()
 
     def run_planner_tick():
@@ -346,6 +346,7 @@ def setup_worker() -> SQLiteWorker:
             PlannerLockError,
             run_planner_tick_sync,
         )
+
         try:
             run_planner_tick_sync()
         except PlannerLockError:
@@ -353,6 +354,7 @@ def setup_worker() -> SQLiteWorker:
 
     def run_poll_pr_statuses():
         from app.worker import poll_pr_statuses
+
         poll_pr_statuses()
 
     worker.register_periodic("job_watchdog", 15.0, run_job_watchdog)

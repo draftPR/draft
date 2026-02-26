@@ -24,8 +24,10 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 # Response Models
 # ============================================================================
 
+
 class AgentInfo(BaseModel):
     """Information about an AI agent."""
+
     type: str
     name: str
     available: bool
@@ -39,12 +41,14 @@ class AgentInfo(BaseModel):
 
 class AgentListResponse(BaseModel):
     """List of available agents."""
+
     agents: list[AgentInfo]
     default_agent: str = "claude"
 
 
 class SessionInfo(BaseModel):
     """Agent session information."""
+
     id: str
     ticket_id: str
     agent_type: str
@@ -62,12 +66,14 @@ class SessionInfo(BaseModel):
 
 class SessionListResponse(BaseModel):
     """List of sessions for a ticket."""
+
     sessions: list[SessionInfo]
     total: int
 
 
 class MessageInfo(BaseModel):
     """Agent message information."""
+
     id: str
     role: str
     content: str
@@ -79,6 +85,7 @@ class MessageInfo(BaseModel):
 
 class SessionDetailResponse(BaseModel):
     """Detailed session information with messages."""
+
     session: SessionInfo
     messages: list[MessageInfo]
 
@@ -110,6 +117,7 @@ AGENT_DISPLAY_NAMES = {
 # API Endpoints
 # ============================================================================
 
+
 @router.get("", response_model=AgentListResponse)
 async def list_agents() -> AgentListResponse:
     """List all known AI agents and their availability."""
@@ -123,25 +131,24 @@ async def list_agents() -> AgentListResponse:
         executor = agent_registry.get_executor(agent_type)
         is_available = executor.is_available() if executor else False
 
-        agents.append(AgentInfo(
-            type=agent_type.value,
-            name=AGENT_DISPLAY_NAMES.get(agent_type, agent_type.value),
-            available=is_available,
-            supports_yolo=config.supports_yolo,
-            supports_session_resume=config.supports_session_resume,
-            supports_mcp=config.supports_mcp,
-            cost_per_1k_input=config.cost_per_1k_input,
-            cost_per_1k_output=config.cost_per_1k_output,
-            description=AGENT_DESCRIPTIONS.get(agent_type, ""),
-        ))
+        agents.append(
+            AgentInfo(
+                type=agent_type.value,
+                name=AGENT_DISPLAY_NAMES.get(agent_type, agent_type.value),
+                available=is_available,
+                supports_yolo=config.supports_yolo,
+                supports_session_resume=config.supports_session_resume,
+                supports_mcp=config.supports_mcp,
+                cost_per_1k_input=config.cost_per_1k_input,
+                cost_per_1k_output=config.cost_per_1k_output,
+                description=AGENT_DESCRIPTIONS.get(agent_type, ""),
+            )
+        )
 
     # Sort: available first, then by name
     agents.sort(key=lambda a: (not a.available, a.name))
 
-    return AgentListResponse(
-        agents=agents,
-        default_agent="claude"
-    )
+    return AgentListResponse(agents=agents, default_agent="claude")
 
 
 @router.get("/available", response_model=list[str])
@@ -161,7 +168,9 @@ async def get_agent(agent_type: str) -> AgentInfo:
 
     config = AGENT_REGISTRY.get(agent_enum)
     if not config:
-        raise HTTPException(status_code=404, detail=f"Agent not configured: {agent_type}")
+        raise HTTPException(
+            status_code=404, detail=f"Agent not configured: {agent_type}"
+        )
 
     executor = agent_registry.get_executor(agent_enum)
     is_available = executor.is_available() if executor else False
@@ -183,7 +192,7 @@ async def get_agent(agent_type: str) -> AgentInfo:
 async def list_ticket_sessions(
     ticket_id: str,
     include_ended: bool = Query(False, description="Include ended sessions"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ) -> SessionListResponse:
     """List all agent sessions for a ticket."""
     query = select(AgentSession).where(AgentSession.ticket_id == ticket_id)
@@ -215,19 +224,16 @@ async def list_ticket_sessions(
             )
             for s in sessions
         ],
-        total=len(sessions)
+        total=len(sessions),
     )
 
 
 @router.get("/sessions/{session_id}", response_model=SessionDetailResponse)
 async def get_session(
-    session_id: str,
-    db: AsyncSession = Depends(get_db)
+    session_id: str, db: AsyncSession = Depends(get_db)
 ) -> SessionDetailResponse:
     """Get detailed session information with messages."""
-    result = await db.execute(
-        select(AgentSession).where(AgentSession.id == session_id)
-    )
+    result = await db.execute(select(AgentSession).where(AgentSession.id == session_id))
     session = result.scalar_one_or_none()
 
     if not session:
@@ -268,19 +274,14 @@ async def get_session(
                 created_at=m.created_at.isoformat(),
             )
             for m in messages
-        ]
+        ],
     )
 
 
 @router.post("/sessions/{session_id}/end")
-async def end_session(
-    session_id: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def end_session(session_id: str, db: AsyncSession = Depends(get_db)):
     """End an active session."""
-    result = await db.execute(
-        select(AgentSession).where(AgentSession.id == session_id)
-    )
+    result = await db.execute(select(AgentSession).where(AgentSession.id == session_id))
     session = result.scalar_one_or_none()
 
     if not session:

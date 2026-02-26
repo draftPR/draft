@@ -46,7 +46,9 @@ class RevisionDiffResponse(BaseModel):
     revision_id: str
     diff_stat: str | None = Field(None, description="Git diff stat output")
     diff_patch: str | None = Field(None, description="Full git diff patch")
-    files: list["DiffFile"] = Field(default_factory=list, description="Parsed diff files")
+    files: list["DiffFile"] = Field(
+        default_factory=list, description="Parsed diff files"
+    )
 
 
 class DiffSummaryResponse(BaseModel):
@@ -57,7 +59,9 @@ class DiffSummaryResponse(BaseModel):
 
     revision_id: str
     diff_stat: str | None = Field(None, description="Git diff stat output")
-    files: list["DiffFile"] = Field(default_factory=list, description="Parsed diff files")
+    files: list["DiffFile"] = Field(
+        default_factory=list, description="Parsed diff files"
+    )
 
 
 class DiffPatchResponse(BaseModel):
@@ -93,7 +97,9 @@ class TimelineEvent(BaseModel):
     actor: str = Field(description="Who triggered this event (human, agent, system)")
     message: str = Field(description="Human-readable description of the event")
     created_at: datetime
-    metadata: dict | None = Field(default=None, description="Additional event-specific data")
+    metadata: dict | None = Field(
+        default=None, description="Additional event-specific data"
+    )
 
 
 class RevisionTimelineResponse(BaseModel):
@@ -106,4 +112,3 @@ class RevisionTimelineResponse(BaseModel):
 # For forward reference
 RevisionDiffResponse.model_rebuild()
 DiffSummaryResponse.model_rebuild()
-

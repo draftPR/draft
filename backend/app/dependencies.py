@@ -26,6 +26,7 @@ def ValidatedUUID(field_name: str):
     Returns:
         A Path dependency that validates and returns the UUID
     """
+
     def validator(value: str) -> str:
         return validate_uuid(value, field_name)
 

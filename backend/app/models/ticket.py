@@ -87,7 +87,9 @@ class Ticket(Base):
     # GitHub Pull Request fields
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     pr_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    pr_state: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 'OPEN', 'CLOSED', 'MERGED'
+    pr_state: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )  # 'OPEN', 'CLOSED', 'MERGED'
     pr_created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     pr_merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     pr_head_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)

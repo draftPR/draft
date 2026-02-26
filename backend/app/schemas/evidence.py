@@ -66,7 +66,9 @@ class EvidenceResponse(BaseModel):
     stdout_path: str | None
     stderr_path: str | None
     created_at: datetime
-    succeeded: bool = Field(description="Whether the command succeeded (exit_code == 0)")
+    succeeded: bool = Field(
+        description="Whether the command succeeded (exit_code == 0)"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -83,4 +85,3 @@ class EvidenceListResponse(BaseModel):
 
     evidence: list[EvidenceResponse]
     total: int
-

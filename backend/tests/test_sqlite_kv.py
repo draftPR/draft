@@ -235,21 +235,27 @@ class TestRateLimit:
     def test_first_request_returns_zero_cost(self, sqlite_db):
         from app.sqlite_kv import rate_limit_check_and_record
 
-        current_cost, _ = rate_limit_check_and_record("client-1", cost=5, window_seconds=60)
+        current_cost, _ = rate_limit_check_and_record(
+            "client-1", cost=5, window_seconds=60
+        )
         assert current_cost == 0
 
     def test_cost_accumulates(self, sqlite_db):
         from app.sqlite_kv import rate_limit_check_and_record
 
         rate_limit_check_and_record("client-1", cost=5, window_seconds=60)
-        current_cost, _ = rate_limit_check_and_record("client-1", cost=3, window_seconds=60)
+        current_cost, _ = rate_limit_check_and_record(
+            "client-1", cost=3, window_seconds=60
+        )
         assert current_cost == 5
 
     def test_different_clients_isolated(self, sqlite_db):
         from app.sqlite_kv import rate_limit_check_and_record
 
         rate_limit_check_and_record("client-a", cost=10, window_seconds=60)
-        current_cost, _ = rate_limit_check_and_record("client-b", cost=1, window_seconds=60)
+        current_cost, _ = rate_limit_check_and_record(
+            "client-b", cost=1, window_seconds=60
+        )
         assert current_cost == 0
 
     def test_check_only_does_not_record(self, sqlite_db):
@@ -268,7 +274,9 @@ class TestRateLimit:
         time.sleep(1.5)
 
         # After expiry, cost should be zero
-        current_cost, _ = rate_limit_check_and_record("client-1", cost=1, window_seconds=60)
+        current_cost, _ = rate_limit_check_and_record(
+            "client-1", cost=1, window_seconds=60
+        )
         assert current_cost == 0
 
     def test_oldest_time_returned(self, sqlite_db):
@@ -276,5 +284,7 @@ class TestRateLimit:
 
         before = time.time()
         rate_limit_check_and_record("client-1", cost=1, window_seconds=60)
-        _, oldest_time = rate_limit_check_and_record("client-1", cost=1, window_seconds=60)
+        _, oldest_time = rate_limit_check_and_record(
+            "client-1", cost=1, window_seconds=60
+        )
         assert oldest_time >= before

@@ -35,13 +35,13 @@ class CursorAdapter(ExecutorAdapter):
                     "auto_apply": {
                         "type": "boolean",
                         "default": False,
-                        "description": "Auto-apply suggestions without confirmation"
+                        "description": "Auto-apply suggestions without confirmation",
                     }
-                }
+                },
             },
             documentation_url="https://cursor.sh/",
             author="Cursor",
-            license="Proprietary"
+            license="Proprietary",
         )
 
     async def is_available(self) -> bool:
@@ -55,7 +55,9 @@ class CursorAdapter(ExecutorAdapter):
         and requires human interaction to complete the task.
         """
         if not await self.is_available():
-            raise ExecutorNotFoundError("Cursor not found. Install from https://cursor.sh/")
+            raise ExecutorNotFoundError(
+                "Cursor not found. Install from https://cursor.sh/"
+            )
 
         # Build command - opens Cursor in the working directory
         cmd = ["cursor", request.working_directory]
@@ -68,7 +70,7 @@ class CursorAdapter(ExecutorAdapter):
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **request.environment}
+                env={**os.environ, **request.environment},
             )
 
             # For Cursor, we just launch it and return immediately
@@ -78,10 +80,7 @@ class CursorAdapter(ExecutorAdapter):
                 exit_code=0,
                 stdout=f"Opened Cursor in {request.working_directory}\\nPrompt: {request.prompt}",
                 stderr="",
-                metadata={
-                    "interactive": True,
-                    "requires_human": True
-                }
+                metadata={"interactive": True, "requires_human": True},
             )
 
         except Exception as e:

@@ -83,7 +83,9 @@ class RevisionService:
         await self.db.flush()
         await self.db.refresh(revision)
 
-        logger.info(f"Created revision {revision.id} (#{next_number}) for ticket {ticket_id}")
+        logger.info(
+            f"Created revision {revision.id} (#{next_number}) for ticket {ticket_id}"
+        )
         return revision
 
     async def _get_next_revision_number(self, ticket_id: str) -> int:
@@ -114,8 +116,7 @@ class RevisionService:
             Number of revisions superseded
         """
         result = await self.db.execute(
-            select(Revision)
-            .where(
+            select(Revision).where(
                 Revision.ticket_id == ticket_id,
                 Revision.status == RevisionStatus.OPEN.value,
             )
@@ -168,9 +169,7 @@ class RevisionService:
             ResourceNotFoundError: If the ticket is not found
         """
         # Verify ticket exists
-        result = await self.db.execute(
-            select(Ticket).where(Ticket.id == ticket_id)
-        )
+        result = await self.db.execute(select(Ticket).where(Ticket.id == ticket_id))
         if result.scalar_one_or_none() is None:
             raise ResourceNotFoundError("Ticket", ticket_id)
 
@@ -224,7 +223,9 @@ class RevisionService:
         await self.db.refresh(revision)
         return revision
 
-    async def get_revision_diff(self, revision_id: str) -> tuple[str | None, str | None]:
+    async def get_revision_diff(
+        self, revision_id: str
+    ) -> tuple[str | None, str | None]:
         """Get the diff content for a revision (both stat and patch).
 
         Args:
@@ -302,7 +303,9 @@ class RevisionService:
             repo_root = config_service.get_repo_root()
             return read_artifact(repo_root, evidence.stdout_path)
         except Exception as e:
-            logger.warning(f"Failed to read evidence content from {evidence.stdout_path}: {e}")
+            logger.warning(
+                f"Failed to read evidence content from {evidence.stdout_path}: {e}"
+            )
             return None
 
     async def find_diff_evidence_for_job(
@@ -344,4 +347,3 @@ class RevisionService:
             stat_evidence.id if stat_evidence else None,
             patch_evidence.id if patch_evidence else None,
         )
-

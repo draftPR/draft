@@ -30,5 +30,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_column("tickets", "verification_commands_json")
-
-

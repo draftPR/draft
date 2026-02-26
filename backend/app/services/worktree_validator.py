@@ -205,5 +205,3 @@ class WorktreeValidator:
             True if the path passes all safety checks.
         """
         return self.validate(worktree_path).valid
-
-

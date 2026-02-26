@@ -99,9 +99,7 @@ async def reenqueue_lost_jobs(
     from app.models.job import Job, JobKind, JobStatus
     from app.services.task_dispatch import enqueue_task
 
-    result = await db.execute(
-        select(Job).where(Job.status == JobStatus.QUEUED.value)
-    )
+    result = await db.execute(select(Job).where(Job.status == JobStatus.QUEUED.value))
     queued_jobs = result.scalars().all()
 
     details = []
@@ -172,4 +170,3 @@ async def run_watchdog() -> WatchdogResponse:
         tickets_blocked=result.tickets_blocked,
         details=result.details,
     )
-

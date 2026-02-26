@@ -23,10 +23,12 @@ _warned_today: dict[tuple[str, str], date] = {}
 
 # ALLOWLIST: Only these deprecated fields are echoed in X-Ignored-Fields
 # This prevents using the header as an echo channel for arbitrary data
-KNOWN_DEPRECATED_FIELDS = frozenset({
-    "workspace_path",  # Removed for security - use board.repo_root instead
-    "repo_path",       # Alias for workspace_path
-})
+KNOWN_DEPRECATED_FIELDS = frozenset(
+    {
+        "workspace_path",  # Removed for security - use board.repo_root instead
+        "repo_path",  # Alias for workspace_path
+    }
+)
 
 
 def get_client_id(request: Request) -> str:
@@ -119,4 +121,3 @@ def cleanup_old_warnings() -> None:
     global _warned_today
     today = date.today()
     _warned_today = {k: v for k, v in _warned_today.items() if v == today}
-

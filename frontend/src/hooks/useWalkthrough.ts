@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 const WALKTHROUGH_KEY = 'smart-kanban-walkthrough-completed';
 const WALKTHROUGH_VERSION = '1.0';
@@ -11,24 +11,16 @@ export interface WalkthroughState {
 }
 
 export function useWalkthrough() {
-  const [state, setState] = useState<WalkthroughState>({
-    isFirstRun: true,
-    currentStep: 0,
-    totalSteps: 6,
-    isOpen: false,
-  });
-
-  // Check if this is first run on mount
-  useEffect(() => {
-    const completed = localStorage.getItem(WALKTHROUGH_KEY);
+  const [state, setState] = useState<WalkthroughState>(() => {
+    const completed = typeof window !== "undefined" ? localStorage.getItem(WALKTHROUGH_KEY) : null;
     const isFirstRun = completed !== WALKTHROUGH_VERSION;
-
-    setState(prev => ({
-      ...prev,
+    return {
       isFirstRun,
-      isOpen: isFirstRun, // Auto-open on first run
-    }));
-  }, []);
+      currentStep: 0,
+      totalSteps: 6,
+      isOpen: isFirstRun,
+    };
+  });
 
   const nextStep = () => {
     setState(prev => ({

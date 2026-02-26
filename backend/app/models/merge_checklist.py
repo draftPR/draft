@@ -22,15 +22,13 @@ class MergeChecklist(Base):
     __tablename__ = "merge_checklists"
 
     id: Mapped[str] = mapped_column(
-        String(36),
-        primary_key=True,
-        default=lambda: str(uuid.uuid4())
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     goal_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("goals.id", ondelete="CASCADE"),
         nullable=False,
-        index=True
+        index=True,
     )
 
     # Auto-checks (computed from system state)
@@ -50,7 +48,7 @@ class MergeChecklist(Base):
     rollback_plan_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     risk_level: Mapped[str] = mapped_column(
         String(20),
-        default="low"  # low, medium, high
+        default="low",  # low, medium, high
     )
 
     # Status
@@ -58,15 +56,10 @@ class MergeChecklist(Base):
     merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        server_default=func.now(),
-        nullable=False
+        DateTime, server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
     # Relationships
@@ -84,7 +77,11 @@ class MergeChecklist(Base):
             return False
 
         # All manual checks must be confirmed
-        if not (self.code_reviewed and self.no_sensitive_data and self.rollback_plan_understood):
+        if not (
+            self.code_reviewed
+            and self.no_sensitive_data
+            and self.rollback_plan_understood
+        ):
             return False
 
         return True

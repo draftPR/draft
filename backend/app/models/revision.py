@@ -128,4 +128,3 @@ class Revision(Base):
 
     def __repr__(self) -> str:
         return f"<Revision(id={self.id}, ticket_id={self.ticket_id}, number={self.number}, status={self.status})>"
-

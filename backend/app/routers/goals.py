@@ -238,7 +238,9 @@ async def generate_tickets_stream(
             # Stream agent output as it comes in
             while not generation_task.done():
                 try:
-                    msg_type, data = await asyncio.wait_for(output_queue.get(), timeout=0.1)
+                    msg_type, data = await asyncio.wait_for(
+                        output_queue.get(), timeout=0.1
+                    )
                     if msg_type == "agent_output":
                         # Try to parse into structured entries
                         normalized_chunks = _normalize_and_yield(data)
@@ -355,7 +357,9 @@ async def generate_tickets(
     ignored_fields = check_ignored_fields(raw_request, raw_body, allowed_fields)
 
     # Parse into Pydantic model
-    request = GenerateTicketsRequest(**{k: v for k, v in raw_body.items() if k in allowed_fields})
+    request = GenerateTicketsRequest(
+        **{k: v for k, v in raw_body.items() if k in allowed_fields}
+    )
 
     # Get repo root from config - DO NOT accept arbitrary paths from client
     config_service = ConfigService()
@@ -385,7 +389,7 @@ async def generate_tickets(
                 }
                 for t in udar_result.get("tickets", [])
             ]
-            result = type('obj', (object,), {'tickets': result_tickets})()
+            result = type("obj", (object,), {"tickets": result_tickets})()
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
     else:
@@ -400,7 +404,11 @@ async def generate_tickets(
             )
         except ValueError as e:
             error_msg = str(e)
-            if "API key" in error_msg or "credentials" in error_msg or "unavailable" in error_msg:
+            if (
+                "API key" in error_msg
+                or "credentials" in error_msg
+                or "unavailable" in error_msg
+            ):
                 raise HTTPException(status_code=503, detail=error_msg)
             raise HTTPException(status_code=404, detail=error_msg)
 

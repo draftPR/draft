@@ -37,5 +37,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Drop planner_locks table."""
     op.drop_table("planner_locks")
-
-

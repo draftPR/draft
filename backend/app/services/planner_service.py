@@ -181,7 +181,9 @@ class PlannerService:
         # INVARIANT: This MUST be the first DB operation. See docstring.
         # Lock acquisition may rollback on IntegrityError.
         await self._acquire_lock()
-        add_orchestrator_log("INFO", "Planner tick started", {"owner": self._lock_owner_id})
+        add_orchestrator_log(
+            "INFO", "Planner tick started", {"owner": self._lock_owner_id}
+        )
 
         try:
             # 1. Queue planned tickets for execution
@@ -189,7 +191,9 @@ class PlannerService:
             # Normal auto_execute only queues one at a time
             if force_execute:
                 # Queue ALL planned tickets when user explicitly starts autopilot
-                add_orchestrator_log("INFO", "Force execute: queueing all planned tickets")
+                add_orchestrator_log(
+                    "INFO", "Force execute: queueing all planned tickets"
+                )
                 execute_results = await self._queue_all_planned_tickets()
                 for action, job_id in execute_results:
                     actions.append(action)
@@ -205,7 +209,9 @@ class PlannerService:
             elif self.config.features.auto_execute:
                 # Normal periodic tick: queue one at a time
                 if not await self._has_active_execution():
-                    add_orchestrator_log("INFO", "No active execution, checking for planned tickets")
+                    add_orchestrator_log(
+                        "INFO", "No active execution, checking for planned tickets"
+                    )
                     execute_results = await self._pick_and_execute_next()
                     for action, job_id in execute_results:
                         actions.append(action)
@@ -264,8 +270,14 @@ class PlannerService:
                 actions.extend(reflection_actions)
 
             # 5. UDAR incremental replanning (Phase 3)
-            if self.config.udar.enabled and self.config.udar.enable_incremental_replanning:
-                add_orchestrator_log("INFO", "UDAR incremental replanning enabled, checking for completed tickets")
+            if (
+                self.config.udar.enabled
+                and self.config.udar.enable_incremental_replanning
+            ):
+                add_orchestrator_log(
+                    "INFO",
+                    "UDAR incremental replanning enabled, checking for completed tickets",
+                )
                 replan_actions = await self._udar_incremental_replan()
                 actions.extend(replan_actions)
                 if replan_actions:
@@ -296,7 +308,9 @@ class PlannerService:
         # Enqueue Celery jobs AFTER commit (prevents stale DB state)
         for job_id in jobs_to_enqueue:
             await self._enqueue_celery_job(job_id)
-            add_orchestrator_log("INFO", f"Celery task enqueued for job {job_id[:8]}...")
+            add_orchestrator_log(
+                "INFO", f"Celery task enqueued for job {job_id[:8]}..."
+            )
 
         # Generate summary
         summary = self._generate_summary(actions)
@@ -471,15 +485,19 @@ class PlannerService:
         # Check if there are ANY queued or running execute jobs
         # If so, don't queue anything new - wait for the current job to complete
         active_job_result = await self.db.execute(
-            select(Job.id).where(
+            select(Job.id)
+            .where(
                 and_(
                     Job.kind == JobKind.EXECUTE.value,
                     Job.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
                 )
-            ).limit(1)
+            )
+            .limit(1)
         )
         if active_job_result.scalar_one_or_none():
-            logger.debug("Execute job already queued or running, not queuing new tickets")
+            logger.debug(
+                "Execute job already queued or running, not queuing new tickets"
+            )
             return results
 
         # Find planned tickets ordered by priority
@@ -505,7 +523,10 @@ class PlannerService:
         for ticket in planned_tickets:
             if ticket.blocked_by_ticket_id:
                 # Check if the blocker is done
-                if ticket.blocked_by and ticket.blocked_by.state == TicketState.DONE.value:
+                if (
+                    ticket.blocked_by
+                    and ticket.blocked_by.state == TicketState.DONE.value
+                ):
                     # Blocker is done, this ticket can be executed
                     selected_ticket = ticket
                     logger.info(
@@ -515,7 +536,9 @@ class PlannerService:
                     break
                 else:
                     # Blocker is not done, move ticket to BLOCKED state
-                    blocker_title = ticket.blocked_by.title if ticket.blocked_by else "unknown"
+                    blocker_title = (
+                        ticket.blocked_by.title if ticket.blocked_by else "unknown"
+                    )
                     logger.info(
                         f"Ticket {ticket.id} is blocked by incomplete ticket "
                         f"{ticket.blocked_by_ticket_id} ({blocker_title}), moving to BLOCKED"
@@ -531,10 +554,12 @@ class PlannerService:
                         actor_type=ActorType.PLANNER.value,
                         actor_id="planner",
                         reason=f"Blocked by incomplete ticket: {blocker_title}",
-                        payload_json=json.dumps({
-                            "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
-                            "blocked_by_title": blocker_title,
-                        }),
+                        payload_json=json.dumps(
+                            {
+                                "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
+                                "blocked_by_title": blocker_title,
+                            }
+                        ),
                     )
                     self.db.add(event)
                     # Continue to check next ticket
@@ -597,7 +622,9 @@ class PlannerService:
 
         return results
 
-    async def _queue_all_planned_tickets(self) -> list[tuple[PlannerAction, str | None]]:
+    async def _queue_all_planned_tickets(
+        self,
+    ) -> list[tuple[PlannerAction, str | None]]:
         """Queue ALL planned tickets for execution in priority order.
 
         Used by /planner/start to queue the entire backlog at once.
@@ -650,7 +677,10 @@ class PlannerService:
 
             # Check if ticket is blocked by an incomplete dependency
             if ticket.blocked_by_ticket_id:
-                if ticket.blocked_by and ticket.blocked_by.state == TicketState.DONE.value:
+                if (
+                    ticket.blocked_by
+                    and ticket.blocked_by.state == TicketState.DONE.value
+                ):
                     # Blocker is done, this ticket can be queued
                     logger.info(
                         f"Ticket {ticket.id} was blocked by {ticket.blocked_by_ticket_id} "
@@ -658,7 +688,9 @@ class PlannerService:
                     )
                 else:
                     # Blocker is not done, move ticket to BLOCKED state
-                    blocker_title = ticket.blocked_by.title if ticket.blocked_by else "unknown"
+                    blocker_title = (
+                        ticket.blocked_by.title if ticket.blocked_by else "unknown"
+                    )
                     logger.info(
                         f"Ticket {ticket.id} is blocked by incomplete ticket "
                         f"{ticket.blocked_by_ticket_id} ({blocker_title}), moving to BLOCKED"
@@ -675,10 +707,12 @@ class PlannerService:
                         actor_type=ActorType.PLANNER.value,
                         actor_id="planner",
                         reason=f"Blocked by incomplete ticket: {blocker_title}",
-                        payload_json=json.dumps({
-                            "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
-                            "blocked_by_title": blocker_title,
-                        }),
+                        payload_json=json.dumps(
+                            {
+                                "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
+                                "blocked_by_title": blocker_title,
+                            }
+                        ),
                     )
                     self.db.add(event)
                     continue  # Skip to next ticket
@@ -782,11 +816,13 @@ class PlannerService:
                     actor_type=ActorType.PLANNER.value,
                     actor_id="planner",
                     reason=f"Unblocked: blocking ticket '{ticket.blocked_by.title}' is now done",
-                    payload_json=json.dumps({
-                        "blocker_ticket_id": ticket.blocked_by_ticket_id,
-                        "blocker_title": ticket.blocked_by.title,
-                        "action": "unblocked",
-                    }),
+                    payload_json=json.dumps(
+                        {
+                            "blocker_ticket_id": ticket.blocked_by_ticket_id,
+                            "blocker_title": ticket.blocked_by.title,
+                            "action": "unblocked",
+                        }
+                    ),
                 )
                 self.db.add(event)
 
@@ -953,14 +989,15 @@ class PlannerService:
                     existing_ticket_titles=sibling_titles,
                 )
             except Exception as e:
-                logger.error(f"Failed to generate follow-up for ticket {ticket.id}: {e}")
+                logger.error(
+                    f"Failed to generate follow-up for ticket {ticket.id}: {e}"
+                )
                 continue
 
             # Determine initial state: auto-approve if goal has autonomy enabled
             initial_state = TicketState.PROPOSED.value
             auto_approved_followup = False
             try:
-
                 goal = ticket.goal
                 if goal and goal.autonomy_enabled and goal.auto_approve_followups:
                     initial_state = TicketState.PLANNED.value
@@ -1211,7 +1248,9 @@ Generate a follow-up ticket proposal as JSON."""
                     evidence_summary=evidence_summary,
                 )
             except Exception as e:
-                logger.error(f"Failed to generate reflection for ticket {ticket.id}: {e}")
+                logger.error(
+                    f"Failed to generate reflection for ticket {ticket.id}: {e}"
+                )
                 continue
 
             # Create reflection event (NEVER modify ticket text)
@@ -1283,17 +1322,16 @@ Generate a follow-up ticket proposal as JSON."""
 
             # Skip if already merged (check events)
             already_merged = any(
-                e.event_type == EventType.MERGE_SUCCEEDED.value
-                for e in ticket.events
+                e.event_type == EventType.MERGE_SUCCEEDED.value for e in ticket.events
             )
             if already_merged:
                 continue
 
             # Skip if no approved revision
             from app.models.revision import RevisionStatus
+
             has_approved = any(
-                r.status == RevisionStatus.APPROVED.value
-                for r in ticket.revisions
+                r.status == RevisionStatus.APPROVED.value for r in ticket.revisions
             )
             if not has_approved:
                 # Auto-approve the latest open revision if autonomy allows it
@@ -1330,7 +1368,9 @@ Generate a follow-up ticket proposal as JSON."""
                             },
                         )
                     )
-                    logger.info(f"Auto-merged ticket {ticket.id}: {merge_result.message}")
+                    logger.info(
+                        f"Auto-merged ticket {ticket.id}: {merge_result.message}"
+                    )
                 else:
                     # Transition to BLOCKED on merge failure
                     ticket.state = TicketState.BLOCKED.value
@@ -1342,13 +1382,17 @@ Generate a follow-up ticket proposal as JSON."""
                         actor_type=ActorType.SYSTEM.value,
                         actor_id="autonomy_service",
                         reason=f"Auto-merge failed: {merge_result.message}",
-                        payload_json=json.dumps({
-                            "autonomy_action": "auto_merge_failed",
-                            "merge_error": merge_result.message,
-                        }),
+                        payload_json=json.dumps(
+                            {
+                                "autonomy_action": "auto_merge_failed",
+                                "merge_error": merge_result.message,
+                            }
+                        ),
                     )
                     self.db.add(blocked_event)
-                    logger.warning(f"Auto-merge failed for ticket {ticket.id}: {merge_result.message}")
+                    logger.warning(
+                        f"Auto-merge failed for ticket {ticket.id}: {merge_result.message}"
+                    )
 
             except Exception as e:
                 logger.error(f"Auto-merge error for ticket {ticket.id}: {e}")
@@ -1376,8 +1420,7 @@ Generate a follow-up ticket proposal as JSON."""
         # Note: We track analyzed status in ticket metadata
         recent_cutoff = datetime.utcnow() - timedelta(minutes=30)
         done_result = await self.db.execute(
-            select(Ticket)
-            .where(
+            select(Ticket).where(
                 Ticket.state == TicketState.DONE.value,
                 Ticket.updated_at >= recent_cutoff,
             )
@@ -1386,7 +1429,8 @@ Generate a follow-up ticket proposal as JSON."""
 
         # Filter to only unanalyzed tickets
         unanalyzed = [
-            t for t in recent_done
+            t
+            for t in recent_done
             if not (t.metadata_ and t.metadata_.get("udar_analyzed_at"))
         ]
 

@@ -43,7 +43,9 @@ async def test_streaming():
         except Exception as e:
             print(f"Error: {e}")
             import traceback
+
             traceback.print_exc()
+
 
 if __name__ == "__main__":
     asyncio.run(test_streaming())

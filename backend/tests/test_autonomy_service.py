@@ -170,7 +170,9 @@ async def test_auto_approve_revision_all_checks_pass(db):
     await db.flush()
 
     # Add passing verification evidence
-    evidence = make_evidence(ticket.id, kind=EvidenceKind.VERIFY_META.value, exit_code=0)
+    evidence = make_evidence(
+        ticket.id, kind=EvidenceKind.VERIFY_META.value, exit_code=0
+    )
     db.add(evidence)
     await db.flush()
 
@@ -191,7 +193,9 @@ async def test_auto_approve_revision_verification_failed(db):
     await db.flush()
 
     # Add failing verification evidence
-    evidence = make_evidence(ticket.id, kind=EvidenceKind.VERIFY_META.value, exit_code=1)
+    evidence = make_evidence(
+        ticket.id, kind=EvidenceKind.VERIFY_META.value, exit_code=1
+    )
     db.add(evidence)
     await db.flush()
 
@@ -269,7 +273,9 @@ def test_check_revision_approval_verification_fail():
     """Pure logic check: verify evidence with bad exit code blocks approval."""
     goal = make_goal()
     ticket = make_ticket(goal)
-    evidence = make_evidence(ticket.id, kind=EvidenceKind.VERIFY_META.value, exit_code=1)
+    evidence = make_evidence(
+        ticket.id, kind=EvidenceKind.VERIFY_META.value, exit_code=1
+    )
 
     config = AutonomyConfig(require_verification_pass=True)
     service = AutonomyService(config=config)
@@ -283,7 +289,9 @@ def test_check_revision_approval_verification_pass_not_required():
     """When require_verification_pass is False, failing verify does not block."""
     goal = make_goal()
     ticket = make_ticket(goal)
-    evidence = make_evidence(ticket.id, kind=EvidenceKind.VERIFY_META.value, exit_code=1)
+    evidence = make_evidence(
+        ticket.id, kind=EvidenceKind.VERIFY_META.value, exit_code=1
+    )
 
     config = AutonomyConfig(require_verification_pass=False)
     service = AutonomyService(config=config)
@@ -366,9 +374,7 @@ async def test_record_auto_action_increments_counter(db):
     await db.flush()
 
     service = AutonomyService(config=AutonomyConfig())
-    await service.record_auto_action(
-        db, ticket, "approve_ticket", {"reason": "test"}
-    )
+    await service.record_auto_action(db, ticket, "approve_ticket", {"reason": "test"})
     await db.flush()
     await db.refresh(goal)
 

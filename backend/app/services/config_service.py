@@ -614,9 +614,12 @@ class ConfigService:
         if not (self.repo_path / self.CONFIG_FILENAME).exists():
             try:
                 import subprocess
+
                 git_root = subprocess.run(
                     ["git", "rev-parse", "--show-toplevel"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                     cwd=str(self.repo_path),
                 ).stdout.strip()
                 if git_root and (Path(git_root) / self.CONFIG_FILENAME).exists():

@@ -26,9 +26,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("task_name", sa.String(255), nullable=False),
         sa.Column("args_json", sa.Text(), nullable=False, server_default="[]"),
-        sa.Column(
-            "status", sa.String(20), nullable=False, server_default="pending"
-        ),
+        sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
         sa.Column("claimed_by", sa.String(255), nullable=True),
         sa.Column("claimed_at", sa.DateTime(), nullable=True),
         sa.Column("completed_at", sa.DateTime(), nullable=True),

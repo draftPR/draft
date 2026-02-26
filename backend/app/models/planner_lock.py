@@ -41,5 +41,3 @@ class PlannerLock(Base):
 
     def __repr__(self) -> str:
         return f"<PlannerLock(key={self.lock_key}, acquired={self.acquired_at})>"
-
-

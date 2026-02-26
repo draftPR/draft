@@ -69,5 +69,3 @@ def read_artifact(repo_root: Path, relpath: str | None) -> str | None:
         return target.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
-
-

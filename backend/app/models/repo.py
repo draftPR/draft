@@ -30,7 +30,9 @@ class Repo(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
 
     # Filesystem path to git repository (unique)
-    path: Mapped[str] = mapped_column(String(1024), unique=True, nullable=False, index=True)
+    path: Mapped[str] = mapped_column(
+        String(1024), unique=True, nullable=False, index=True
+    )
 
     # Repository name (derived from path, e.g., "my-project")
     name: Mapped[str] = mapped_column(String(255), nullable=False)

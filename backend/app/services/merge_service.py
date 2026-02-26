@@ -43,7 +43,9 @@ class MergeResult:
     stdout: str
     stderr: str
     default_branch: str | None = None
-    evidence_ids: dict[str, str] = field(default_factory=dict)  # stdout_id, stderr_id, meta_id
+    evidence_ids: dict[str, str] = field(
+        default_factory=dict
+    )  # stdout_id, stderr_id, meta_id
     # Warning if merge succeeded but pull was skipped/failed (local-only merge)
     pull_warning: str | None = None
 
@@ -119,9 +121,7 @@ class MergeService:
             None,
         )
         if approved_revision is None:
-            raise ValidationError(
-                "Ticket must have an approved revision to merge"
-            )
+            raise ValidationError("Ticket must have an approved revision to merge")
 
         # Validate workspace exists
         workspace = ticket.workspace
@@ -130,9 +130,7 @@ class MergeService:
 
         worktree_path = Path(workspace.worktree_path)
         if not worktree_path.exists():
-            raise ValidationError(
-                f"Worktree path does not exist: {worktree_path}"
-            )
+            raise ValidationError(f"Worktree path does not exist: {worktree_path}")
 
         # Validate worktree is under .smartkanban/worktrees/
         repo_path = self.config_service.get_repo_root()
@@ -288,7 +286,9 @@ class MergeService:
 
             # Step 2: Ensure branch is not protected
             if branch_name.lower() in self.PROTECTED_BRANCHES:
-                return make_failure(f"Cannot merge from protected branch: {branch_name}")
+                return make_failure(
+                    f"Cannot merge from protected branch: {branch_name}"
+                )
 
             # Step 3: Checkout default branch in main repo
             # NOTE: All remaining git commands run in MAIN REPO, not worktree!
@@ -303,7 +303,9 @@ class MergeService:
             record_output(f"git checkout {default_branch}", result)
 
             if result.returncode != 0:
-                return make_failure(f"Failed to checkout {default_branch}", result.returncode)
+                return make_failure(
+                    f"Failed to checkout {default_branch}", result.returncode
+                )
 
             # Step 4: Fetch from remote (only if remote exists)
             has_remote = self._has_remote_origin(repo_path)
@@ -362,7 +364,14 @@ class MergeService:
             # Step 6: Perform merge or rebase
             if strategy == MergeStrategy.MERGE:
                 result = subprocess.run(
-                    ["git", "merge", "--no-ff", branch_name, "-m", f"Merge branch '{branch_name}'"],
+                    [
+                        "git",
+                        "merge",
+                        "--no-ff",
+                        branch_name,
+                        "-m",
+                        f"Merge branch '{branch_name}'",
+                    ],
                     cwd=repo_path,
                     capture_output=True,
                     text=True,
@@ -381,8 +390,14 @@ class MergeService:
 
             if result.returncode != 0:
                 # Abort merge/rebase on conflict
-                abort_cmd = ["git", "merge", "--abort"] if strategy == MergeStrategy.MERGE else ["git", "rebase", "--abort"]
-                subprocess.run(abort_cmd, cwd=repo_path, timeout=30, capture_output=True)
+                abort_cmd = (
+                    ["git", "merge", "--abort"]
+                    if strategy == MergeStrategy.MERGE
+                    else ["git", "rebase", "--abort"]
+                )
+                subprocess.run(
+                    abort_cmd, cwd=repo_path, timeout=30, capture_output=True
+                )
 
                 return make_failure(
                     f"Merge conflict or failure during {strategy.value}",
@@ -708,15 +723,19 @@ class MergeService:
 
         # Check for merge events
         merge_events = [
-            e for e in ticket.events
-            if e.event_type in [
+            e
+            for e in ticket.events
+            if e.event_type
+            in [
                 EventType.MERGE_REQUESTED.value,
                 EventType.MERGE_SUCCEEDED.value,
                 EventType.MERGE_FAILED.value,
             ]
         ]
 
-        is_merged = any(e.event_type == EventType.MERGE_SUCCEEDED.value for e in merge_events)
+        is_merged = any(
+            e.event_type == EventType.MERGE_SUCCEEDED.value for e in merge_events
+        )
         last_merge_attempt = max(merge_events, key=lambda e: e.created_at, default=None)
 
         # Check for approved revision
@@ -748,5 +767,7 @@ class MergeService:
                 "reason": last_merge_attempt.reason,
                 "created_at": last_merge_attempt.created_at.isoformat(),
                 "payload": last_merge_attempt.get_payload(),
-            } if last_merge_attempt else None,
+            }
+            if last_merge_attempt
+            else None,
         }

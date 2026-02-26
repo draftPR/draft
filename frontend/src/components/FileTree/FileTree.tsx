@@ -122,17 +122,17 @@ export function FileTree({ ticketId, onFileSelect }: FileTreeProps) {
     const backendUrl =
       import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
-    setLoading(true);
-    setError(null);
+    let cancelled = false;
 
     fetch(`${backendUrl}/tickets/${ticketId}/worktree/tree`)
       .then((res) => {
         if (!res.ok) throw new Error(`Failed to load file tree: ${res.status}`);
         return res.json();
       })
-      .then((data) => setTree(data))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .then((data) => { if (!cancelled) { setTree(data); setLoading(false); } })
+      .catch((err) => { if (!cancelled) { setError(err.message); setLoading(false); } });
+
+    return () => { cancelled = true; };
   }, [ticketId]);
 
   if (loading) {

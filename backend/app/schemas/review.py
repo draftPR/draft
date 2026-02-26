@@ -33,7 +33,8 @@ class ReviewCommentCreate(BaseModel):
     author_type: AuthorType = Field(default=AuthorType.HUMAN)
     # Optional: client can provide hunk_header for anchor calculation
     hunk_header: str | None = Field(
-        None, description="Diff hunk header (e.g., '@@ -10,5 +10,7 @@') for anchor stability"
+        None,
+        description="Diff hunk header (e.g., '@@ -10,5 +10,7 @@') for anchor stability",
     )
     line_content: str | None = Field(
         None, description="Content of the line being commented on for anchor stability"
@@ -72,7 +73,9 @@ class ReviewSubmit(BaseModel):
     """Schema for submitting a review decision."""
 
     decision: ReviewDecision
-    summary: str = Field(default="", description="High-level review feedback (optional)")
+    summary: str = Field(
+        default="", description="High-level review feedback (optional)"
+    )
     auto_run_fix: bool = Field(
         default=True,
         description="If changes_requested, automatically trigger new agent execution",
@@ -132,4 +135,3 @@ class FeedbackBundle(BaseModel):
         default=0,
         description="Number of comments that could not be anchored to the current diff",
     )
-

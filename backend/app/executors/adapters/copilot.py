@@ -36,13 +36,13 @@ class CopilotAdapter(ExecutorAdapter):
                     "model": {
                         "type": "string",
                         "default": "gpt-4",
-                        "description": "OpenAI model used by Copilot"
+                        "description": "OpenAI model used by Copilot",
                     }
-                }
+                },
             },
             documentation_url="https://githubnext.com/projects/copilot-cli/",
             author="GitHub",
-            license="Proprietary"
+            license="Proprietary",
         )
 
     async def is_available(self) -> bool:
@@ -55,9 +55,11 @@ class CopilotAdapter(ExecutorAdapter):
             # Check if copilot extension is installed
             try:
                 process = await asyncio.create_subprocess_exec(
-                    "gh", "extension", "list",
+                    "gh",
+                    "extension",
+                    "list",
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.PIPE,
                 )
                 stdout, _ = await process.communicate()
                 return b"copilot" in stdout.lower()
@@ -79,7 +81,9 @@ class CopilotAdapter(ExecutorAdapter):
         elif has_gh:
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "gh", "extension", "list",
+                    "gh",
+                    "extension",
+                    "list",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -93,7 +97,8 @@ class CopilotAdapter(ExecutorAdapter):
 
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "gh", "--version",
+                    "gh",
+                    "--version",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -148,24 +153,25 @@ class CopilotAdapter(ExecutorAdapter):
                 cwd=request.working_directory,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **request.environment}
+                env={**os.environ, **request.environment},
             )
 
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=request.timeout_seconds
+                process.communicate(), timeout=request.timeout_seconds
             )
 
             return ExecutionResult(
                 exit_code=process.returncode,
-                stdout=stdout.decode('utf-8', errors='replace'),
-                stderr=stderr.decode('utf-8', errors='replace'),
-                duration_seconds=0.0
+                stdout=stdout.decode("utf-8", errors="replace"),
+                stderr=stderr.decode("utf-8", errors="replace"),
+                duration_seconds=0.0,
             )
 
         except TimeoutError:
             process.kill()
-            raise ExecutorTimeoutError(f"Copilot execution timed out after {request.timeout_seconds}s") from None
+            raise ExecutorTimeoutError(
+                f"Copilot execution timed out after {request.timeout_seconds}s"
+            ) from None
         except Exception as e:
             raise ExecutorInvocationError(f"Copilot execution failed: {str(e)}") from e
 
@@ -184,13 +190,13 @@ class CopilotAdapter(ExecutorAdapter):
             cwd=request.working_directory,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            env={**os.environ, **request.environment}
+            env={**os.environ, **request.environment},
         )
 
         while True:
             line = await process.stdout.readline()
             if not line:
                 break
-            yield line.decode('utf-8', errors='replace')
+            yield line.decode("utf-8", errors="replace")
 
         await process.wait()

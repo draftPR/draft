@@ -56,5 +56,6 @@ def test_agent_streaming():
         print("\nFull output:")
         print("".join(output_lines[:50]))  # First 50 lines
 
+
 if __name__ == "__main__":
     test_agent_streaming()

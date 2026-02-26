@@ -124,11 +124,17 @@ def _extract_resource_scope(
     # Check for scope mismatch (path vs body)
     if path_goal_id and body_goal_id:
         if path_goal_id != body_goal_id:
-            return "", f"Scope mismatch: path goal_id '{path_goal_id}' differs from body goal_id '{body_goal_id}'"
+            return (
+                "",
+                f"Scope mismatch: path goal_id '{path_goal_id}' differs from body goal_id '{body_goal_id}'",
+            )
 
     if path_board_id and body_board_id:
         if path_board_id != body_board_id:
-            return "", f"Scope mismatch: path board_id '{path_board_id}' differs from body board_id '{body_board_id}'"
+            return (
+                "",
+                f"Scope mismatch: path board_id '{path_board_id}' differs from body board_id '{body_board_id}'",
+            )
 
     # Path takes precedence
     if path_goal_id:
@@ -232,8 +238,13 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
 
         try:
             return await self._dispatch_sqlite(
-                request, call_next, body, body_hash, base_key,
-                idempotency_key, execution_id
+                request,
+                call_next,
+                body,
+                body_hash,
+                base_key,
+                idempotency_key,
+                execution_id,
             )
 
         except Exception as e:
@@ -249,16 +260,24 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
     # ─── SQLite backend ───
 
     async def _dispatch_sqlite(
-        self, request, call_next, body, body_hash, base_key,
-        idempotency_key, execution_id,
+        self,
+        request,
+        call_next,
+        body,
+        body_hash,
+        base_key,
+        idempotency_key,
+        execution_id,
     ) -> Response:
         from app.sqlite_kv import idempotency_try_acquire
 
-        lock_value = json.dumps({
-            "body_hash": body_hash,
-            "execution_id": execution_id,
-            "started_at": time.time(),
-        })
+        lock_value = json.dumps(
+            {
+                "body_hash": body_hash,
+                "execution_id": execution_id,
+                "started_at": time.time(),
+            }
+        )
 
         acquired = await asyncio.to_thread(
             idempotency_try_acquire, base_key, lock_value, LOCK_TTL_SECONDS
@@ -266,8 +285,13 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
 
         if acquired:
             return await self._execute_and_cache_sqlite(
-                request, call_next, body, body_hash, base_key,
-                idempotency_key, execution_id
+                request,
+                call_next,
+                body,
+                body_hash,
+                base_key,
+                idempotency_key,
+                execution_id,
             )
         else:
             return await self._blocking_wait_sqlite(
@@ -275,13 +299,20 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             )
 
     async def _execute_and_cache_sqlite(
-        self, request, call_next, body, body_hash, cache_key,
-        idempotency_key, execution_id,
+        self,
+        request,
+        call_next,
+        body,
+        body_hash,
+        cache_key,
+        idempotency_key,
+        execution_id,
     ) -> Response:
         from app.sqlite_kv import idempotency_release_lock, idempotency_store_result
 
         async def receive():
             return {"type": "http.request", "body": body}
+
         request._receive = receive
 
         try:
@@ -291,18 +322,22 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             async for chunk in response.body_iterator:
                 response_body += chunk
 
-            result_data = json.dumps({
-                "status_code": response.status_code,
-                "body": response_body.decode("utf-8"),
-                "body_hash": body_hash,
-                "execution_id": execution_id,
-                "completed_at": time.time(),
-            })
+            result_data = json.dumps(
+                {
+                    "status_code": response.status_code,
+                    "body": response_body.decode("utf-8"),
+                    "body_hash": body_hash,
+                    "execution_id": execution_id,
+                    "completed_at": time.time(),
+                }
+            )
             await asyncio.to_thread(
                 idempotency_store_result, cache_key, result_data, CACHE_TTL_SECONDS
             )
 
-            logger.debug(f"Executed and cached for key: {idempotency_key[:8]}... exec_id: {execution_id[:8]}...")
+            logger.debug(
+                f"Executed and cached for key: {idempotency_key[:8]}... exec_id: {execution_id[:8]}..."
+            )
 
             return Response(
                 content=response_body,
@@ -316,7 +351,11 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             raise
 
     async def _blocking_wait_sqlite(
-        self, cache_key, body_hash, idempotency_key, our_execution_id,
+        self,
+        cache_key,
+        body_hash,
+        idempotency_key,
+        our_execution_id,
     ) -> Response:
         from app.sqlite_kv import idempotency_get_lock, idempotency_get_result
 
@@ -337,7 +376,9 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                         },
                     )
                 return Response(
-                    content=cached["body"].encode() if isinstance(cached["body"], str) else cached["body"],
+                    content=cached["body"].encode()
+                    if isinstance(cached["body"], str)
+                    else cached["body"],
                     status_code=cached["status_code"],
                     media_type="application/json",
                     headers={

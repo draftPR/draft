@@ -85,7 +85,9 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    op.create_index("ix_review_comments_revision_id", "review_comments", ["revision_id"])
+    op.create_index(
+        "ix_review_comments_revision_id", "review_comments", ["revision_id"]
+    )
     op.create_index("ix_review_comments_anchor", "review_comments", ["anchor"])
     op.create_index(
         "ix_review_comments_revision_resolved",
@@ -113,11 +115,12 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    op.create_index("ix_review_summaries_revision_id", "review_summaries", ["revision_id"])
+    op.create_index(
+        "ix_review_summaries_revision_id", "review_summaries", ["revision_id"]
+    )
 
 
 def downgrade() -> None:
     op.drop_table("review_summaries")
     op.drop_table("review_comments")
     op.drop_table("revisions")
-

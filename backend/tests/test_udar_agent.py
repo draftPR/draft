@@ -25,6 +25,7 @@ async def test_analyze_codebase_tool():
 
     # Should return valid JSON
     import json
+
     parsed = json.loads(result)
 
     assert "project_type" in parsed
@@ -64,14 +65,17 @@ async def test_search_tickets_tool(db):
     await db.commit()
 
     # Test search
-    result = await search_tickets.ainvoke({
-        "db": db,
-        "goal_id": goal.id,
-        "query": "auth",
-    })
+    result = await search_tickets.ainvoke(
+        {
+            "db": db,
+            "goal_id": goal.id,
+            "query": "auth",
+        }
+    )
 
     # Should return valid JSON with matching tickets
     import json
+
     parsed = json.loads(result)
 
     assert parsed["total"] == 1
@@ -91,13 +95,16 @@ async def test_get_goal_context_tool(db):
     await db.commit()
 
     # Test retrieval
-    result = await get_goal_context.ainvoke({
-        "db": db,
-        "goal_id": goal.id,
-    })
+    result = await get_goal_context.ainvoke(
+        {
+            "db": db,
+            "goal_id": goal.id,
+        }
+    )
 
     # Should return valid JSON with goal details
     import json
+
     parsed = json.loads(result)
 
     assert parsed["id"] == goal.id
@@ -216,10 +223,12 @@ async def test_analyze_ticket_changes_tool(db):
     await db.commit()
 
     # Test tool
-    result = await analyze_ticket_changes.ainvoke({
-        "db": db,
-        "ticket_id": ticket.id,
-    })
+    result = await analyze_ticket_changes.ainvoke(
+        {
+            "db": db,
+            "ticket_id": ticket.id,
+        }
+    )
 
     # Should return valid JSON
     parsed = json.loads(result)
@@ -450,17 +459,28 @@ async def test_udar_timeout_fallback(db):
         "cost_tracking": {"input_tokens": 0, "output_tokens": 0},
     }
 
-    with patch.object(service.agent, "ainvoke", side_effect=TimeoutError()), \
-         patch.object(service, "_fallback_to_legacy", new_callable=AsyncMock, return_value=mock_fallback_result):
+    with (
+        patch.object(service.agent, "ainvoke", side_effect=TimeoutError()),
+        patch.object(
+            service,
+            "_fallback_to_legacy",
+            new_callable=AsyncMock,
+            return_value=mock_fallback_result,
+        ),
+    ):
         # With fallback enabled (default), should return legacy result
-        result = await service.generate_from_goal(goal.id, fallback_to_legacy=True, timeout_seconds=1)
+        result = await service.generate_from_goal(
+            goal.id, fallback_to_legacy=True, timeout_seconds=1
+        )
         assert result["used_legacy_fallback"] is True
         assert result["fallback_reason"] == "timeout"
 
     with patch.object(service.agent, "ainvoke", side_effect=TimeoutError()):
         # With fallback disabled, should raise exception
         with pytest.raises(LLMTimeoutError):
-            await service.generate_from_goal(goal.id, fallback_to_legacy=False, timeout_seconds=1)
+            await service.generate_from_goal(
+                goal.id, fallback_to_legacy=False, timeout_seconds=1
+            )
 
 
 @pytest.mark.asyncio
@@ -502,11 +522,21 @@ async def test_udar_tool_error_fallback(db):
     }
 
     # Mock tool execution failure and fallback
-    with patch.object(
-        service.agent,
-        "ainvoke",
-        side_effect=ToolExecutionError("analyze_codebase", "File not found", "understand"),
-    ), patch.object(service, "_fallback_to_legacy", new_callable=AsyncMock, return_value=mock_fallback_result):
+    with (
+        patch.object(
+            service.agent,
+            "ainvoke",
+            side_effect=ToolExecutionError(
+                "analyze_codebase", "File not found", "understand"
+            ),
+        ),
+        patch.object(
+            service,
+            "_fallback_to_legacy",
+            new_callable=AsyncMock,
+            return_value=mock_fallback_result,
+        ),
+    ):
         result = await service.generate_from_goal(goal.id, fallback_to_legacy=True)
         assert result["used_legacy_fallback"] is True
         assert "tool_error" in result["fallback_reason"]
@@ -626,14 +656,29 @@ async def test_udar_graceful_degradation(db):
     }
 
     # With fallback enabled, should handle gracefully
-    with patch.object(service.agent, "ainvoke", side_effect=RuntimeError("Unexpected error in LangGraph")), \
-         patch.object(service, "_fallback_to_legacy", new_callable=AsyncMock, return_value=mock_fallback_result):
+    with (
+        patch.object(
+            service.agent,
+            "ainvoke",
+            side_effect=RuntimeError("Unexpected error in LangGraph"),
+        ),
+        patch.object(
+            service,
+            "_fallback_to_legacy",
+            new_callable=AsyncMock,
+            return_value=mock_fallback_result,
+        ),
+    ):
         result = await service.generate_from_goal(goal.id, fallback_to_legacy=True)
         assert result["used_legacy_fallback"] is True
         assert result["fallback_reason"] == "unexpected_error"
 
     # With fallback disabled, should raise UDARAgentError
-    with patch.object(service.agent, "ainvoke", side_effect=RuntimeError("Unexpected error in LangGraph")):
+    with patch.object(
+        service.agent,
+        "ainvoke",
+        side_effect=RuntimeError("Unexpected error in LangGraph"),
+    ):
         with pytest.raises(UDARAgentError):
             await service.generate_from_goal(goal.id, fallback_to_legacy=False)
 

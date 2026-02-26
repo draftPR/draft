@@ -34,6 +34,7 @@ class UDARState(TypedDict):
 
     This state is passed through all phases of the UDAR cycle.
     """
+
     # Inputs
     goal_id: str
     goal_title: str
@@ -154,6 +155,7 @@ class UDARPlannerService:
 
             # Query existing tickets (deterministic)
             from sqlalchemy import select
+
             stmt = select(Ticket).where(Ticket.goal_id == state["goal_id"])
             result = await self.db.execute(stmt)
             tickets = result.scalars().all()
@@ -173,11 +175,15 @@ class UDARPlannerService:
             state["existing_ticket_count"] = len(tickets)
 
             # Log understanding phase
-            await self._log_phase(state, "understanding", {
-                "project_type": context.project_type,
-                "file_count": len(context.file_tree),
-                "existing_ticket_count": len(tickets),
-            })
+            await self._log_phase(
+                state,
+                "understanding",
+                {
+                    "project_type": context.project_type,
+                    "file_count": len(context.file_tree),
+                    "existing_ticket_count": len(tickets),
+                },
+            )
 
         except Exception as e:
             state["errors"].append(f"Understand phase error: {str(e)}")
@@ -216,12 +222,16 @@ class UDARPlannerService:
             state["should_generate_new"] = len(parsed["tickets"]) > 0
 
             # Log decision phase
-            await self._log_phase(state, "decision", {
-                "tickets_proposed": len(state["proposed_tickets"]),
-                "reasoning_length": len(state["reasoning"]),
-                "llm_calls": 1,
-                "is_retry": state["iteration"] > 0,
-            })
+            await self._log_phase(
+                state,
+                "decision",
+                {
+                    "tickets_proposed": len(state["proposed_tickets"]),
+                    "reasoning_length": len(state["reasoning"]),
+                    "llm_calls": 1,
+                    "is_retry": state["iteration"] > 0,
+                },
+            )
 
         except Exception as e:
             state["errors"].append(f"Decide phase error: {str(e)}")
@@ -253,9 +263,13 @@ class UDARPlannerService:
             state["proposed_tickets"] = formatted_tickets
 
             # Log act phase
-            await self._log_phase(state, "act", {
-                "tickets_formatted": len(formatted_tickets),
-            })
+            await self._log_phase(
+                state,
+                "act",
+                {
+                    "tickets_formatted": len(formatted_tickets),
+                },
+            )
 
         except Exception as e:
             state["errors"].append(f"Act phase error: {str(e)}")
@@ -290,14 +304,18 @@ class UDARPlannerService:
 
             for ticket in state["proposed_tickets"]:
                 # Deterministic validation
-                is_valid, reason = await self._validate_ticket_deterministic(ticket, state)
+                is_valid, reason = await self._validate_ticket_deterministic(
+                    ticket, state
+                )
 
-                validation_results.append({
-                    "ticket_title": ticket["title"],
-                    "is_valid": is_valid,
-                    "reason": reason,
-                    "llm_used": False,
-                })
+                validation_results.append(
+                    {
+                        "ticket_title": ticket["title"],
+                        "is_valid": is_valid,
+                        "reason": reason,
+                        "llm_used": False,
+                    }
+                )
 
                 if is_valid:
                     validated_tickets.append(ticket)
@@ -320,11 +338,16 @@ class UDARPlannerService:
                 state["validation_feedback"] = ""
 
             # Log validation phase
-            await self._log_phase(state, "validation", {
-                "tickets_validated": len(validated_tickets),
-                "tickets_rejected": len(state["proposed_tickets"]) - len(validated_tickets),
-                "has_failures": len(validation_feedback_messages) > 0,
-            })
+            await self._log_phase(
+                state,
+                "validation",
+                {
+                    "tickets_validated": len(validated_tickets),
+                    "tickets_rejected": len(state["proposed_tickets"])
+                    - len(validated_tickets),
+                    "has_failures": len(validation_feedback_messages) > 0,
+                },
+            )
 
         except Exception as e:
             state["errors"].append(f"Validate phase error: {str(e)}")
@@ -367,7 +390,9 @@ class UDARPlannerService:
             state["review_summary"] = f"Created {len(final_tickets)} tickets"
 
             # Save checkpoint to agent memory (compressed)
-            checkpoint_id = f"{state['goal_id']}-{state['trigger']}-{datetime.utcnow().isoformat()}"
+            checkpoint_id = (
+                f"{state['goal_id']}-{state['trigger']}-{datetime.utcnow().isoformat()}"
+            )
             await self.memory_service.save_checkpoint(
                 goal_id=state["goal_id"],
                 checkpoint_id=checkpoint_id,
@@ -375,11 +400,15 @@ class UDARPlannerService:
             )
 
             # Log review phase
-            await self._log_phase(state, "review", {
-                "tickets_created": len(final_tickets),
-                "total_llm_calls": state.get("llm_calls_made", 0),
-                "checkpoint_saved": True,
-            })
+            await self._log_phase(
+                state,
+                "review",
+                {
+                    "tickets_created": len(final_tickets),
+                    "total_llm_calls": state.get("llm_calls_made", 0),
+                    "checkpoint_saved": True,
+                },
+            )
 
         except Exception as e:
             state["errors"].append(f"Review phase error: {str(e)}")
@@ -401,10 +430,7 @@ class UDARPlannerService:
         """
         from app.services.config_service import ConfigService
 
-        failed_count = sum(
-            1 for r in state["validation_results"]
-            if not r["is_valid"]
-        )
+        failed_count = sum(1 for r in state["validation_results"] if not r["is_valid"])
 
         # Get max iterations from config
         config = ConfigService().load_config()
@@ -437,14 +463,14 @@ class UDARPlannerService:
 
         prompt = f"""You are a software project planner. Generate tickets for the following goal:
 
-**Goal:** {state['goal_title']}
-**Description:** {state['goal_description']}
+**Goal:** {state["goal_title"]}
+**Description:** {state["goal_description"]}
 
 **Codebase Context:**
-{state['codebase_summary'][:2000]}  # Cap context to save tokens
+{state["codebase_summary"][:2000]}  # Cap context to save tokens
 
 **Existing Tickets:**
-{json.dumps(state['existing_tickets'][:10], indent=2)}  # Cap at 10
+{json.dumps(state["existing_tickets"][:10], indent=2)}  # Cap at 10
 """
 
         # Add validation feedback if this is a retry
@@ -600,13 +626,16 @@ Return JSON in this format:
 
         tickets_context = []
         for ticket_id in ticket_ids:
-            change_analysis = await analyze_ticket_changes.ainvoke({
-                "db": self.db,
-                "ticket_id": ticket_id,
-            })
+            change_analysis = await analyze_ticket_changes.ainvoke(
+                {
+                    "db": self.db,
+                    "ticket_id": ticket_id,
+                }
+            )
 
             # Parse JSON response
             import json
+
             parsed = json.loads(change_analysis)
 
             if "error" not in parsed:
@@ -624,11 +653,15 @@ Return JSON in this format:
         # Step 2: Apply deterministic filters (avoid LLM if possible)
         # Only consider "significant" changes based on config threshold
         from app.services.config_service import ConfigService
+
         config = ConfigService().load_config()
-        significance_threshold = config.planner_config.udar.replan_significance_threshold
+        significance_threshold = (
+            config.planner_config.udar.replan_significance_threshold
+        )
 
         significant_tickets = [
-            t for t in tickets_context
+            t
+            for t in tickets_context
             if t["file_count"] > significance_threshold or not t["verification_passed"]
         ]
 
@@ -696,14 +729,16 @@ Return JSON in this format:
         Returns:
             Prompt string for LLM
         """
-        tickets_summary = "\n\n".join([
-            f"**Ticket {i+1}: {t['ticket_title']}**\n"
-            f"- State: {t['state']}\n"
-            f"- Files changed: {t['file_count']}\n"
-            f"- Files: {', '.join(t['files_changed'][:5])}\n"
-            f"- Verification: {'✓ Passed' if t['verification_passed'] else '✗ Failed'}"
-            for i, t in enumerate(significant_tickets)
-        ])
+        tickets_summary = "\n\n".join(
+            [
+                f"**Ticket {i + 1}: {t['ticket_title']}**\n"
+                f"- State: {t['state']}\n"
+                f"- Files changed: {t['file_count']}\n"
+                f"- Files: {', '.join(t['files_changed'][:5])}\n"
+                f"- Verification: {'✓ Passed' if t['verification_passed'] else '✗ Failed'}"
+                for i, t in enumerate(significant_tickets)
+            ]
+        )
 
         prompt = f"""You are analyzing completed tickets to determine if follow-up work is needed.
 
@@ -828,7 +863,13 @@ If no follow-ups are needed, return {{"reasoning": "...", "tickets": []}}
                 "tickets": result_state["final_tickets"],
                 "summary": result_state["review_summary"],
                 "llm_calls_made": result_state["llm_calls_made"],
-                "phases_completed": ["understand", "decide", "act", "validate", "review"],
+                "phases_completed": [
+                    "understand",
+                    "decide",
+                    "act",
+                    "validate",
+                    "review",
+                ],
                 "errors": result_state["errors"],
                 "used_legacy_fallback": False,
                 "cost_tracking": {
@@ -871,7 +912,9 @@ If no follow-ups are needed, return {{"reasoning": "...", "tickets": []}}
             # Unexpected error - always try fallback
             logger.exception(f"Unexpected UDAR agent error for goal {goal_id}: {e}")
             if fallback_to_legacy:
-                return await self._fallback_to_legacy(goal_id, reason="unexpected_error")
+                return await self._fallback_to_legacy(
+                    goal_id, reason="unexpected_error"
+                )
             raise UDARAgentError(f"Unexpected error: {str(e)}") from e
 
     # Phase 5: Production Hardening - Helper Methods
@@ -938,17 +981,18 @@ If no follow-ups are needed, return {{"reasoning": "...", "tickets": []}}
             agent_config = AGENT_REGISTRY.get(AgentType.CLAUDE)
 
             if not agent_config or not agent_config.cost_per_1k_input:
-                logger.warning("Claude agent config not found in registry, skipping cost tracking")
+                logger.warning(
+                    "Claude agent config not found in registry, skipping cost tracking"
+                )
                 return
 
             # Calculate cost
             input_tokens = state.get("total_input_tokens", 0)
             output_tokens = state.get("total_output_tokens", 0)
 
-            cost_usd = (
-                (input_tokens / 1000) * agent_config.cost_per_1k_input
-                + (output_tokens / 1000) * (agent_config.cost_per_1k_output or 0)
-            )
+            cost_usd = (input_tokens / 1000) * agent_config.cost_per_1k_input + (
+                output_tokens / 1000
+            ) * (agent_config.cost_per_1k_output or 0)
 
             logger.info(
                 f"UDAR agent session for goal {goal_id}: "

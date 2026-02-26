@@ -61,7 +61,9 @@ class BoardRepoService:
         )
         existing = existing_result.scalar_one_or_none()
         if existing:
-            raise ValueError(f"Repo {repo_id} is already associated with board {board_id}")
+            raise ValueError(
+                f"Repo {repo_id} is already associated with board {board_id}"
+            )
 
         # If setting as primary, unset other primary repos
         if is_primary:

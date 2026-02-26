@@ -15,4 +15,3 @@ class SuccessResponse(BaseModel):
 
     message: str
     success: bool = True
-

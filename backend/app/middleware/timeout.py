@@ -20,8 +20,7 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         try:
             response = await asyncio.wait_for(
-                call_next(request),
-                timeout=self.timeout_seconds
+                call_next(request), timeout=self.timeout_seconds
             )
             return response
         except TimeoutError:
@@ -34,5 +33,5 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
                 content={
                     "detail": f"Request timed out after {self.timeout_seconds} seconds",
                     "error_type": "timeout",
-                }
+                },
             )

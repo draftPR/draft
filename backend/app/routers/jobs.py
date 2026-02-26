@@ -134,15 +134,18 @@ async def stream_job_logs(
     async def event_generator():
         """Generate SSE events from log stream."""
         import json
+
         try:
             async for msg in log_stream_service.subscribe(job_id):
                 # For progress events, include metadata as JSON
                 if msg.level == LogLevel.PROGRESS:
-                    data = json.dumps({
-                        "content": msg.content,
-                        "progress_pct": msg.progress_pct,
-                        "stage": msg.stage,
-                    })
+                    data = json.dumps(
+                        {
+                            "content": msg.content,
+                            "progress_pct": msg.progress_pct,
+                            "stage": msg.stage,
+                        }
+                    )
                 else:
                     data = msg.content
 
@@ -338,7 +341,9 @@ async def normalize_logs(
 
     from app.models.normalized_log import NormalizedLogEntry
 
-    await db.execute(delete(NormalizedLogEntry).where(NormalizedLogEntry.job_id == job_id))
+    await db.execute(
+        delete(NormalizedLogEntry).where(NormalizedLogEntry.job_id == job_id)
+    )
     await db.commit()
 
     # Normalize and store

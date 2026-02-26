@@ -72,9 +72,7 @@ class BoardService:
 
     async def get_board_by_id(self, board_id: str) -> Board:
         """Get a board by its ID."""
-        result = await self.db.execute(
-            select(Board).where(Board.id == board_id)
-        )
+        result = await self.db.execute(select(Board).where(Board.id == board_id))
         board = result.scalar_one_or_none()
         if not board:
             raise ValueError(f"Board not found: {board_id}")
@@ -165,9 +163,7 @@ class BoardService:
 
         Raises ValueError if goal doesn't exist or doesn't belong to board.
         """
-        result = await self.db.execute(
-            select(Goal).where(Goal.id == goal_id)
-        )
+        result = await self.db.execute(select(Goal).where(Goal.id == goal_id))
         goal = result.scalar_one_or_none()
         if not goal:
             raise ValueError(f"Goal not found: {goal_id}")
@@ -184,9 +180,7 @@ class BoardService:
 
         Raises ValueError if ticket doesn't exist or doesn't belong to board.
         """
-        result = await self.db.execute(
-            select(Ticket).where(Ticket.id == ticket_id)
-        )
+        result = await self.db.execute(select(Ticket).where(Ticket.id == ticket_id))
         ticket = result.scalar_one_or_none()
         if not ticket:
             raise ValueError(f"Ticket not found: {ticket_id}")
@@ -213,9 +207,7 @@ class BoardService:
 
     async def verify_job_in_board(self, job_id: str, board_id: str) -> Job:
         """Verify a job belongs to a board."""
-        result = await self.db.execute(
-            select(Job).where(Job.id == job_id)
-        )
+        result = await self.db.execute(select(Job).where(Job.id == job_id))
         job = result.scalar_one_or_none()
         if not job:
             raise ValueError(f"Job not found: {job_id}")
@@ -268,9 +260,7 @@ class BoardService:
 
     async def get_board_for_goal(self, goal_id: str) -> Board | None:
         """Get the board that owns a goal (if any)."""
-        result = await self.db.execute(
-            select(Goal).where(Goal.id == goal_id)
-        )
+        result = await self.db.execute(select(Goal).where(Goal.id == goal_id))
         goal = result.scalar_one_or_none()
         if not goal or not goal.board_id:
             return None
@@ -279,9 +269,7 @@ class BoardService:
 
     async def get_board_for_ticket(self, ticket_id: str) -> Board | None:
         """Get the board that owns a ticket (if any)."""
-        result = await self.db.execute(
-            select(Ticket).where(Ticket.id == ticket_id)
-        )
+        result = await self.db.execute(select(Ticket).where(Ticket.id == ticket_id))
         ticket = result.scalar_one_or_none()
         if not ticket or not ticket.board_id:
             return None

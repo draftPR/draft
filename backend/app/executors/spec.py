@@ -13,48 +13,52 @@ from enum import StrEnum
 
 class ExecutorCapability(StrEnum):
     """Capabilities an executor may support."""
-    STREAMING_OUTPUT = "streaming_output"    # Real-time stdout
-    SESSION_RESUME = "session_resume"        # Continue previous sessions
-    YOLO_MODE = "yolo_mode"                  # Auto-approve all actions
-    MCP_SERVERS = "mcp_servers"              # Model Context Protocol
-    COST_TRACKING = "cost_tracking"          # Token/cost reporting
-    INTERACTIVE = "interactive"              # Requires human interaction
+
+    STREAMING_OUTPUT = "streaming_output"  # Real-time stdout
+    SESSION_RESUME = "session_resume"  # Continue previous sessions
+    YOLO_MODE = "yolo_mode"  # Auto-approve all actions
+    MCP_SERVERS = "mcp_servers"  # Model Context Protocol
+    COST_TRACKING = "cost_tracking"  # Token/cost reporting
+    INTERACTIVE = "interactive"  # Requires human interaction
 
 
 @dataclass
 class ExecutorMetadata:
     """Metadata about an executor."""
-    name: str                                # e.g., "claude", "codex"
-    display_name: str                        # e.g., "Claude Code", "OpenAI Codex"
-    version: str                             # Executor adapter version
-    agent_version: str | None = None      # Underlying agent version if detectable
+
+    name: str  # e.g., "claude", "codex"
+    display_name: str  # e.g., "Claude Code", "OpenAI Codex"
+    version: str  # Executor adapter version
+    agent_version: str | None = None  # Underlying agent version if detectable
     capabilities: list[ExecutorCapability] = field(default_factory=list)
     config_schema: dict = field(default_factory=dict)  # JSON Schema for configuration
     documentation_url: str | None = None
-    author: str | None = None             # Plugin author
-    license: str | None = None            # Plugin license
+    author: str | None = None  # Plugin author
+    license: str | None = None  # Plugin license
 
 
 @dataclass
 class ExecutionRequest:
     """Request to execute a task."""
+
     prompt: str
     working_directory: str
     timeout_seconds: int = 600
     yolo_mode: bool = False
-    session_id: str | None = None         # For session resume
+    session_id: str | None = None  # For session resume
     environment: dict[str, str] = field(default_factory=dict)  # Additional env vars
-    mcp_servers: list[dict] = field(default_factory=list)      # MCP server configs
-    config: dict[str, any] = field(default_factory=dict)       # Executor-specific config
+    mcp_servers: list[dict] = field(default_factory=list)  # MCP server configs
+    config: dict[str, any] = field(default_factory=dict)  # Executor-specific config
 
 
 @dataclass
 class ExecutionResult:
     """Result of an execution."""
+
     exit_code: int
     stdout: str
     stderr: str
-    session_id: str | None = None         # For future resume
+    session_id: str | None = None  # For future resume
     files_changed: list[str] = field(default_factory=list)
     cost_usd: float | None = None
     tokens_used: dict[str, int] | None = None  # {"input": X, "output": Y}
@@ -102,10 +106,7 @@ class ExecutorAdapter(ABC):
         """
         pass
 
-    async def stream_output(
-        self,
-        request: ExecutionRequest
-    ) -> AsyncIterator[str]:
+    async def stream_output(self, request: ExecutionRequest) -> AsyncIterator[str]:
         """
         Stream output in real-time. Optional - implement if your agent supports it.
 
@@ -174,7 +175,11 @@ class ExecutorAdapter(ABC):
         """
         metadata = self.get_metadata()
         url = metadata.documentation_url or ""
-        return f"Install {metadata.display_name}. See {url}" if url else f"Install {metadata.display_name}."
+        return (
+            f"Install {metadata.display_name}. See {url}"
+            if url
+            else f"Install {metadata.display_name}."
+        )
 
     async def validate_config(self, config: dict) -> bool:
         """Validate executor-specific configuration.
@@ -194,18 +199,22 @@ class ExecutorAdapter(ABC):
 
 class ExecutorError(Exception):
     """Base exception for executor errors."""
+
     pass
 
 
 class ExecutorNotFoundError(ExecutorError):
     """Raised when executor CLI is not found."""
+
     pass
 
 
 class ExecutorInvocationError(ExecutorError):
     """Raised when executor CLI invocation fails."""
 
-    def __init__(self, message: str, exit_code: int | None = None, stderr: str | None = None):
+    def __init__(
+        self, message: str, exit_code: int | None = None, stderr: str | None = None
+    ):
         super().__init__(message)
         self.exit_code = exit_code
         self.stderr = stderr
@@ -213,4 +222,5 @@ class ExecutorInvocationError(ExecutorError):
 
 class ExecutorTimeoutError(ExecutorError):
     """Raised when executor execution times out."""
+
     pass

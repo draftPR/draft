@@ -402,4 +402,3 @@ class WorkspaceService:
         logs_dir = worktree_path / ".smartkanban" / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         return logs_dir
-

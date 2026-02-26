@@ -44,8 +44,12 @@ class GatherStats:
     skipped_too_large: int = 0
     todo_lines_found: int = 0
     # Observability: track what was excluded and what was scanned
-    excluded_by_pattern: dict[str, int] = field(default_factory=dict)  # pattern -> count
-    extensions_scanned: dict[str, int] = field(default_factory=dict)  # extension -> count
+    excluded_by_pattern: dict[str, int] = field(
+        default_factory=dict
+    )  # pattern -> count
+    extensions_scanned: dict[str, int] = field(
+        default_factory=dict
+    )  # extension -> count
 
 
 @dataclass
@@ -256,7 +260,9 @@ class ContextGatherer:
             max_todos: Override MAX_TODO_LINES (can only decrease).
             additional_exclusions: Additional glob patterns to exclude.
         """
-        self.max_files = min(max_files or self.MAX_FILES_SCANNED, self.MAX_FILES_SCANNED)
+        self.max_files = min(
+            max_files or self.MAX_FILES_SCANNED, self.MAX_FILES_SCANNED
+        )
         self.max_bytes = min(max_bytes or self.MAX_BYTES_TOTAL, self.MAX_BYTES_TOTAL)
         self.max_todos = min(max_todos or self.MAX_TODO_LINES, self.MAX_TODO_LINES)
 
@@ -331,7 +337,8 @@ class ContextGatherer:
                     len(todo_excerpts) < self.max_todos
                     and file_size < self.MAX_FILE_SIZE_FOR_SCAN
                     and bytes_read < self.max_bytes
-                    and language in ("python", "javascript", "typescript", "go", "rust", "java")
+                    and language
+                    in ("python", "javascript", "typescript", "go", "rust", "java")
                 ):
                     new_todos, bytes_used = self._extract_todos(
                         file_path, rel_path, self.max_todos - len(todo_excerpts)
@@ -449,7 +456,9 @@ class ContextGatherer:
         """
         todos: list[str] = []
         bytes_read = 0
-        todo_pattern = re.compile(r"#\s*(TODO|FIXME|XXX|HACK)\b[:\s]*(.*)", re.IGNORECASE)
+        todo_pattern = re.compile(
+            r"#\s*(TODO|FIXME|XXX|HACK)\b[:\s]*(.*)", re.IGNORECASE
+        )
 
         try:
             with open(file_path, encoding="utf-8", errors="replace") as f:
@@ -459,11 +468,11 @@ class ContextGatherer:
                     match = todo_pattern.search(line)
                     if match:
                         tag = match.group(1).upper()
-                        message = match.group(2).strip()[:self.MAX_EXCERPT_CHARS]
+                        message = match.group(2).strip()[: self.MAX_EXCERPT_CHARS]
                         # Sanitize - remove any potential secrets
                         if not self._looks_like_secret(message):
                             excerpt = f"{rel_path}:{line_num} [{tag}] {message}"
-                            todos.append(excerpt[:self.MAX_EXCERPT_CHARS])
+                            todos.append(excerpt[: self.MAX_EXCERPT_CHARS])
 
                             if len(todos) >= max_count:
                                 break
@@ -536,7 +545,7 @@ class ContextGatherer:
                         content = f.read(self.MAX_README_CHARS + 100)
                         if len(content) > self.MAX_README_CHARS:
                             # Truncate at word boundary
-                            content = content[:self.MAX_README_CHARS]
+                            content = content[: self.MAX_README_CHARS]
                             last_space = content.rfind(" ")
                             if last_space > self.MAX_README_CHARS - 50:
                                 content = content[:last_space]
@@ -546,4 +555,3 @@ class ContextGatherer:
                     logger.debug(f"Failed to read README {readme_path}: {e}")
 
         return None
-

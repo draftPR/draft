@@ -26,12 +26,15 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("blocked_by_ticket_id", sa.String(36), nullable=True)
         )
-        batch_op.create_index("ix_tickets_blocked_by_ticket_id", ["blocked_by_ticket_id"])
+        batch_op.create_index(
+            "ix_tickets_blocked_by_ticket_id", ["blocked_by_ticket_id"]
+        )
         batch_op.create_foreign_key(
             "fk_tickets_blocked_by_ticket_id",
             "tickets",
-            ["blocked_by_ticket_id"], ["id"],
-            ondelete="SET NULL"  # If blocker is deleted, unblock this ticket
+            ["blocked_by_ticket_id"],
+            ["id"],
+            ondelete="SET NULL",  # If blocker is deleted, unblock this ticket
         )
 
 

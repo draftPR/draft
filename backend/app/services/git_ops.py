@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ConflictState:
     """Current conflict state of a worktree or repo."""
+
     operation: str  # "rebase", "merge", "cherry_pick", "revert"
     conflicted_files: list[str] = field(default_factory=list)
     can_continue: bool = True
@@ -24,6 +25,7 @@ class ConflictState:
 @dataclass
 class RebaseResult:
     """Result of a rebase operation."""
+
     success: bool
     message: str
     has_conflicts: bool = False
@@ -230,6 +232,7 @@ def abort_operation(worktree_path: Path) -> bool:
 @dataclass
 class PushResult:
     """Result of a push operation."""
+
     success: bool
     message: str
 
@@ -304,9 +307,7 @@ def force_push_branch(
     )
 
 
-def get_push_status(
-    repo_path: Path, branch: str, remote: str = "origin"
-) -> dict:
+def get_push_status(repo_path: Path, branch: str, remote: str = "origin") -> dict:
     """Check if local branch is ahead/behind the remote tracking branch.
 
     Returns dict with ahead/behind counts relative to remote.

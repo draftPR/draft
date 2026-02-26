@@ -15,6 +15,7 @@ from app.exceptions import ExecutorError, ExecutorTimeoutError
 
 class CheckpointType(StrEnum):
     """Types of execution checkpoints."""
+
     START = "start"
     PROGRESS = "progress"
     VALIDATION = "validation"
@@ -25,6 +26,7 @@ class CheckpointType(StrEnum):
 @dataclass
 class ExecutionCheckpoint:
     """Represents a point in execution that can be resumed from."""
+
     checkpoint_id: str
     ticket_id: str
     job_id: str | None
@@ -38,6 +40,7 @@ class ExecutionCheckpoint:
 @dataclass
 class RetryConfig:
     """Configuration for retry behavior."""
+
     max_retries: int = 3
     initial_delay_seconds: float = 2.0
     max_delay_seconds: float = 60.0
@@ -47,13 +50,14 @@ class RetryConfig:
     def get_delay(self, retry_attempt: int) -> float:
         """Calculate delay for given retry attempt with exponential backoff."""
         delay = min(
-            self.initial_delay_seconds * (self.exponential_base ** retry_attempt),
-            self.max_delay_seconds
+            self.initial_delay_seconds * (self.exponential_base**retry_attempt),
+            self.max_delay_seconds,
         )
 
         if self.jitter:
             # Add random jitter of ±20% to prevent thundering herd
             import random
+
             jitter_amount = delay * 0.2
             delay = delay + random.uniform(-jitter_amount, jitter_amount)
 
@@ -89,7 +93,7 @@ class ReliabilityWrapper:
         job_id: str | None = None,
         validation_func: Callable[[Any], bool] | None = None,
         checkpoint_key: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """
         Execute a function with automatic retry, checkpointing, and recovery.
@@ -118,7 +122,7 @@ class ReliabilityWrapper:
             job_id=job_id,
             checkpoint_type=CheckpointType.START,
             retry_count=0,
-            state_snapshot={"args": str(args), "kwargs": str(kwargs)}
+            state_snapshot={"args": str(args), "kwargs": str(kwargs)},
         )
 
         last_exception = None
@@ -133,11 +137,13 @@ class ReliabilityWrapper:
                     job_id=job_id,
                     retry_count=attempt,
                     *args,
-                    **kwargs
+                    **kwargs,
                 )
 
                 # Validate result if validation function provided
-                if validation_func and not await self._validate_result(result, validation_func):
+                if validation_func and not await self._validate_result(
+                    result, validation_func
+                ):
                     raise ValueError("Result validation failed")
 
                 # Success - create completion checkpoint
@@ -147,7 +153,7 @@ class ReliabilityWrapper:
                     job_id=job_id,
                     checkpoint_type=CheckpointType.COMPLETION,
                     retry_count=attempt,
-                    state_snapshot={"success": True}
+                    state_snapshot={"success": True},
                 )
 
                 return result
@@ -161,7 +167,7 @@ class ReliabilityWrapper:
                     checkpoint_type=CheckpointType.FAILURE,
                     retry_count=attempt,
                     state_snapshot={"cancelled": True},
-                    error_message="Execution cancelled"
+                    error_message="Execution cancelled",
                 )
                 raise
 
@@ -177,7 +183,7 @@ class ReliabilityWrapper:
                         checkpoint_type=CheckpointType.FAILURE,
                         retry_count=attempt,
                         state_snapshot={"non_retryable": True},
-                        error_message=str(e)
+                        error_message=str(e),
                     )
                     raise
 
@@ -190,7 +196,7 @@ class ReliabilityWrapper:
                         checkpoint_type=CheckpointType.FAILURE,
                         retry_count=attempt,
                         state_snapshot={"exhausted_retries": True},
-                        error_message=str(e)
+                        error_message=str(e),
                     )
                     raise
 
@@ -206,9 +212,9 @@ class ReliabilityWrapper:
                     state_snapshot={
                         "retry_in_seconds": delay,
                         "error": str(e),
-                        "attempt": attempt + 1
+                        "attempt": attempt + 1,
                     },
-                    error_message=str(e)
+                    error_message=str(e),
                 )
 
                 await asyncio.sleep(delay)
@@ -225,7 +231,7 @@ class ReliabilityWrapper:
         job_id: str | None,
         retry_count: int,
         *args,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Execute function with progress monitoring and periodic checkpointing."""
         start_time = time.time()
@@ -250,8 +256,8 @@ class ReliabilityWrapper:
                         retry_count=retry_count,
                         state_snapshot={
                             "elapsed_seconds": time.time() - start_time,
-                            "still_running": True
-                        }
+                            "still_running": True,
+                        },
                     )
                     self._last_checkpoint_time[checkpoint_key] = time.time()
 
@@ -329,22 +335,20 @@ class ReliabilityWrapper:
         # TODO: Persist checkpoint to database for true resumability
         # For now, keeping in memory is sufficient for single-session reliability
 
-    async def get_last_checkpoint(self, checkpoint_key: str) -> ExecutionCheckpoint | None:
+    async def get_last_checkpoint(
+        self, checkpoint_key: str
+    ) -> ExecutionCheckpoint | None:
         """Get the last checkpoint for a given key."""
         return self._checkpoints.get(checkpoint_key)
 
     async def list_checkpoints(self, ticket_id: str) -> list[ExecutionCheckpoint]:
         """List all checkpoints for a ticket."""
-        return [
-            cp for cp in self._checkpoints.values()
-            if cp.ticket_id == ticket_id
-        ]
+        return [cp for cp in self._checkpoints.values() if cp.ticket_id == ticket_id]
 
     async def cleanup_checkpoints(self, ticket_id: str):
         """Clean up checkpoints for a completed ticket."""
         keys_to_remove = [
-            key for key, cp in self._checkpoints.items()
-            if cp.ticket_id == ticket_id
+            key for key, cp in self._checkpoints.items() if cp.ticket_id == ticket_id
         ]
         for key in keys_to_remove:
             del self._checkpoints[key]
@@ -353,11 +357,7 @@ class ReliabilityWrapper:
 
 
 async def with_retry(
-    func: Callable,
-    *args,
-    max_retries: int = 3,
-    initial_delay: float = 2.0,
-    **kwargs
+    func: Callable, *args, max_retries: int = 3, initial_delay: float = 2.0, **kwargs
 ) -> Any:
     """
     Simple retry decorator for functions that don't need full reliability wrapper.
@@ -365,7 +365,9 @@ async def with_retry(
     Usage:
         result = await with_retry(some_async_func, arg1, arg2, max_retries=5)
     """
-    retry_config = RetryConfig(max_retries=max_retries, initial_delay_seconds=initial_delay)
+    retry_config = RetryConfig(
+        max_retries=max_retries, initial_delay_seconds=initial_delay
+    )
     last_exception = None
 
     for attempt in range(max_retries + 1):

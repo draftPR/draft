@@ -69,4 +69,3 @@ class Workspace(Base):
 
     def __repr__(self) -> str:
         return f"<Workspace(id={self.id}, ticket_id={self.ticket_id}, branch={self.branch_name})>"
-

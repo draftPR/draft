@@ -67,5 +67,3 @@ class Board(Base):
     board_repos: Mapped[list["BoardRepo"]] = relationship(
         "BoardRepo", back_populates="board", cascade="all, delete-orphan"
     )
-
-

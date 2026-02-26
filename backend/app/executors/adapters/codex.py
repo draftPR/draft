@@ -61,7 +61,8 @@ class CodexAdapter(ExecutorAdapter):
         else:
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "codex", "--version",
+                    "codex",
+                    "--version",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )

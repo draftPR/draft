@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SimpleMergeResult:
     """Result of a simple git merge operation."""
+
     success: bool
     message: str
     merged_branch: str | None = None
@@ -24,6 +25,7 @@ class SimpleMergeResult:
 
 class GitMergeError(Exception):
     """Raised when git merge operations fail."""
+
     pass
 
 
@@ -56,7 +58,9 @@ def git_merge_worktree_branch(
     Raises:
         GitMergeError: If git operations fail
     """
-    logger.info(f"Starting simple merge: {branch_name} -> {target_branch} (squash={squash})")
+    logger.info(
+        f"Starting simple merge: {branch_name} -> {target_branch} (squash={squash})"
+    )
 
     try:
         # 1. Ensure we're in the repo (not a worktree)
@@ -137,7 +141,9 @@ def git_merge_worktree_branch(
             )
 
             if not diff_check.stdout.strip():
-                logger.info(f"No changes between {target_branch} and {branch_name} - branches are identical")
+                logger.info(
+                    f"No changes between {target_branch} and {branch_name} - branches are identical"
+                )
                 # No actual changes, but this is considered success
                 # Skip the merge since branches are already in sync
                 merge_commit = None  # No new commit created
@@ -154,7 +160,9 @@ def git_merge_worktree_branch(
                 )
                 if result.returncode != 0:
                     if "CONFLICT" in result.stdout or "CONFLICT" in result.stderr:
-                        raise GitMergeError(f"Merge conflict during squash: {result.stderr}")
+                        raise GitMergeError(
+                            f"Merge conflict during squash: {result.stderr}"
+                        )
                     raise GitMergeError(f"Squash merge failed: {result.stderr}")
 
                 # Check if there are changes to commit
@@ -168,11 +176,18 @@ def git_merge_worktree_branch(
 
                 if not status_result.stdout.strip():
                     # No changes to commit - this shouldn't happen after squash
-                    logger.warning("No changes staged after squash merge - unexpected state")
+                    logger.warning(
+                        "No changes staged after squash merge - unexpected state"
+                    )
                 else:
                     # Create single commit
                     result = subprocess.run(
-                        ["git", "commit", "-m", f"Merge {branch_name} into {target_branch}"],
+                        [
+                            "git",
+                            "commit",
+                            "-m",
+                            f"Merge {branch_name} into {target_branch}",
+                        ],
                         cwd=repo_path,
                         capture_output=True,
                         text=True,
@@ -180,7 +195,9 @@ def git_merge_worktree_branch(
                     )
                     if result.returncode != 0:
                         # Log both stdout and stderr for debugging
-                        logger.error(f"Git commit failed. Stdout: {result.stdout}, Stderr: {result.stderr}")
+                        logger.error(
+                            f"Git commit failed. Stdout: {result.stdout}, Stderr: {result.stderr}"
+                        )
                         raise GitMergeError(
                             f"Commit after squash failed: {result.stderr}\n"
                             f"Stdout: {result.stdout}\n"
@@ -192,7 +209,14 @@ def git_merge_worktree_branch(
             # Regular merge with --no-ff
             logger.info(f"Merging {branch_name} into {target_branch}...")
             result = subprocess.run(
-                ["git", "merge", "--no-ff", branch_name, "-m", f"Merge {branch_name} into {target_branch}"],
+                [
+                    "git",
+                    "merge",
+                    "--no-ff",
+                    branch_name,
+                    "-m",
+                    f"Merge {branch_name} into {target_branch}",
+                ],
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
@@ -207,7 +231,7 @@ def git_merge_worktree_branch(
             logger.info("Merge successful")
 
         # 6. Get merge commit hash (only if we didn't already set it)
-        if 'merge_commit' not in locals():
+        if "merge_commit" not in locals():
             result = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
                 cwd=repo_path,
@@ -300,6 +324,7 @@ def cleanup_worktree(repo_path: Path, worktree_path: Path) -> bool:
             logger.warning(f"Git worktree remove failed: {result.stderr}")
             # Try to remove directory manually
             import shutil
+
             if worktree_path.exists():
                 shutil.rmtree(worktree_path)
                 logger.info("Manually removed worktree directory")

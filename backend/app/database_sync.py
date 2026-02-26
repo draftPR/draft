@@ -31,6 +31,7 @@ sync_engine = create_engine(
 
 # Enable WAL mode for SQLite to prevent readers from blocking writers
 if _is_sqlite:
+
     @event.listens_for(sync_engine, "connect")
     def _set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()

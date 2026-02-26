@@ -189,9 +189,7 @@ class GitHubService:
         except Exception as e:
             raise RuntimeError(f"Failed to get PR status: {e}")
 
-    async def get_pr_details(
-        self, repo_path: Path, pr_number: int
-    ) -> dict[str, any]:
+    async def get_pr_details(self, repo_path: Path, pr_number: int) -> dict[str, any]:
         """
         Get detailed information about a PR.
 

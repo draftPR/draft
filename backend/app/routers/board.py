@@ -35,6 +35,7 @@ router = APIRouter(prefix="/boards", tags=["boards"])
 # Board CRUD endpoints
 # ============================================================================
 
+
 @router.post(
     "",
     response_model=BoardResponse,
@@ -134,6 +135,7 @@ async def delete_board(
 # Board Configuration endpoints
 # ============================================================================
 
+
 @router.get(
     "/{board_id}/config",
     response_model=BoardConfigResponse,
@@ -207,11 +209,13 @@ async def update_board_config(
 
         # Deep merge with existing config
         from app.services.config_service import deep_merge_dicts
+
         existing_config = board.config or {}
         merged_config = deep_merge_dicts(existing_config, update_dict)
 
         # Update board
         from app.schemas.board import BoardUpdate
+
         update_data = BoardUpdate(config=merged_config)
         board = await service.update_board(board_id, update_data)
 
@@ -241,6 +245,7 @@ async def clear_board_config(
     service = BoardService(db)
     try:
         from app.schemas.board import BoardUpdate
+
         await service.update_board(board_id, BoardUpdate(config=None))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -377,6 +382,7 @@ async def get_board_kanban(
 # Board-scoped operations (use board's repo_root, NOT client-provided paths)
 # ============================================================================
 
+
 @router.post(
     "/{board_id}/analyze-codebase",
     response_model=AnalyzeCodebaseResponse,
@@ -435,12 +441,12 @@ async def analyze_codebase(
 
         from app.models import Goal
 
-        result = await db.execute(
-            select(Goal).where(Goal.id == request.goal_id)
-        )
+        result = await db.execute(select(Goal).where(Goal.id == request.goal_id))
         goal = result.scalar_one_or_none()
         if not goal:
-            raise HTTPException(status_code=404, detail=f"Goal not found: {request.goal_id}")
+            raise HTTPException(
+                status_code=404, detail=f"Goal not found: {request.goal_id}"
+            )
         if goal.board_id and goal.board_id != board_id:
             raise HTTPException(
                 status_code=403,

@@ -62,9 +62,7 @@ class BoardRepo(Base):
     repo: Mapped["Repo"] = relationship("Repo", back_populates="board_repos")
 
     # Constraints
-    __table_args__ = (
-        UniqueConstraint("board_id", "repo_id", name="uq_board_repo"),
-    )
+    __table_args__ = (UniqueConstraint("board_id", "repo_id", name="uq_board_repo"),)
 
     def __repr__(self) -> str:
         return f"<BoardRepo(board_id={self.board_id}, repo_id={self.repo_id}, is_primary={self.is_primary})>"

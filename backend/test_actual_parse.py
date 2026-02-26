@@ -5,10 +5,10 @@ import json
 import re
 import sys
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 # Read the actual agent response
-with open('/tmp/tmpi59wry37_agent_response.txt') as f:
+with open("/tmp/tmpi59wry37_agent_response.txt") as f:
     response = f.read()
 
 print(f"Response length: {len(response)} chars")
@@ -30,7 +30,7 @@ for i, match in enumerate(matches, 1):
         if "tickets" in data:
             print("✅ Valid JSON with tickets!")
             print(f"Tickets: {len(data['tickets'])}")
-            for ticket in data['tickets']:
+            for ticket in data["tickets"]:
                 print(f"  - {ticket.get('title', 'NO TITLE')[:80]}")
         else:
             print("❌ JSON valid but no 'tickets' key")
@@ -38,4 +38,4 @@ for i, match in enumerate(matches, 1):
         print(f"❌ JSON parse error: {e}")
         print(f"Error at position {e.pos}")
         if e.pos < len(match):
-            print(f"Context: ...{match[max(0, e.pos-50):e.pos+50]}...")
+            print(f"Context: ...{match[max(0, e.pos - 50) : e.pos + 50]}...")

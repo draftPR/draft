@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class AgentType(StrEnum):
     """Supported AI coding agents."""
+
     CLAUDE = "claude"
     CURSOR = "cursor"
     AMP = "amp"
@@ -29,6 +30,7 @@ class AgentType(StrEnum):
 @dataclass
 class AgentConfig:
     """Configuration for an AI agent."""
+
     agent_type: AgentType
     command: str  # Base command to run
     args: list[str] = field(default_factory=list)
@@ -59,7 +61,7 @@ class AgentExecutor(ABC):
         working_dir: Path,
         yolo_mode: bool = False,
         session_id: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> list[str]:
         """Build the command to execute the agent."""
         pass
@@ -82,7 +84,7 @@ class ClaudeExecutor(AgentExecutor):
         working_dir: Path,
         yolo_mode: bool = False,
         session_id: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> list[str]:
         cmd = [self.config.command, "--print", "--output-format", "json"]
 
@@ -98,6 +100,7 @@ class ClaudeExecutor(AgentExecutor):
     def parse_output(self, stdout: str, stderr: str) -> dict[str, Any]:
         # Parse Claude's JSON output format
         import json
+
         try:
             return {"success": True, "data": json.loads(stdout)}
         except json.JSONDecodeError:
@@ -116,7 +119,7 @@ class AmpExecutor(AgentExecutor):
         working_dir: Path,
         yolo_mode: bool = False,
         session_id: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> list[str]:
         cmd = [self.config.command, "run"]
 
@@ -148,7 +151,7 @@ class CursorExecutor(AgentExecutor):
         working_dir: Path,
         yolo_mode: bool = False,
         session_id: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> list[str]:
         cmd = [self.config.command]
         cmd.extend(["--prompt", prompt])
@@ -170,7 +173,7 @@ class AiderExecutor(AgentExecutor):
         working_dir: Path,
         yolo_mode: bool = False,
         session_id: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> list[str]:
         cmd = [self.config.command, "--yes", "--no-auto-commits"]
 
@@ -196,7 +199,7 @@ class GeminiExecutor(AgentExecutor):
         working_dir: Path,
         yolo_mode: bool = False,
         session_id: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> list[str]:
         cmd = [self.config.command]
 
@@ -222,7 +225,7 @@ class CodexExecutor(AgentExecutor):
         working_dir: Path,
         yolo_mode: bool = False,
         session_id: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> list[str]:
         cmd = [self.config.command]
 

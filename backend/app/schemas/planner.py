@@ -135,9 +135,7 @@ class GeneratedTicket(BaseModel):
 
     title: str = Field(..., min_length=1, max_length=255)
     description: str = Field(..., min_length=1)
-    priority_bucket: PriorityBucket = Field(
-        ..., description="Priority bucket (P0-P3)"
-    )
+    priority_bucket: PriorityBucket = Field(..., description="Priority bucket (P0-P3)")
     priority: int = Field(..., ge=0, le=100, description="Derived numeric priority")
     priority_rationale: str = Field(
         ..., description="Explanation for the assigned priority"
@@ -267,7 +265,9 @@ class SimilarTicketWarning(BaseModel):
 
     proposed_title: str = Field(..., description="Title of the proposed ticket")
     similar_to_id: str = Field(..., description="ID of the similar existing ticket")
-    similar_to_title: str = Field(..., description="Title of the similar existing ticket")
+    similar_to_title: str = Field(
+        ..., description="Title of the similar existing ticket"
+    )
     similarity_score: float = Field(..., description="Similarity score (0-1)")
 
 
@@ -348,9 +348,7 @@ class ReflectionResult(BaseModel):
     overall_quality: Literal["good", "needs_work", "insufficient"] = Field(
         ..., description="Overall assessment of ticket quality"
     )
-    quality_notes: str = Field(
-        ..., description="Detailed notes on ticket quality"
-    )
+    quality_notes: str = Field(..., description="Detailed notes on ticket quality")
     coverage_gaps: list[str] = Field(
         default_factory=list,
         description="Areas not covered by current tickets",
@@ -440,8 +438,12 @@ class PlannerAction(BaseModel):
 
     action_type: str = Field(..., description="Type of action taken")
     ticket_id: str = Field(..., description="ID of the ticket affected")
-    ticket_title: str | None = Field(None, description="Title of the ticket for display")
-    details: dict | None = Field(None, description="Additional details about the action")
+    ticket_title: str | None = Field(
+        None, description="Title of the ticket for display"
+    )
+    details: dict | None = Field(
+        None, description="Additional details about the action"
+    )
 
 
 class PlannerTickResponse(BaseModel):
@@ -485,9 +487,13 @@ class PlannerStartResponse(BaseModel):
 
     status: str = Field(..., description="'running', 'completed', or 'error'")
     message: str = Field(..., description="Human-readable status message")
-    tickets_queued: int = Field(default=0, description="Number of tickets initially queued")
+    tickets_queued: int = Field(
+        default=0, description="Number of tickets initially queued"
+    )
     tickets_completed: int = Field(default=0, description="Number of tickets completed")
-    tickets_failed: int = Field(default=0, description="Number of tickets that failed/blocked")
+    tickets_failed: int = Field(
+        default=0, description="Number of tickets that failed/blocked"
+    )
     total_actions: list[PlannerAction] = Field(
         default_factory=list,
         description="All actions taken during the autopilot run",

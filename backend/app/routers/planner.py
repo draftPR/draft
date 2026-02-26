@@ -372,8 +372,7 @@ async def planner_start(
 
     # Count initially queued tickets
     tickets_queued = sum(
-        1 for a in initial_result.actions
-        if a.action_type == "enqueued_execute"
+        1 for a in initial_result.actions if a.action_type == "enqueued_execute"
     )
 
     if tickets_queued == 0:
@@ -406,10 +405,12 @@ async def planner_start(
             # Count active tickets (executing or verifying)
             active_result = await poll_db.execute(
                 select(func.count(Ticket.id)).where(
-                    Ticket.state.in_([
-                        TicketState.EXECUTING.value,
-                        TicketState.VERIFYING.value,
-                    ])
+                    Ticket.state.in_(
+                        [
+                            TicketState.EXECUTING.value,
+                            TicketState.VERIFYING.value,
+                        ]
+                    )
                 )
             )
             active_count = active_result.scalar() or 0
@@ -427,7 +428,9 @@ async def planner_start(
                 select(func.count(Job.id)).where(
                     and_(
                         Job.kind == JobKind.EXECUTE.value,
-                        Job.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
+                        Job.status.in_(
+                            [JobStatus.QUEUED.value, JobStatus.RUNNING.value]
+                        ),
                     )
                 )
             )

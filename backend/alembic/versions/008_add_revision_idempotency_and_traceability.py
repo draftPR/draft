@@ -50,4 +50,3 @@ def downgrade() -> None:
         batch_op.drop_column("source_revision_id")
     with op.batch_alter_table("revisions") as batch_op:
         batch_op.drop_constraint("uq_revision_ticket_job", type_="unique")
-

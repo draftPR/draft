@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class LogLevel(StrEnum):
     """Log message levels."""
+
     STDOUT = "stdout"
     STDERR = "stderr"
     INFO = "info"
@@ -32,6 +33,7 @@ class LogLevel(StrEnum):
 @dataclass
 class LogMessage:
     """A single log message with optional metadata."""
+
     level: LogLevel
     content: str
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -94,7 +96,7 @@ class InMemoryBroadcaster:
             history = self._history[job_id]
             history.append(msg)
             if len(history) > self._max_history:
-                self._history[job_id] = history[-self._max_history:]
+                self._history[job_id] = history[-self._max_history :]
 
             # Broadcast to subscribers
             subscribers = self._subscribers.get(job_id, set())
@@ -173,7 +175,9 @@ class LogStreamPublisher:
     def push_error(self, job_id: str, content: str) -> None:
         self.push(job_id, LogLevel.ERROR, content)
 
-    def push_progress(self, job_id: str, pct: int, stage: str, content: str = "") -> None:
+    def push_progress(
+        self, job_id: str, pct: int, stage: str, content: str = ""
+    ) -> None:
         """Push a progress update."""
         self.push(job_id, LogLevel.PROGRESS, content, progress_pct=pct, stage=stage)
 
@@ -195,7 +199,9 @@ class LogStreamSubscriber:
         """Get message history from in-memory broadcaster."""
         return _broadcaster.get_history(job_id)
 
-    async def subscribe(self, job_id: str, max_wait_seconds: int = 1800) -> AsyncIterator[LogMessage]:
+    async def subscribe(
+        self, job_id: str, max_wait_seconds: int = 1800
+    ) -> AsyncIterator[LogMessage]:
         """Subscribe to log stream with minimal latency.
 
         1. Yield history for catch-up
@@ -223,7 +229,9 @@ class LogStreamSubscriber:
 
                 await asyncio.sleep(0.01)  # 10ms poll interval
 
-            logger.warning(f"Log stream subscription for job {job_id} timed out after {max_wait_seconds}s")
+            logger.warning(
+                f"Log stream subscription for job {job_id} timed out after {max_wait_seconds}s"
+            )
             yield LogMessage(
                 level=LogLevel.INFO,
                 content=f"[Stream timeout after {max_wait_seconds}s - connection closed]",

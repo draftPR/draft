@@ -45,4 +45,3 @@ def downgrade() -> None:
     """Drop analysis_cache table."""
     op.drop_index("ix_analysis_cache_expires_at", table_name="analysis_cache")
     op.drop_table("analysis_cache")
-

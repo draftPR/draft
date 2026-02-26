@@ -38,6 +38,7 @@ SESSION_PATTERNS = [
 @dataclass
 class AgentSession:
     """Represents a stored agent session."""
+
     session_id: str
     agent_type: str  # "claude", "cursor", etc.
     ticket_id: str
@@ -110,7 +111,9 @@ class AgentSessionService:
             if session.ticket_id == ticket_id:
                 return session
 
-            logger.debug(f"Session exists but for different ticket ({session.ticket_id} != {ticket_id})")
+            logger.debug(
+                f"Session exists but for different ticket ({session.ticket_id} != {ticket_id})"
+            )
             return None
 
         except (json.JSONDecodeError, KeyError) as e:
@@ -154,7 +157,9 @@ class AgentSessionService:
             )
 
         self.session_file.write_text(json.dumps(session.to_dict(), indent=2))
-        logger.info(f"Saved session {session_id} for ticket {ticket_id} (count: {session.execution_count})")
+        logger.info(
+            f"Saved session {session_id} for ticket {ticket_id} (count: {session.execution_count})"
+        )
 
         return session
 
@@ -184,7 +189,9 @@ class AgentSessionService:
 
         return None
 
-    def get_continue_flag(self, ticket_id: str, agent_type: str = "claude") -> str | None:
+    def get_continue_flag(
+        self, ticket_id: str, agent_type: str = "claude"
+    ) -> str | None:
         """Get the CLI flag to continue an existing session.
 
         Args:

@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CostSummary:
     """Cost summary for a period or entity."""
+
     total_cost_usd: float
     total_input_tokens: int
     total_output_tokens: int
@@ -38,6 +39,7 @@ class CostSummary:
 @dataclass
 class BudgetStatus:
     """Budget tracking status."""
+
     daily_budget: float | None
     daily_spent: float
     daily_remaining: float
@@ -64,10 +66,7 @@ class CostTrackingService:
         self.db = db
 
     async def calculate_cost(
-        self,
-        agent_type: AgentType,
-        input_tokens: int,
-        output_tokens: int
+        self, agent_type: AgentType, input_tokens: int, output_tokens: int
     ) -> float:
         """Calculate cost for given token usage."""
         config = AGENT_REGISTRY.get(agent_type)
@@ -75,20 +74,18 @@ class CostTrackingService:
             return 0.0
 
         input_cost = (input_tokens / 1000) * config.cost_per_1k_input
-        output_cost = (output_tokens / 1000) * (config.cost_per_1k_output or config.cost_per_1k_input)
+        output_cost = (output_tokens / 1000) * (
+            config.cost_per_1k_output or config.cost_per_1k_input
+        )
 
         return round(input_cost + output_cost, 6)
 
     async def get_period_cost(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        goal_id: str | None = None
+        self, start_date: datetime, end_date: datetime, goal_id: str | None = None
     ) -> float:
         """Get total cost for a time period, optionally filtered by goal."""
         query = select(func.sum(AgentSession.estimated_cost_usd)).where(
-            AgentSession.created_at >= start_date,
-            AgentSession.created_at < end_date
+            AgentSession.created_at >= start_date, AgentSession.created_at < end_date
         )
 
         if goal_id:
@@ -137,7 +134,7 @@ class CostTrackingService:
         self,
         daily_budget: float | None = None,
         weekly_budget: float | None = None,
-        monthly_budget: float | None = None
+        monthly_budget: float | None = None,
     ) -> BudgetStatus:
         """Get current budget status across all time periods."""
         daily_budget = daily_budget or self.DEFAULT_DAILY_BUDGET
@@ -153,15 +150,15 @@ class CostTrackingService:
         monthly_remaining = max(0, monthly_budget - monthly_spent)
 
         is_over_budget = (
-            daily_spent > daily_budget or
-            weekly_spent > weekly_budget or
-            monthly_spent > monthly_budget
+            daily_spent > daily_budget
+            or weekly_spent > weekly_budget
+            or monthly_spent > monthly_budget
         )
 
         warning_reached = (
-            daily_spent >= daily_budget * self.WARNING_THRESHOLD or
-            weekly_spent >= weekly_budget * self.WARNING_THRESHOLD or
-            monthly_spent >= monthly_budget * self.WARNING_THRESHOLD
+            daily_spent >= daily_budget * self.WARNING_THRESHOLD
+            or weekly_spent >= weekly_budget * self.WARNING_THRESHOLD
+            or monthly_spent >= monthly_budget * self.WARNING_THRESHOLD
         )
 
         return BudgetStatus(
@@ -175,13 +172,11 @@ class CostTrackingService:
             monthly_spent=round(monthly_spent, 2),
             monthly_remaining=round(monthly_remaining, 2),
             is_over_budget=is_over_budget,
-            warning_threshold_reached=warning_reached
+            warning_threshold_reached=warning_reached,
         )
 
     async def get_cost_summary(
-        self,
-        days: int = 30,
-        goal_id: str | None = None
+        self, days: int = 30, goal_id: str | None = None
     ) -> CostSummary:
         """Get detailed cost summary for the last N days."""
         end_date = datetime.utcnow()
@@ -189,8 +184,7 @@ class CostTrackingService:
 
         # Base query
         base_query = select(AgentSession).where(
-            AgentSession.created_at >= start_date,
-            AgentSession.created_at < end_date
+            AgentSession.created_at >= start_date, AgentSession.created_at < end_date
         )
 
         if goal_id:
@@ -209,20 +203,26 @@ class CostTrackingService:
         cost_by_agent: dict[str, float] = {}
         for session in sessions:
             agent = session.agent_type
-            cost_by_agent[agent] = cost_by_agent.get(agent, 0) + session.estimated_cost_usd
+            cost_by_agent[agent] = (
+                cost_by_agent.get(agent, 0) + session.estimated_cost_usd
+            )
 
         # Cost by goal (need to join with tickets)
         cost_by_goal: dict[str, float] = {}
         for session in sessions:
             if session.ticket and session.ticket.goal_id:
                 goal_id = str(session.ticket.goal_id)
-                cost_by_goal[goal_id] = cost_by_goal.get(goal_id, 0) + session.estimated_cost_usd
+                cost_by_goal[goal_id] = (
+                    cost_by_goal.get(goal_id, 0) + session.estimated_cost_usd
+                )
 
         # Daily breakdown
         daily_costs: dict[str, float] = {}
         for session in sessions:
             day_key = session.created_at.strftime("%Y-%m-%d")
-            daily_costs[day_key] = daily_costs.get(day_key, 0) + session.estimated_cost_usd
+            daily_costs[day_key] = (
+                daily_costs.get(day_key, 0) + session.estimated_cost_usd
+            )
 
         daily_list = sorted(daily_costs.items())
 
@@ -234,7 +234,7 @@ class CostTrackingService:
             avg_cost_per_session=round(total_cost / max(1, session_count), 4),
             cost_by_agent={k: round(v, 2) for k, v in cost_by_agent.items()},
             cost_by_goal={k: round(v, 2) for k, v in cost_by_goal.items()},
-            daily_costs=[(d, round(c, 2)) for d, c in daily_list]
+            daily_costs=[(d, round(c, 2)) for d, c in daily_list],
         )
 
     async def get_ticket_cost(self, ticket_id: str) -> float:
@@ -258,15 +258,17 @@ class CostTrackingService:
         return float(total or 0)
 
     async def estimate_remaining_cost(
-        self,
-        goal_id: str,
-        avg_cost_per_ticket: float | None = None
+        self, goal_id: str, avg_cost_per_ticket: float | None = None
     ) -> dict[str, float]:
         """Estimate remaining cost to complete a goal."""
         # Get incomplete tickets
-        query = select(func.count()).select_from(Ticket).where(
-            Ticket.goal_id == goal_id,
-            Ticket.state.in_(["todo", "planned", "executing", "blocked"])
+        query = (
+            select(func.count())
+            .select_from(Ticket)
+            .where(
+                Ticket.goal_id == goal_id,
+                Ticket.state.in_(["todo", "planned", "executing", "blocked"]),
+            )
         )
         result = await self.db.execute(query)
         remaining_tickets = result.scalar() or 0
@@ -287,5 +289,5 @@ class CostTrackingService:
             "estimated_remaining": round(estimated_remaining, 2),
             "estimated_total": round(spent + estimated_remaining, 2),
             "remaining_tickets": remaining_tickets,
-            "avg_cost_per_ticket": round(avg_cost_per_ticket, 4)
+            "avg_cost_per_ticket": round(avg_cost_per_ticket, 4),
         }

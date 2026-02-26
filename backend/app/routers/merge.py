@@ -27,9 +27,7 @@ from app.services.merge_service import MergeService, MergeStrategy
 router = APIRouter(prefix="/tickets", tags=["merge"])
 
 
-async def _get_ticket_worktree(
-    ticket_id: str, db: AsyncSession
-) -> tuple[Ticket, Path]:
+async def _get_ticket_worktree(ticket_id: str, db: AsyncSession) -> tuple[Ticket, Path]:
     """Get ticket and its active worktree path. Raises HTTP errors."""
     result = await db.execute(
         select(Ticket)
@@ -87,7 +85,11 @@ async def merge_ticket(
 
     try:
         # Convert schema enum to service enum
-        strategy = MergeStrategy.MERGE if data.strategy.value == "merge" else MergeStrategy.REBASE
+        strategy = (
+            MergeStrategy.MERGE
+            if data.strategy.value == "merge"
+            else MergeStrategy.REBASE
+        )
 
         result = await service.merge_ticket(
             ticket_id=ticket_id,
@@ -100,7 +102,9 @@ async def merge_ticket(
             success=result.success,
             message=result.message,
             exit_code=result.exit_code,
-            evidence_id=result.evidence_ids.get("meta_id") if result.evidence_ids else None,
+            evidence_id=result.evidence_ids.get("meta_id")
+            if result.evidence_ids
+            else None,
             pull_warning=result.pull_warning,
         )
 
@@ -175,9 +179,7 @@ async def get_conflict_status(
     config = ConfigService()
     repo_path = config.get_repo_root()
     branch_name = ticket.workspace.branch_name
-    divergence = await asyncio.to_thread(
-        get_divergence_info, repo_path, branch_name
-    )
+    divergence = await asyncio.to_thread(get_divergence_info, repo_path, branch_name)
 
     if state is None:
         return ConflictStatusResponse(
@@ -276,7 +278,9 @@ async def abort_conflict_endpoint(
 
     return AbortResponse(
         success=success,
-        message="Operation aborted successfully" if success else "Failed to abort operation",
+        message="Operation aborted successfully"
+        if success
+        else "Failed to abort operation",
     )
 
 

@@ -128,12 +128,16 @@ class BoardResponse(BaseModel):
 class BulkAcceptRequest(BaseModel):
     """Schema for bulk accepting proposed tickets."""
 
-    ticket_ids: list[str] = Field(..., min_length=1, description="List of ticket IDs to accept")
+    ticket_ids: list[str] = Field(
+        ..., min_length=1, description="List of ticket IDs to accept"
+    )
     goal_id: str | None = Field(
         None,
         description="If provided, validates all tickets belong to this goal",
     )
-    actor_type: ActorType = Field(default=ActorType.HUMAN, description="Actor performing the accept")
+    actor_type: ActorType = Field(
+        default=ActorType.HUMAN, description="Actor performing the accept"
+    )
     actor_id: str | None = Field(None, description="ID of the actor")
     reason: str | None = Field(
         default="Accepted from AI-generated proposal",

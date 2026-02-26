@@ -44,5 +44,3 @@ def downgrade() -> None:
         batch_op.drop_index("ix_jobs_last_heartbeat_at")
         batch_op.drop_column("timeout_seconds")
         batch_op.drop_column("last_heartbeat_at")
-
-

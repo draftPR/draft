@@ -42,6 +42,7 @@ def add_orchestrator_log(level: str, message: str, data: dict | None = None) -> 
 
 class OrchestratorLogEntry(BaseModel):
     """A single orchestrator log entry."""
+
     timestamp: str
     level: str
     message: str
@@ -50,12 +51,14 @@ class OrchestratorLogEntry(BaseModel):
 
 class OrchestratorLogsResponse(BaseModel):
     """Response containing orchestrator logs."""
+
     logs: list[OrchestratorLogEntry]
     total: int
 
 
 class AgentLogEntry(BaseModel):
     """A single agent log entry with context."""
+
     timestamp: str
     job_id: str
     ticket_id: str
@@ -66,6 +69,7 @@ class AgentLogEntry(BaseModel):
 
 class AgentLogsResponse(BaseModel):
     """Response containing agent logs."""
+
     logs: list[AgentLogEntry]
     job_id: str | None
     ticket_title: str | None
@@ -73,6 +77,7 @@ class AgentLogsResponse(BaseModel):
 
 class RunningJobInfo(BaseModel):
     """Information about a running job."""
+
     job_id: str
     ticket_id: str
     ticket_title: str
@@ -83,6 +88,7 @@ class RunningJobInfo(BaseModel):
 
 class SystemStatusResponse(BaseModel):
     """Live system status for debug panel."""
+
     timestamp: str
     running_jobs: list[RunningJobInfo]
     queued_count: int
@@ -96,8 +102,12 @@ class SystemStatusResponse(BaseModel):
     summary="Get orchestrator logs from in-memory buffer",
 )
 async def get_orchestrator_logs(
-    limit: int = Query(default=100, le=500, description="Number of log entries to return"),
-    since: str | None = Query(default=None, description="Only return logs after this ISO timestamp"),
+    limit: int = Query(
+        default=100, le=500, description="Number of log entries to return"
+    ),
+    since: str | None = Query(
+        default=None, description="Only return logs after this ISO timestamp"
+    ),
 ) -> OrchestratorLogsResponse:
     """
     Get recent orchestrator logs from the in-memory buffer.
@@ -131,6 +141,7 @@ async def stream_orchestrator_logs() -> StreamingResponse:
     Connect to this endpoint to receive live log updates as they happen.
     Each event is a JSON object with timestamp, level, message, and data.
     """
+
     async def event_generator() -> AsyncGenerator[str, None]:
         len(_orchestrator_logs)
         last_timestamp = ""
@@ -138,6 +149,7 @@ async def stream_orchestrator_logs() -> StreamingResponse:
         # Send initial logs
         for log in list(_orchestrator_logs)[-20:]:  # Last 20 entries
             import json
+
             yield f"data: {json.dumps(log)}\n\n"
             last_timestamp = log["timestamp"]
 
@@ -154,6 +166,7 @@ async def stream_orchestrator_logs() -> StreamingResponse:
 
             for log in new_logs:
                 import json
+
                 yield f"data: {json.dumps(log)}\n\n"
                 last_timestamp = log["timestamp"]
 
@@ -185,9 +198,7 @@ async def get_agent_logs(
     """
     # Get job with ticket
     result = await db.execute(
-        select(Job)
-        .options(selectinload(Job.ticket))
-        .where(Job.id == job_id)
+        select(Job).options(selectinload(Job.ticket)).where(Job.id == job_id)
     )
     job = result.scalar_one_or_none()
 
@@ -196,9 +207,7 @@ async def get_agent_logs(
 
     # Get evidence for this job (executor stdout)
     evidence_result = await db.execute(
-        select(Evidence)
-        .where(Evidence.job_id == job_id)
-        .order_by(Evidence.created_at)
+        select(Evidence).where(Evidence.job_id == job_id).order_by(Evidence.created_at)
     )
     evidences = evidence_result.scalars().all()
 
@@ -209,6 +218,7 @@ async def get_agent_logs(
         if ev.stdout_path:
             try:
                 from pathlib import Path
+
                 stdout_path = Path(ev.stdout_path)
                 if stdout_path.exists():
                     content = stdout_path.read_text()[:10000]  # Limit size
@@ -216,14 +226,16 @@ async def get_agent_logs(
                 content = f"[Error reading stdout from {ev.stdout_path}]"
 
         if content:
-            logs.append(AgentLogEntry(
-                timestamp=ev.created_at.isoformat() if ev.created_at else "",
-                job_id=job_id,
-                ticket_id=job.ticket_id,
-                ticket_title=job.ticket.title if job.ticket else "Unknown",
-                kind=ev.kind,
-                content=content,
-            ))
+            logs.append(
+                AgentLogEntry(
+                    timestamp=ev.created_at.isoformat() if ev.created_at else "",
+                    job_id=job_id,
+                    ticket_id=job.ticket_id,
+                    ticket_title=job.ticket.title if job.ticket else "Unknown",
+                    kind=ev.kind,
+                    content=content,
+                )
+            )
 
     return AgentLogsResponse(
         logs=logs,
@@ -248,9 +260,7 @@ async def stream_agent_logs(
     from pathlib import Path
 
     # Get job to find log path
-    result = await db.execute(
-        select(Job).where(Job.id == job_id)
-    )
+    result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
 
     async def event_generator() -> AsyncGenerator[str, None]:
@@ -282,7 +292,10 @@ async def stream_agent_logs(
                         select(Job.status).where(Job.id == job_id)
                     )
                     status = job_check.scalar_one_or_none()
-                    if status and status not in [JobStatus.QUEUED.value, JobStatus.RUNNING.value]:
+                    if status and status not in [
+                        JobStatus.QUEUED.value,
+                        JobStatus.RUNNING.value,
+                    ]:
                         yield f"data: {json.dumps({'status': 'completed', 'final_status': status})}\n\n"
                         break
 
@@ -335,22 +348,25 @@ async def get_system_status(
         if job.log_path:
             try:
                 from pathlib import Path
+
                 log_path = Path(job.log_path)
                 if log_path.exists():
                     content = log_path.read_text()
-                    lines = content.strip().split('\n')
-                    log_preview = '\n'.join(lines[-5:])  # Last 5 lines
+                    lines = content.strip().split("\n")
+                    log_preview = "\n".join(lines[-5:])  # Last 5 lines
             except Exception:
                 pass
 
-        running_info.append(RunningJobInfo(
-            job_id=job.id,
-            ticket_id=job.ticket_id,
-            ticket_title=job.ticket.title if job.ticket else "Unknown",
-            kind=job.kind,
-            started_at=job.started_at.isoformat() if job.started_at else None,
-            log_preview=log_preview,
-        ))
+        running_info.append(
+            RunningJobInfo(
+                job_id=job.id,
+                ticket_id=job.ticket_id,
+                ticket_title=job.ticket.title if job.ticket else "Unknown",
+                kind=job.kind,
+                started_at=job.started_at.isoformat() if job.started_at else None,
+                log_preview=log_preview,
+            )
+        )
 
     # Count queued jobs
     queued_result = await db.execute(
@@ -361,15 +377,14 @@ async def get_system_status(
     # Count tickets by state
     tickets_by_state = {}
     for state in TicketState:
-        result = await db.execute(
-            select(Ticket).where(Ticket.state == state.value)
-        )
+        result = await db.execute(select(Ticket).where(Ticket.state == state.value))
         count = len(result.scalars().all())
         if count > 0:
             tickets_by_state[state.value] = count
 
     # Count recent events (last hour)
     from datetime import timedelta
+
     one_hour_ago = datetime.now(UTC) - timedelta(hours=1)
     events_result = await db.execute(
         select(TicketEvent).where(TicketEvent.created_at >= one_hour_ago)
@@ -387,6 +402,7 @@ async def get_system_status(
 
 class ResetResponse(BaseModel):
     """Response from reset operation."""
+
     tickets_deleted: int
     goals_deleted: int
     jobs_deleted: int
@@ -412,9 +428,10 @@ async def reset_all_data(
     """
     if confirm != "yes-delete-everything":
         from fastapi import HTTPException
+
         raise HTTPException(
             status_code=400,
-            detail="Must provide confirm=yes-delete-everything to proceed"
+            detail="Must provide confirm=yes-delete-everything to proceed",
         )
 
     from app.models.analysis_cache import AnalysisCache
@@ -524,4 +541,3 @@ async def get_recent_events(
         }
         for ev in events
     ]
-

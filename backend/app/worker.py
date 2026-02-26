@@ -790,7 +790,8 @@ def run_executor_cli(
     # Strip Claude Code session env vars to avoid "nested session" errors
     # when spawning claude CLI from within a Claude Code session
     clean_env = {
-        k: v for k, v in os.environ.items()
+        k: v
+        for k, v in os.environ.items()
         if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
     }
 
@@ -1798,7 +1799,9 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # Build prompt bundle
     write_log(log_path, "Building prompt bundle...")
     prompt_builder = PromptBundleBuilder(worktree_path, job_id)
-    verify_commands = config.verify_config.commands if config.verify_config.commands else None
+    verify_commands = (
+        config.verify_config.commands if config.verify_config.commands else None
+    )
     prompt_file = prompt_builder.build_prompt(
         ticket_title=ticket.title,
         ticket_description=ticket.description,

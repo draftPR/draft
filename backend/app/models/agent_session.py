@@ -31,12 +31,24 @@ class AgentSession(Base):
     __tablename__ = "agent_sessions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    ticket_id = Column(String(36), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, index=True)
-    job_id = Column(String(36), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True)
+    ticket_id = Column(
+        String(36),
+        ForeignKey("tickets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    job_id = Column(
+        String(36),
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Agent identification
     agent_type = Column(String(50), nullable=False)  # claude, amp, cursor, etc.
-    agent_session_id = Column(String(255), nullable=True)  # External session ID from agent
+    agent_session_id = Column(
+        String(255), nullable=True
+    )  # External session ID from agent
 
     # Session state
     is_active = Column(Boolean, default=True, nullable=False)
@@ -55,12 +67,16 @@ class AgentSession(Base):
     metadata_ = Column("metadata", JSON, nullable=True)  # Agent-specific metadata
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
     ended_at = Column(DateTime, nullable=True)
 
     # Relationships
     ticket = relationship("Ticket", back_populates="agent_sessions")
-    messages = relationship("AgentMessage", back_populates="session", cascade="all, delete-orphan")
+    messages = relationship(
+        "AgentMessage", back_populates="session", cascade="all, delete-orphan"
+    )
 
     def add_turn(self, input_tokens: int, output_tokens: int, cost: float = 0.0):
         """Record a conversation turn."""
@@ -82,7 +98,12 @@ class AgentMessage(Base):
     __tablename__ = "agent_messages"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    session_id = Column(String(36), ForeignKey("agent_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_id = Column(
+        String(36),
+        ForeignKey("agent_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     # Message content
     role = Column(String(20), nullable=False)  # user, assistant, system, tool

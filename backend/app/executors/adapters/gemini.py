@@ -38,19 +38,19 @@ class GeminiAdapter(ExecutorAdapter):
                         "type": "string",
                         "default": "gemini-2.0-flash",
                         "enum": ["gemini-2.0-flash", "gemini-pro", "gemini-ultra"],
-                        "description": "Gemini model to use"
+                        "description": "Gemini model to use",
                     },
                     "sandbox": {
                         "type": "string",
                         "enum": ["docker", "local"],
                         "default": "docker",
-                        "description": "Execution sandbox environment"
-                    }
-                }
+                        "description": "Execution sandbox environment",
+                    },
+                },
             },
             documentation_url="https://github.com/google/gemini-cli",
             author="Google",
-            license="Apache-2.0"
+            license="Apache-2.0",
         )
 
     async def is_available(self) -> bool:
@@ -60,7 +60,9 @@ class GeminiAdapter(ExecutorAdapter):
     async def execute(self, request: ExecutionRequest) -> ExecutionResult:
         """Execute using Gemini CLI."""
         if not await self.is_available():
-            raise ExecutorNotFoundError("Gemini CLI not found. Install from https://github.com/google/gemini-cli")
+            raise ExecutorNotFoundError(
+                "Gemini CLI not found. Install from https://github.com/google/gemini-cli"
+            )
 
         # Build command
         cmd = ["gemini", "--print"]
@@ -81,24 +83,25 @@ class GeminiAdapter(ExecutorAdapter):
                 cwd=request.working_directory,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **request.environment}
+                env={**os.environ, **request.environment},
             )
 
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=request.timeout_seconds
+                process.communicate(), timeout=request.timeout_seconds
             )
 
             return ExecutionResult(
                 exit_code=process.returncode,
-                stdout=stdout.decode('utf-8', errors='replace'),
-                stderr=stderr.decode('utf-8', errors='replace'),
-                duration_seconds=0.0
+                stdout=stdout.decode("utf-8", errors="replace"),
+                stderr=stderr.decode("utf-8", errors="replace"),
+                duration_seconds=0.0,
             )
 
         except TimeoutError:
             process.kill()
-            raise ExecutorTimeoutError(f"Gemini execution timed out after {request.timeout_seconds}s")
+            raise ExecutorTimeoutError(
+                f"Gemini execution timed out after {request.timeout_seconds}s"
+            )
         except Exception as e:
             raise ExecutorInvocationError(f"Gemini execution failed: {str(e)}")
 
@@ -117,13 +120,13 @@ class GeminiAdapter(ExecutorAdapter):
             cwd=request.working_directory,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            env={**os.environ, **request.environment}
+            env={**os.environ, **request.environment},
         )
 
         while True:
             line = await process.stdout.readline()
             if not line:
                 break
-            yield line.decode('utf-8', errors='replace')
+            yield line.decode("utf-8", errors="replace")
 
         await process.wait()

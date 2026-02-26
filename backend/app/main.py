@@ -104,6 +104,7 @@ async def lifespan(app: FastAPI):
 
     # Start in-process background worker
     from app.services.sqlite_worker import setup_worker
+
     worker = setup_worker()
     worker.start()
     logger.info("Background worker started")
@@ -216,9 +217,7 @@ async def configuration_error_handler(
 
 
 @app.exception_handler(LLMAPIError)
-async def llm_api_error_handler(
-    request: Request, exc: LLMAPIError
-) -> JSONResponse:
+async def llm_api_error_handler(request: Request, exc: LLMAPIError) -> JSONResponse:
     """Handle LLM API errors."""
     return JSONResponse(
         status_code=502,

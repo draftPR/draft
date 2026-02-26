@@ -38,4 +38,3 @@ class ActorType(StrEnum):
     PLANNER = "planner"
     SYSTEM = "system"
     EXECUTOR = "executor"
-

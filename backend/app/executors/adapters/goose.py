@@ -37,17 +37,17 @@ class GooseAdapter(ExecutorAdapter):
                     "model": {
                         "type": "string",
                         "default": "gpt-4",
-                        "description": "LLM model to use"
+                        "description": "LLM model to use",
                     },
                     "profile": {
                         "type": "string",
-                        "description": "Goose profile to use"
-                    }
-                }
+                        "description": "Goose profile to use",
+                    },
+                },
             },
             documentation_url="https://github.com/square/goose",
             author="Square",
-            license="Apache-2.0"
+            license="Apache-2.0",
         )
 
     async def is_available(self) -> bool:
@@ -57,7 +57,9 @@ class GooseAdapter(ExecutorAdapter):
     async def execute(self, request: ExecutionRequest) -> ExecutionResult:
         """Execute using Goose."""
         if not await self.is_available():
-            raise ExecutorNotFoundError("Goose not found. Install: pip install goose-ai")
+            raise ExecutorNotFoundError(
+                "Goose not found. Install: pip install goose-ai"
+            )
 
         # Build command
         cmd = ["goose", "run"]
@@ -80,25 +82,26 @@ class GooseAdapter(ExecutorAdapter):
                 cwd=request.working_directory,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **request.environment}
+                env={**os.environ, **request.environment},
             )
 
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=request.timeout_seconds
+                process.communicate(), timeout=request.timeout_seconds
             )
 
             return ExecutionResult(
                 exit_code=process.returncode,
-                stdout=stdout.decode('utf-8', errors='replace'),
-                stderr=stderr.decode('utf-8', errors='replace'),
+                stdout=stdout.decode("utf-8", errors="replace"),
+                stderr=stderr.decode("utf-8", errors="replace"),
                 session_id=request.session_id,  # Can be resumed
-                duration_seconds=0.0
+                duration_seconds=0.0,
             )
 
         except TimeoutError:
             process.kill()
-            raise ExecutorTimeoutError(f"Goose execution timed out after {request.timeout_seconds}s")
+            raise ExecutorTimeoutError(
+                f"Goose execution timed out after {request.timeout_seconds}s"
+            )
         except Exception as e:
             raise ExecutorInvocationError(f"Goose execution failed: {str(e)}")
 
@@ -116,13 +119,13 @@ class GooseAdapter(ExecutorAdapter):
             cwd=request.working_directory,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            env={**os.environ, **request.environment}
+            env={**os.environ, **request.environment},
         )
 
         while True:
             line = await process.stdout.readline()
             if not line:
                 break
-            yield line.decode('utf-8', errors='replace')
+            yield line.decode("utf-8", errors="replace")
 
         await process.wait()

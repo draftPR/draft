@@ -38,7 +38,9 @@ class EvidenceKind(StrEnum):
     """
 
     # Metadata evidence (JSON)
-    EXECUTOR_META = "executor_meta"  # JSON: exit_code, duration_ms, executor_type, mode, command
+    EXECUTOR_META = (
+        "executor_meta"  # JSON: exit_code, duration_ms, executor_type, mode, command
+    )
     VERIFY_META = "verify_meta"  # JSON: exit_code, commands, duration_ms, results
 
     # Executor evidence
@@ -128,4 +130,3 @@ class Evidence(Base):
 
     def __repr__(self) -> str:
         return f"<Evidence(id={self.id}, command={self.command[:30]}..., exit_code={self.exit_code})>"
-

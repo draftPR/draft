@@ -48,7 +48,9 @@ class NormalizedLogEntry(Base):
 
     __tablename__ = "normalized_log_entries"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(__import__('uuid').uuid4()))
+    id = Column(
+        String(36), primary_key=True, default=lambda: str(__import__("uuid").uuid4())
+    )
 
     # Foreign key to job
     job_id = Column(String, ForeignKey("jobs.id"), nullable=False, index=True)
@@ -79,7 +81,9 @@ class NormalizedLogEntry(Base):
     collapsed = Column(Boolean, default=False)  # Start collapsed?
     highlight = Column(Boolean, default=False)  # Highlight in UI?
 
-    __table_args__ = (Index("ix_normalized_log_entries_job_sequence", "job_id", "sequence"),)
+    __table_args__ = (
+        Index("ix_normalized_log_entries_job_sequence", "job_id", "sequence"),
+    )
 
     def to_dict(self):
         """Convert to dictionary for API responses."""

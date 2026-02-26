@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class NormalizedEntryType(StrEnum):
     """Types of normalized log entries."""
+
     SYSTEM_MESSAGE = "system_message"
     ASSISTANT_MESSAGE = "assistant_message"
     THINKING = "thinking"
@@ -24,6 +25,7 @@ class NormalizedEntryType(StrEnum):
 
 class ToolStatus(StrEnum):
     """Status of a tool call."""
+
     CREATED = "created"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -32,6 +34,7 @@ class ToolStatus(StrEnum):
 
 class ToolActionType(StrEnum):
     """Type of action a tool performs."""
+
     READ_FILE = "read_file"
     WRITE_FILE = "write_file"
     EDIT_FILE = "edit_file"
@@ -44,6 +47,7 @@ class ToolActionType(StrEnum):
 @dataclass
 class NormalizedEntry:
     """A normalized log entry for display."""
+
     entry_type: NormalizedEntryType
     content: str
     sequence: int = 0
@@ -87,7 +91,7 @@ class CursorLogNormalizer:
     def _strip_worktree_prefix(self, path: str) -> str:
         """Strip worktree path prefix from file paths for cleaner display."""
         if self.worktree_path and path.startswith(self.worktree_path):
-            return path[len(self.worktree_path):].lstrip("/")
+            return path[len(self.worktree_path) :].lstrip("/")
         return path
 
     def process_line(self, line: str) -> list[NormalizedEntry]:
@@ -104,11 +108,13 @@ class CursorLogNormalizer:
         except json.JSONDecodeError:
             # Non-JSON line - treat as system message
             if line.strip():
-                return [NormalizedEntry(
-                    entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
-                    content=line.strip(),
-                    sequence=self._next_sequence(),
-                )]
+                return [
+                    NormalizedEntry(
+                        entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
+                        content=line.strip(),
+                        sequence=self._next_sequence(),
+                    )
+                ]
             return []
 
         entries: list[NormalizedEntry] = []
@@ -151,11 +157,13 @@ class CursorLogNormalizer:
             entries.extend(self._process_result(data))
         else:
             # Unknown type - log as system message
-            entries.append(NormalizedEntry(
-                entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
-                content=f"[{msg_type}] {json.dumps(data)}",
-                sequence=self._next_sequence(),
-            ))
+            entries.append(
+                NormalizedEntry(
+                    entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
+                    content=f"[{msg_type}] {json.dumps(data)}",
+                    sequence=self._next_sequence(),
+                )
+            )
 
         return entries
 
@@ -166,12 +174,14 @@ class CursorLogNormalizer:
         if not self.model_reported:
             model = data.get("model")
             if model:
-                entries.append(NormalizedEntry(
-                    entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
-                    content=f"🤖 Model: {model}",
-                    sequence=self._next_sequence(),
-                    metadata={"model": model},
-                ))
+                entries.append(
+                    NormalizedEntry(
+                        entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
+                        content=f"🤖 Model: {model}",
+                        sequence=self._next_sequence(),
+                        metadata={"model": model},
+                    )
+                )
                 self.model_reported = True
 
         return entries
@@ -198,11 +208,13 @@ class CursorLogNormalizer:
         if self.current_assistant_sequence is None:
             self.current_assistant_sequence = self._next_sequence()
 
-        return [NormalizedEntry(
-            entry_type=NormalizedEntryType.ASSISTANT_MESSAGE,
-            content=self.current_assistant_buffer,
-            sequence=self.current_assistant_sequence,
-        )]
+        return [
+            NormalizedEntry(
+                entry_type=NormalizedEntryType.ASSISTANT_MESSAGE,
+                content=self.current_assistant_buffer,
+                sequence=self.current_assistant_sequence,
+            )
+        ]
 
     def _process_thinking(self, data: dict) -> list[NormalizedEntry]:
         """Process thinking message (streaming deltas)."""
@@ -216,12 +228,14 @@ class CursorLogNormalizer:
                 if self.current_thinking_sequence is None:
                     self.current_thinking_sequence = self._next_sequence()
 
-                return [NormalizedEntry(
-                    entry_type=NormalizedEntryType.THINKING,
-                    content=self.current_thinking_buffer,
-                    sequence=self.current_thinking_sequence,
-                    metadata={"collapsed": True},
-                )]
+                return [
+                    NormalizedEntry(
+                        entry_type=NormalizedEntryType.THINKING,
+                        content=self.current_thinking_buffer,
+                        sequence=self.current_thinking_sequence,
+                        metadata={"collapsed": True},
+                    )
+                ]
         elif subtype == "completed":
             # Thinking completed - keep current buffer
             pass
@@ -242,14 +256,16 @@ class CursorLogNormalizer:
             if call_id:
                 self.tool_call_sequences[call_id] = seq
 
-            return [NormalizedEntry(
-                entry_type=NormalizedEntryType.TOOL_USE,
-                content=content,
-                sequence=seq,
-                tool_name=tool_name,
-                action_type=action_type,
-                tool_status=ToolStatus.CREATED,
-            )]
+            return [
+                NormalizedEntry(
+                    entry_type=NormalizedEntryType.TOOL_USE,
+                    content=content,
+                    sequence=seq,
+                    tool_name=tool_name,
+                    action_type=action_type,
+                    tool_status=ToolStatus.CREATED,
+                )
+            ]
         elif subtype == "completed":
             # Update existing entry with result
             seq = self.tool_call_sequences.get(call_id, self._next_sequence())
@@ -259,14 +275,16 @@ class CursorLogNormalizer:
             if result_content:
                 content = f"{content}\n→ {result_content}"
 
-            return [NormalizedEntry(
-                entry_type=NormalizedEntryType.TOOL_USE,
-                content=content,
-                sequence=seq,
-                tool_name=tool_name,
-                action_type=action_type,
-                tool_status=ToolStatus.COMPLETED,
-            )]
+            return [
+                NormalizedEntry(
+                    entry_type=NormalizedEntryType.TOOL_USE,
+                    content=content,
+                    sequence=seq,
+                    tool_name=tool_name,
+                    action_type=action_type,
+                    tool_status=ToolStatus.COMPLETED,
+                )
+            ]
 
         return []
 
@@ -304,11 +322,22 @@ class CursorLogNormalizer:
             return "shell", ToolActionType.SHELL, f"💻 Shell: {command}"
 
         # Generic/unknown tool
-        return "unknown", ToolActionType.UNKNOWN, f"🔧 Tool call: {json.dumps(tool_call)[:100]}"
+        return (
+            "unknown",
+            ToolActionType.UNKNOWN,
+            f"🔧 Tool call: {json.dumps(tool_call)[:100]}",
+        )
 
     def _extract_tool_result(self, tool_call: dict) -> str:
         """Extract a summary of tool result for display."""
-        for key in ["readToolCall", "editToolCall", "lsToolCall", "globToolCall", "grepToolCall", "shellToolCall"]:
+        for key in [
+            "readToolCall",
+            "editToolCall",
+            "lsToolCall",
+            "globToolCall",
+            "grepToolCall",
+            "shellToolCall",
+        ]:
             if key in tool_call:
                 result = tool_call[key].get("result", {})
                 if "success" in result:
@@ -332,12 +361,14 @@ class CursorLogNormalizer:
         result = data.get("result", {})
         if isinstance(result, dict):
             outcome = result.get("outcome", "unknown")
-            return [NormalizedEntry(
-                entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
-                content=f"✅ Completed: {outcome}",
-                sequence=self._next_sequence(),
-                metadata={"outcome": outcome},
-            )]
+            return [
+                NormalizedEntry(
+                    entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
+                    content=f"✅ Completed: {outcome}",
+                    sequence=self._next_sequence(),
+                    metadata={"outcome": outcome},
+                )
+            ]
         return []
 
     def finalize(self) -> list[NormalizedEntry]:
@@ -345,23 +376,32 @@ class CursorLogNormalizer:
         entries = []
 
         if self.current_thinking_buffer and self.current_thinking_sequence is not None:
-            entries.append(NormalizedEntry(
-                entry_type=NormalizedEntryType.THINKING,
-                content=self.current_thinking_buffer,
-                sequence=self.current_thinking_sequence,
-            ))
+            entries.append(
+                NormalizedEntry(
+                    entry_type=NormalizedEntryType.THINKING,
+                    content=self.current_thinking_buffer,
+                    sequence=self.current_thinking_sequence,
+                )
+            )
 
-        if self.current_assistant_buffer and self.current_assistant_sequence is not None:
-            entries.append(NormalizedEntry(
-                entry_type=NormalizedEntryType.ASSISTANT_MESSAGE,
-                content=self.current_assistant_buffer,
-                sequence=self.current_assistant_sequence,
-            ))
+        if (
+            self.current_assistant_buffer
+            and self.current_assistant_sequence is not None
+        ):
+            entries.append(
+                NormalizedEntry(
+                    entry_type=NormalizedEntryType.ASSISTANT_MESSAGE,
+                    content=self.current_assistant_buffer,
+                    sequence=self.current_assistant_sequence,
+                )
+            )
 
         return entries
 
 
-def normalize_cursor_output(raw_output: str, worktree_path: str = "") -> list[NormalizedEntry]:
+def normalize_cursor_output(
+    raw_output: str, worktree_path: str = ""
+) -> list[NormalizedEntry]:
     """Convenience function to normalize complete cursor output.
 
     Args:

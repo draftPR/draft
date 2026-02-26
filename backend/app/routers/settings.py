@@ -15,6 +15,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 class ExecuteConfigUpdate(BaseModel):
     """Execute configuration update model."""
+
     timeout: int | None = None
     preferred_executor: str | None = None
     executor_model: str | None = None
@@ -22,11 +23,13 @@ class ExecuteConfigUpdate(BaseModel):
 
 class SettingsUpdate(BaseModel):
     """Global settings update model."""
+
     execute_config: ExecuteConfigUpdate | None = None
 
 
 class SettingsResponse(BaseModel):
     """Global settings response model."""
+
     execute_config: dict[str, Any]
     config_path: str
 
@@ -36,6 +39,7 @@ class SettingsResponse(BaseModel):
 
 class PlannerConfigResponse(BaseModel):
     """Planner configuration response."""
+
     model: str
     agent_path: str
     timeout: int
@@ -43,12 +47,14 @@ class PlannerConfigResponse(BaseModel):
 
 class PlannerConfigUpdate(BaseModel):
     """Planner configuration update."""
+
     model: str | None = None
     agent_path: str | None = None
 
 
 class PlannerHealthResponse(BaseModel):
     """Planner health check response."""
+
     status: str  # "online" | "offline"
     model: str
     error: str | None = None
@@ -78,14 +84,15 @@ async def get_global_settings():
         execute_config = config.get("execute_config", {})
 
         return SettingsResponse(
-            execute_config=execute_config,
-            config_path=str(config_path)
+            execute_config=execute_config, config_path=str(config_path)
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read settings: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to read settings: {str(e)}"
+        )
 
 
 @router.put("", response_model=SettingsResponse)
@@ -122,10 +129,14 @@ async def update_global_settings(data: SettingsUpdate):
                 config["execute_config"]["timeout"] = data.execute_config.timeout
 
             if data.execute_config.preferred_executor is not None:
-                config["execute_config"]["preferred_executor"] = data.execute_config.preferred_executor
+                config["execute_config"]["preferred_executor"] = (
+                    data.execute_config.preferred_executor
+                )
 
             if data.execute_config.executor_model is not None:
-                config["execute_config"]["executor_model"] = data.execute_config.executor_model
+                config["execute_config"]["executor_model"] = (
+                    data.execute_config.executor_model
+                )
 
         # Write back to file
         with open(config_path, "w") as f:
@@ -133,13 +144,15 @@ async def update_global_settings(data: SettingsUpdate):
 
         return SettingsResponse(
             execute_config=config.get("execute_config", {}),
-            config_path=str(config_path)
+            config_path=str(config_path),
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update settings: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update settings: {str(e)}"
+        )
 
 
 # ==================== Planner Config Endpoints ====================
@@ -168,7 +181,9 @@ async def get_planner_config():
             timeout=planner.timeout,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read planner config: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to read planner config: {str(e)}"
+        )
 
 
 @router.put("/planner", response_model=PlannerConfigResponse)
@@ -208,7 +223,9 @@ async def update_planner_config(data: PlannerConfigUpdate):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update planner config: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update planner config: {str(e)}"
+        )
 
 
 @router.get("/planner/check", response_model=PlannerHealthResponse)

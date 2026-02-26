@@ -154,7 +154,10 @@ class TicketGenerationService:
         # Determine repo_root from goal's board if not provided
         if not repo_root and goal.board_id:
             from app.models.board import Board
-            board_result = await self.db.execute(select(Board).where(Board.id == goal.board_id))
+
+            board_result = await self.db.execute(
+                select(Board).where(Board.id == goal.board_id)
+            )
             board = board_result.scalar_one_or_none()
             if board:
                 repo_root = board.repo_root
@@ -173,22 +176,30 @@ class TicketGenerationService:
         )
 
         # Call agent to generate tickets (run in thread pool to avoid blocking event loop)
-        logger.info(f"Calling agent CLI for goal '{goal.title}' (streaming={'yes' if stream_callback else 'no'})")
+        logger.info(
+            f"Calling agent CLI for goal '{goal.title}' (streaming={'yes' if stream_callback else 'no'})"
+        )
         agent_response = await asyncio.to_thread(
             self._call_agent_for_tickets,
             prompt,
             repo_root,
             stream_callback,
         )
-        logger.info(f"Agent CLI completed. Response length: {len(agent_response)} chars")
+        logger.info(
+            f"Agent CLI completed. Response length: {len(agent_response)} chars"
+        )
 
         # Parse and validate response
         data = self._parse_agent_json_response(agent_response)
         raw_tickets = data.get("tickets", [])
 
-        logger.info(f"Agent generated {len(raw_tickets)} raw tickets for goal '{goal.title}'")
+        logger.info(
+            f"Agent generated {len(raw_tickets)} raw tickets for goal '{goal.title}'"
+        )
         if len(raw_tickets) == 0:
-            logger.warning(f"Agent returned 0 tickets. Response preview: {agent_response[:500]}")
+            logger.warning(
+                f"Agent returned 0 tickets. Response preview: {agent_response[:500]}"
+            )
 
         # Validate tickets against codebase if enabled
         filtered_count = 0
@@ -201,7 +212,9 @@ class TicketGenerationService:
                     repo_root=repo_root,
                     include_readme_excerpt=include_readme,
                 )
-                context_summary = context.to_prompt_string()[:3000]  # Limit size for validation
+                context_summary = context.to_prompt_string()[
+                    :3000
+                ]  # Limit size for validation
 
                 validated_tickets = []
 
@@ -217,7 +230,10 @@ class TicketGenerationService:
                         raw["_validation"] = validation
 
                         # Only include appropriate tickets
-                        if validation.get("is_valid") and validation.get("validation_result") == "appropriate":
+                        if (
+                            validation.get("is_valid")
+                            and validation.get("validation_result") == "appropriate"
+                        ):
                             validated_tickets.append(raw)
                         else:
                             filtered_count += 1
@@ -228,20 +244,28 @@ class TicketGenerationService:
                             )
                     except Exception as e:
                         # If validation fails for a ticket, include it anyway (fail open)
-                        logger.error(f"Validation failed for ticket '{raw.get('title')}': {e}")
+                        logger.error(
+                            f"Validation failed for ticket '{raw.get('title')}': {e}"
+                        )
                         validated_tickets.append(raw)
 
                 if filtered_count > 0:
-                    logger.warning(f"Filtered {filtered_count}/{len(raw_tickets)} tickets during validation")
+                    logger.warning(
+                        f"Filtered {filtered_count}/{len(raw_tickets)} tickets during validation"
+                    )
 
                 raw_tickets = validated_tickets
             except Exception as e:
                 # If entire validation process fails, proceed with all tickets (fail open)
-                logger.error(f"Validation process failed, proceeding with all {len(raw_tickets)} tickets: {e}")
+                logger.error(
+                    f"Validation process failed, proceeding with all {len(raw_tickets)} tickets: {e}"
+                )
                 filtered_count = 0
         else:
             if not validate_tickets:
-                logger.debug(f"Ticket validation disabled, skipping for {len(raw_tickets)} tickets")
+                logger.debug(
+                    f"Ticket validation disabled, skipping for {len(raw_tickets)} tickets"
+                )
 
         # Get existing tickets for dedup
         existing_tickets = await self._get_existing_tickets(goal_id)
@@ -258,7 +282,9 @@ class TicketGenerationService:
                 # Validate required fields
                 title = raw.get("title", "").strip()
                 if not title or len(title) > 255:
-                    logger.warning(f"Skipping ticket with invalid title (len={len(title)})")
+                    logger.warning(
+                        f"Skipping ticket with invalid title (len={len(title)})"
+                    )
                     continue
 
                 # Dedup check - block on exact match and high-similarity matches
@@ -380,7 +406,10 @@ class TicketGenerationService:
                 existing_tickets.append((ticket.id, title))  # Add to dedup list
 
             except Exception as e:
-                logger.error(f"Error creating ticket '{raw.get('title', '')[:50]}': {e}", exc_info=True)
+                logger.error(
+                    f"Error creating ticket '{raw.get('title', '')[:50]}': {e}",
+                    exc_info=True,
+                )
                 # Don't re-raise, continue with next ticket
                 continue
 
@@ -395,7 +424,9 @@ class TicketGenerationService:
                 ticket = result.scalar_one_or_none()
                 if ticket:
                     ticket.blocked_by_ticket_id = blocker_id
-                    logger.info(f"Ticket '{ticket.title}' blocked by ticket ID {blocker_id}")
+                    logger.info(
+                        f"Ticket '{ticket.title}' blocked by ticket ID {blocker_id}"
+                    )
 
                     # Update the CreatedTicketSchema with blocked_by info
                     for created in created_tickets:
@@ -587,13 +618,15 @@ class TicketGenerationService:
                     actor_type=ActorType.PLANNER.value,
                     actor_id="ticket_generation_service",
                     reason="Generated from codebase analysis",
-                    payload_json=json.dumps({
-                        "priority_bucket": bucket.value,
-                        "priority_rationale": rationale,
-                        "focus_areas": focus_areas,
-                        "repo_head_sha": head_sha,
-                        "blocked_by_title": blocked_by_title,
-                    }),
+                    payload_json=json.dumps(
+                        {
+                            "priority_bucket": bucket.value,
+                            "priority_rationale": rationale,
+                            "focus_areas": focus_areas,
+                            "repo_head_sha": head_sha,
+                            "blocked_by_title": blocked_by_title,
+                        }
+                    ),
                 )
                 self.db.add(event)
 
@@ -631,7 +664,9 @@ class TicketGenerationService:
                     ticket = result.scalar_one_or_none()
                     if ticket:
                         ticket.blocked_by_ticket_id = blocker_id
-                        logger.info(f"Ticket '{ticket.title}' blocked by ticket ID {blocker_id}")
+                        logger.info(
+                            f"Ticket '{ticket.title}' blocked by ticket ID {blocker_id}"
+                        )
 
                         # Update the CreatedTicketSchema with blocked_by info
                         for created in created_tickets:
@@ -870,7 +905,9 @@ Guidelines:
         if focus_areas:
             parts.append(f"\nFocus areas requested: {', '.join(focus_areas)}")
 
-        parts.append("\nAnalyze this codebase and generate improvement tickets as JSON.")
+        parts.append(
+            "\nAnalyze this codebase and generate improvement tickets as JSON."
+        )
         return "\n".join(parts)
 
     def _build_reflection_system_prompt(self) -> str:
@@ -946,7 +983,11 @@ Guidelines:
 - Look for existing files, functions, or features that match the ticket's intent"""
 
     def _build_ticket_validation_user_prompt(
-        self, ticket: dict, goal_title: str, goal_description: str | None, context_summary: str
+        self,
+        ticket: dict,
+        goal_title: str,
+        goal_description: str | None,
+        context_summary: str,
     ) -> str:
         """Build user prompt for validating a ticket."""
         parts = [
@@ -961,7 +1002,9 @@ Guidelines:
         parts.append(f"Priority: {ticket.get('priority_bucket', 'N/A')}")
 
         parts.append(f"\nCodebase Context:\n{context_summary}")
-        parts.append("\nIs this ticket appropriate to create? Provide validation assessment as JSON.")
+        parts.append(
+            "\nIs this ticket appropriate to create? Provide validation assessment as JSON."
+        )
 
         return "\n".join(parts)
 
@@ -1013,7 +1056,9 @@ Guidelines:
             if validation.get("validation_result") == "unclear":
                 validation["is_valid"] = True
                 validation["validation_result"] = "appropriate"
-                logger.debug(f"Validation unclear for '{ticket.get('title')}', accepting by default")
+                logger.debug(
+                    f"Validation unclear for '{ticket.get('title')}', accepting by default"
+                )
 
             return validation
 
@@ -1045,9 +1090,7 @@ Guidelines:
         # Build the existing tickets section
         existing_section = ""
         if existing_tickets:
-            ticket_lines = "\n".join(
-                f"- {title}" for _, title in existing_tickets
-            )
+            ticket_lines = "\n".join(f"- {title}" for _, title in existing_tickets)
             existing_section = f"""
 ## Existing Tickets (DO NOT DUPLICATE)
 The following tickets already exist for this goal. Do NOT create tickets that overlap with or duplicate these:
@@ -1222,6 +1265,7 @@ Now analyze the codebase and generate the JSON."""
         # CLI model — detect available API keys and pick a model
         # Also try loading from .env file if not already in environment
         from pathlib import Path as _Path
+
         env_file = _Path(__file__).parent.parent.parent / ".env"
         if env_file.exists():
             for line in env_file.read_text().splitlines():
@@ -1230,7 +1274,11 @@ Now analyze the codebase and generate the JSON."""
                     key, _, value = line.partition("=")
                     key = key.strip()
                     value = value.strip().strip('"').strip("'")
-                    if key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AWS_ACCESS_KEY_ID") and value:
+                    if (
+                        key
+                        in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AWS_ACCESS_KEY_ID")
+                        and value
+                    ):
                         os.environ.setdefault(key, value)
 
         if os.environ.get("ANTHROPIC_API_KEY"):
@@ -1336,21 +1384,35 @@ Now analyze the codebase and generate the JSON."""
                 cmd = [agent_path, "--print", prompt]
         else:
             # Fall back to executor service detection
-            logger.warning(f"Agent not found at configured path: {agent_path}, falling back to auto-detection")
+            logger.warning(
+                f"Agent not found at configured path: {agent_path}, falling back to auto-detection"
+            )
             try:
-                executor = ExecutorService.detect_headless_executor(agent_path=agent_path)
+                executor = ExecutorService.detect_headless_executor(
+                    agent_path=agent_path
+                )
                 if not executor:
                     executor = ExecutorService.detect_executor(agent_path=agent_path)
             except Exception as e:
-                raise ValueError(f"No agent CLI available at {agent_path} and auto-detection failed: {e}")
+                raise ValueError(
+                    f"No agent CLI available at {agent_path} and auto-detection failed: {e}"
+                )
 
-            logger.info(f"Using agent: {executor.executor_type.value} for ticket generation")
+            logger.info(
+                f"Using agent: {executor.executor_type.value} for ticket generation"
+            )
 
             # Build command based on executor type
             if executor.executor_type == ExecutorType.CLAUDE:
                 cmd = [executor.command, "--print", prompt]
             elif executor.executor_type == ExecutorType.CURSOR_AGENT:
-                cmd = [executor.command, "--print", "--workspace", str(repo_root), prompt]
+                cmd = [
+                    executor.command,
+                    "--print",
+                    "--workspace",
+                    str(repo_root),
+                    prompt,
+                ]
             else:
                 # Cursor (interactive) - not suitable for automated generation
                 raise ValueError(
@@ -1364,7 +1426,8 @@ Now analyze the codebase and generate the JSON."""
         # Strip Claude Code session env vars to avoid "nested session" errors
         # when spawning claude CLI from within a Claude Code session
         clean_env = {
-            k: v for k, v in os.environ.items()
+            k: v
+            for k, v in os.environ.items()
             if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
         }
 
@@ -1391,7 +1454,9 @@ Now analyze the codebase and generate the JSON."""
                         output_lines.append(line)
                         stream_callback(line.rstrip())
 
-                logger.info(f"Agent subprocess completed. Total lines: {len(output_lines)}")
+                logger.info(
+                    f"Agent subprocess completed. Total lines: {len(output_lines)}"
+                )
 
                 # Wait for process to complete
                 try:
@@ -1403,7 +1468,9 @@ Now analyze the codebase and generate the JSON."""
 
                 if process.returncode != 0:
                     stderr = process.stderr.read()
-                    logger.error(f"Agent failed with code {process.returncode}: {stderr}")
+                    logger.error(
+                        f"Agent failed with code {process.returncode}: {stderr}"
+                    )
                     raise ValueError(f"Agent failed: {stderr[:500]}")
 
                 return "".join(output_lines)
@@ -1419,7 +1486,9 @@ Now analyze the codebase and generate the JSON."""
                 )
 
                 if result.returncode != 0:
-                    logger.error(f"Agent failed with code {result.returncode}: {result.stderr}")
+                    logger.error(
+                        f"Agent failed with code {result.returncode}: {result.stderr}"
+                    )
                     raise ValueError(f"Agent failed: {result.stderr[:500]}")
 
                 logger.debug(f"Agent response length: {len(result.stdout)} chars")
@@ -1549,7 +1618,9 @@ Now analyze the codebase and generate the JSON."""
             logger.debug(f"Failed to get git HEAD: {e}")
         return None
 
-    def _get_workspace_head_sha(self, workspace_path: Path, repo_root: Path) -> str | None:
+    def _get_workspace_head_sha(
+        self, workspace_path: Path, repo_root: Path
+    ) -> str | None:
         """Get the git HEAD SHA for a workspace path if different from repo root.
 
         Worktrees may be at different SHAs than the main repo.
@@ -1608,7 +1679,9 @@ Now analyze the codebase and generate the JSON."""
     async def _cache_analysis(self, cache_key: str, result: dict) -> None:
         """Cache analysis result."""
         try:
-            expires_at = datetime.now(UTC) + timedelta(minutes=ANALYSIS_CACHE_TTL_MINUTES)
+            expires_at = datetime.now(UTC) + timedelta(
+                minutes=ANALYSIS_CACHE_TTL_MINUTES
+            )
 
             # Upsert cache entry
             existing = await self.db.execute(
@@ -1630,4 +1703,3 @@ Now analyze the codebase and generate the JSON."""
             await self.db.commit()
         except Exception as e:
             logger.warning(f"Failed to cache analysis: {e}")
-

@@ -31,6 +31,7 @@ class LangChainLLMAdapter(LLM):
 
     class Config:
         """Pydantic configuration."""
+
         arbitrary_types_allowed = True
 
     @property

@@ -22,6 +22,7 @@ QUEUE_TTL = 86400  # 24 hours
 @dataclass
 class QueuedMessage:
     """A queued follow-up message."""
+
     ticket_id: str
     message: str
     queued_at: datetime

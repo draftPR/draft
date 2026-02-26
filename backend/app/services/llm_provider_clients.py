@@ -285,7 +285,9 @@ async def call_openai(prompt: str, api_key: str, model: str | None = None) -> st
         )
 
 
-async def call_llm(prompt: str, provider: str | None = None, max_retries: int = 2) -> str:
+async def call_llm(
+    prompt: str, provider: str | None = None, max_retries: int = 2
+) -> str:
     """
     Call LLM with automatic provider selection and retry logic.
 
@@ -344,6 +346,6 @@ def _extract_error_message(response: httpx.Response) -> str:
             return str(error)
         return str(data)
     except Exception:
-        return response.text[:200] if response.text else f"Status {response.status_code}"
-
-
+        return (
+            response.text[:200] if response.text else f"Status {response.status_code}"
+        )

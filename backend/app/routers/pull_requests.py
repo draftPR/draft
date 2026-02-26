@@ -300,7 +300,9 @@ async def add_pr_comment(
     git_host = get_git_host_provider(repo_path)
 
     try:
-        result = await git_host.add_pr_comment(repo_path, ticket.pr_number, request.body)
+        result = await git_host.add_pr_comment(
+            repo_path, ticket.pr_number, request.body
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add comment: {str(e)}")
@@ -326,7 +328,9 @@ async def list_pr_comments(
             for c in comments
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list comments: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list comments: {str(e)}"
+        )
 
 
 @router.post("/{ticket_id}/merge", response_model=dict)

@@ -133,9 +133,7 @@ async def get_executor_setup(executor_name: str):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to check setup: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to check setup: {str(e)}")
 
 
 @router.get("/profiles", response_model=list[dict[str, Any]])

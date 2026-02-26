@@ -61,7 +61,9 @@ def sample_context():
 class TestTicketValidation:
     """Test suite for ticket validation feature."""
 
-    def test_build_validation_system_prompt(self, mock_db, mock_llm_service, mock_config):
+    def test_build_validation_system_prompt(
+        self, mock_db, mock_llm_service, mock_config
+    ):
         """Test that validation system prompt is properly built."""
         service = TicketGenerationService(mock_db, mock_llm_service, mock_config)
 
@@ -215,33 +217,37 @@ class TestTicketValidation:
         self, mock_db, mock_llm_service, mock_config, sample_goal
     ):
         """Test that generate_from_goal filters tickets based on validation."""
-        with patch.object(
-            TicketGenerationService, "_call_agent_for_tickets"
-        ) as mock_agent, patch.object(
-            TicketGenerationService, "_get_existing_tickets"
-        ) as mock_existing:
-
+        with (
+            patch.object(
+                TicketGenerationService, "_call_agent_for_tickets"
+            ) as mock_agent,
+            patch.object(
+                TicketGenerationService, "_get_existing_tickets"
+            ) as mock_existing,
+        ):
             # Setup mock responses
-            mock_agent.return_value = json.dumps({
-                "tickets": [
-                    {
-                        "title": "Implement login endpoint",
-                        "description": "Add POST /login",
-                        "priority_bucket": "P1",
-                        "priority_rationale": "Core feature",
-                        "verification": ["curl http://localhost/login"],
-                        "blocked_by": None,
-                    },
-                    {
-                        "title": "Add existing feature",
-                        "description": "This already exists",
-                        "priority_bucket": "P2",
-                        "priority_rationale": "Nice to have",
-                        "verification": [],
-                        "blocked_by": None,
-                    },
-                ]
-            })
+            mock_agent.return_value = json.dumps(
+                {
+                    "tickets": [
+                        {
+                            "title": "Implement login endpoint",
+                            "description": "Add POST /login",
+                            "priority_bucket": "P1",
+                            "priority_rationale": "Core feature",
+                            "verification": ["curl http://localhost/login"],
+                            "blocked_by": None,
+                        },
+                        {
+                            "title": "Add existing feature",
+                            "description": "This already exists",
+                            "priority_bucket": "P2",
+                            "priority_rationale": "Nice to have",
+                            "verification": [],
+                            "blocked_by": None,
+                        },
+                    ]
+                }
+            )
 
             mock_existing.return_value = []
 
@@ -261,24 +267,28 @@ class TestTicketValidation:
             # Mock context gatherer
             with patch.object(service.context_gatherer, "gather") as mock_gather:
                 mock_context = Mock()
-                mock_context.to_prompt_string.return_value = "Files: src/app.py, src/auth.py"
+                mock_context.to_prompt_string.return_value = (
+                    "Files: src/app.py, src/auth.py"
+                )
                 mock_gather.return_value = mock_context
 
                 # Mock validation: first ticket appropriate, second already implemented
-                service._validate_ticket_against_codebase = Mock(side_effect=[
-                    {
-                        "is_valid": True,
-                        "confidence": "high",
-                        "validation_result": "appropriate",
-                        "reasoning": "Good ticket",
-                    },
-                    {
-                        "is_valid": False,
-                        "confidence": "high",
-                        "validation_result": "already_implemented",
-                        "reasoning": "Feature exists",
-                    },
-                ])
+                service._validate_ticket_against_codebase = Mock(
+                    side_effect=[
+                        {
+                            "is_valid": True,
+                            "confidence": "high",
+                            "validation_result": "appropriate",
+                            "reasoning": "Good ticket",
+                        },
+                        {
+                            "is_valid": False,
+                            "confidence": "high",
+                            "validation_result": "already_implemented",
+                            "reasoning": "Feature exists",
+                        },
+                    ]
+                )
 
                 # Note: This will fail because we need to mock more DB operations
                 # This is just to show the structure of the test

@@ -44,7 +44,9 @@ class AgentConversationHistory(Base):
     messages_json = Column(Text, nullable=True)  # Empty by default
     metadata_json = Column(Text, nullable=False)  # Compressed summary
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     # Relationships
     goal = relationship("Goal", back_populates="agent_conversation_history")

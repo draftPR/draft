@@ -36,7 +36,9 @@ class ClaudeLogParser:
         r"<file_create>\s*<path>(.*?)</path>\s*<content>(.*?)</content>\s*</file_create>",
         re.DOTALL,
     )
-    FILE_DELETE_PATTERN = re.compile(r"<file_delete>\s*<path>(.*?)</path>\s*</file_delete>", re.DOTALL)
+    FILE_DELETE_PATTERN = re.compile(
+        r"<file_delete>\s*<path>(.*?)</path>\s*</file_delete>", re.DOTALL
+    )
     COMMAND_PATTERN = re.compile(r"<command>(.*?)</command>", re.DOTALL)
     ERROR_PATTERN = re.compile(r"Error:(.*?)(?=\n\n|\Z)", re.DOTALL)
 
@@ -180,13 +182,19 @@ class ClaudeLogParser:
             output = result_match.group(1).strip() if result_match else None
 
             # Simple heuristic for exit code
-            exit_code = 0 if output and "error" not in output.lower() else 1 if output else 0
+            exit_code = (
+                0 if output and "error" not in output.lower() else 1 if output else 0
+            )
 
             entries.append(
                 ParsedEntry(
                     entry_type=LogEntryType.COMMAND_RUN,
                     content=command,
-                    metadata={"command": command, "output": output, "exit_code": exit_code},
+                    metadata={
+                        "command": command,
+                        "output": output,
+                        "exit_code": exit_code,
+                    },
                 )
             )
 
@@ -320,7 +328,9 @@ class LogNormalizerService:
 
         return db_entries
 
-    async def get_normalized_logs(self, db: AsyncSession, job_id: str) -> list[NormalizedLogEntry]:
+    async def get_normalized_logs(
+        self, db: AsyncSession, job_id: str
+    ) -> list[NormalizedLogEntry]:
         """Retrieve all normalized logs for a job."""
         from sqlalchemy import select
 

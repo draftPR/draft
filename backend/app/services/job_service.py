@@ -75,7 +75,9 @@ class JobService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_job(self, ticket_id: str, kind: JobKind, variant: str | None = None) -> Job:
+    async def create_job(
+        self, ticket_id: str, kind: JobKind, variant: str | None = None
+    ) -> Job:
         """
         Create a new job and enqueue the corresponding Celery task.
 
@@ -97,9 +99,7 @@ class JobService:
         # CRITICAL: Use SELECT FOR UPDATE to prevent race conditions in rate limiting
         # This locks the ticket row until transaction commits, serializing job creation
         result = await self.db.execute(
-            select(Ticket)
-            .where(Ticket.id == ticket_id)
-            .with_for_update()
+            select(Ticket).where(Ticket.id == ticket_id).with_for_update()
         )
         ticket = result.scalar_one_or_none()
         if ticket is None:
@@ -272,7 +272,6 @@ class JobService:
         except Exception as e:
             logger.error(f"Failed to kill subprocess for job {job_id}: {e}")
 
-
         await self.db.refresh(job)
         return job
 
@@ -329,6 +328,7 @@ class JobService:
             The log content as a string, or None if no logs available
         """
         import asyncio
+
         return await asyncio.to_thread(self.read_job_logs, log_path)
 
     async def get_queue_status(self) -> QueueStatusResponse:

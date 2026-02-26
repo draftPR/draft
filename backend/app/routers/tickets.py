@@ -412,9 +412,7 @@ async def execute_ticket(
 
     # Check dependency: ticket cannot execute if blocked by an incomplete ticket
     if ticket.is_blocked_by_dependency:
-        blocker_title = (
-            ticket.blocked_by.title if ticket.blocked_by else "unknown"
-        )
+        blocker_title = ticket.blocked_by.title if ticket.blocked_by else "unknown"
         raise HTTPException(
             status_code=409,
             detail=f"Cannot execute: ticket is blocked by '{blocker_title}' "
@@ -651,9 +649,7 @@ async def get_worktree_tree(
     ticket = await service.get_ticket_by_id(ticket_id)
 
     # Find the workspace for this ticket
-    result = await db.execute(
-        select(Workspace).where(Workspace.ticket_id == ticket_id)
-    )
+    result = await db.execute(select(Workspace).where(Workspace.ticket_id == ticket_id))
     workspace = result.scalar_one_or_none()
 
     if not workspace or not workspace.worktree_path:

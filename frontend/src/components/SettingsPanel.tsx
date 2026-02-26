@@ -1001,7 +1001,9 @@ export function VerificationCommandsCard() {
 
 export function SettingsPanel() {
   const [editor, setEditor] = useState<EditorType>(getPreferredEditor());
-  const [defaultAgent, setDefaultAgent] = useState("claude");
+  const [defaultAgent, setDefaultAgent] = useState(
+    () => (typeof window !== "undefined" ? localStorage.getItem("smartkanban_default_agent") : null) || "claude"
+  );
   const [budget, setBudget] = useState<BudgetSettings>(loadBudgetSettings);
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -1024,11 +1026,6 @@ export function SettingsPanel() {
     setHasChanges(false);
     playSound("success");
   };
-
-  useEffect(() => {
-    const stored = localStorage.getItem("smartkanban_default_agent");
-    if (stored) setDefaultAgent(stored);
-  }, []);
 
   return (
     <div className="space-y-6 p-6 max-w-2xl mx-auto">

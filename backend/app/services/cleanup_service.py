@@ -71,7 +71,8 @@ def _sanitize_output(text: str | None, max_length: int = 500) -> str | None:
     # Remove null bytes, carriage returns (\r), and most control characters
     # Keep only newlines (\n) and tabs (\t) as whitespace
     sanitized = "".join(
-        c for c in text
+        c
+        for c in text
         if c == "\n" or c == "\t" or (ord(c) >= 32 and ord(c) != 127)
         # Note: \r (ord 13) is excluded since it's < 32 and not \n or \t
     )
@@ -323,16 +324,18 @@ class CleanupService:
                 actor_type=ActorType.SYSTEM.value,
                 actor_id=actor_id,
                 reason=f"CRITICAL: Worktree cleanup BLOCKED - {failure_reason}",
-                payload_json=json.dumps({
-                    "worktree_path": str(worktree_path),
-                    "resolved_worktree": str(resolved_worktree),
-                    "resolved_repo": str(resolved_repo),
-                    "cleanup_failed": True,
-                    "failure_reason": f"CRITICAL: {failure_reason}",
-                    "branch_name": workspace.branch_name,
-                    "worktree_equals_repo": worktree_is_repo,
-                    "repo_is_under_worktree": repo_is_under_worktree,
-                }),
+                payload_json=json.dumps(
+                    {
+                        "worktree_path": str(worktree_path),
+                        "resolved_worktree": str(resolved_worktree),
+                        "resolved_repo": str(resolved_repo),
+                        "cleanup_failed": True,
+                        "failure_reason": f"CRITICAL: {failure_reason}",
+                        "branch_name": workspace.branch_name,
+                        "worktree_equals_repo": worktree_is_repo,
+                        "repo_is_under_worktree": repo_is_under_worktree,
+                    }
+                ),
             )
             self.db.add(event)
             await self.db.flush()
@@ -342,7 +345,9 @@ class CleanupService:
         try:
             resolved_worktree.relative_to(resolved_smartkanban)
         except ValueError:
-            logger.error(f"Refusing to delete worktree not under {self.WORKTREES_DIR}: {worktree_path}")
+            logger.error(
+                f"Refusing to delete worktree not under {self.WORKTREES_DIR}: {worktree_path}"
+            )
             event = TicketEvent(
                 ticket_id=ticket_id,
                 event_type=EventType.WORKTREE_CLEANUP_FAILED.value,
@@ -351,12 +356,14 @@ class CleanupService:
                 actor_type=ActorType.SYSTEM.value,
                 actor_id=actor_id,
                 reason=f"Worktree cleanup REFUSED: path not under {self.WORKTREES_DIR}",
-                payload_json=json.dumps({
-                    "worktree_path": str(worktree_path),
-                    "cleanup_failed": True,
-                    "failure_reason": f"Path validation failed: not under {self.WORKTREES_DIR}",
-                    "branch_name": workspace.branch_name,
-                }),
+                payload_json=json.dumps(
+                    {
+                        "worktree_path": str(worktree_path),
+                        "cleanup_failed": True,
+                        "failure_reason": f"Path validation failed: not under {self.WORKTREES_DIR}",
+                        "branch_name": workspace.branch_name,
+                    }
+                ),
             )
             self.db.add(event)
             await self.db.flush()
@@ -366,7 +373,9 @@ class CleanupService:
         ticket = None
         if not force:
             ticket_result = await self.db.execute(
-                select(Ticket).where(Ticket.id == ticket_id).options(selectinload(Ticket.events))
+                select(Ticket)
+                .where(Ticket.id == ticket_id)
+                .options(selectinload(Ticket.events))
             )
             ticket = ticket_result.scalar_one_or_none()
             if ticket and ticket.state in PROTECTED_TICKET_STATES:
@@ -381,12 +390,14 @@ class CleanupService:
                     actor_type=ActorType.SYSTEM.value,
                     actor_id=actor_id,
                     reason=f"Worktree cleanup REFUSED: ticket in protected state {ticket.state}",
-                    payload_json=json.dumps({
-                        "worktree_path": str(worktree_path),
-                        "cleanup_failed": True,
-                        "failure_reason": f"Ticket in protected state: {ticket.state}",
-                        "branch_name": workspace.branch_name,
-                    }),
+                    payload_json=json.dumps(
+                        {
+                            "worktree_path": str(worktree_path),
+                            "cleanup_failed": True,
+                            "failure_reason": f"Ticket in protected state: {ticket.state}",
+                            "branch_name": workspace.branch_name,
+                        }
+                    ),
                 )
                 self.db.add(event)
                 await self.db.flush()
@@ -401,7 +412,9 @@ class CleanupService:
         if not ticket:
             # Fetch ticket if not already loaded
             ticket_result = await self.db.execute(
-                select(Ticket).where(Ticket.id == ticket_id).options(selectinload(Ticket.events))
+                select(Ticket)
+                .where(Ticket.id == ticket_id)
+                .options(selectinload(Ticket.events))
             )
             ticket = ticket_result.scalar_one_or_none()
 
@@ -411,7 +424,9 @@ class CleanupService:
                 if event.event_type == MERGE_SUCCEEDED_EVENT:
                     branch_merged = True
                     try:
-                        payload = json.loads(event.payload_json) if event.payload_json else {}
+                        payload = (
+                            json.loads(event.payload_json) if event.payload_json else {}
+                        )
                         merge_base_branch = payload.get("base_branch")
                     except (json.JSONDecodeError, TypeError, AttributeError):
                         pass  # Invalid JSON - continue without base_branch
@@ -422,7 +437,11 @@ class CleanupService:
                 for event in ticket.events:
                     if event.event_type == MERGE_REQUESTED_EVENT:
                         try:
-                            payload = json.loads(event.payload_json) if event.payload_json else {}
+                            payload = (
+                                json.loads(event.payload_json)
+                                if event.payload_json
+                                else {}
+                            )
                             merge_base_branch = payload.get("base_branch")
                             if merge_base_branch:
                                 break  # Found it
@@ -441,7 +460,9 @@ class CleanupService:
         if delete_branch:
             # Force deletion requested - skip safety checks
             should_delete_branch = True
-            logger.info(f"Will force-delete branch {workspace.branch_name} (delete_branch=True)")
+            logger.info(
+                f"Will force-delete branch {workspace.branch_name} (delete_branch=True)"
+            )
         elif branch_merged:
             # Event says merged - verify with git using explicit refs
             # PREFER the base_branch from merge event (consistency), fallback to detection
@@ -465,10 +486,10 @@ class CleanupService:
                 )
             else:
                 # Event says merged but git disagrees - DO NOT DELETE
-                branch_skip_reason = (
-                    f"Event claims merged but git verification failed: {git_verification_reason}"
+                branch_skip_reason = f"Event claims merged but git verification failed: {git_verification_reason}"
+                logger.warning(
+                    f"NOT deleting branch {workspace.branch_name}: {branch_skip_reason}"
                 )
-                logger.warning(f"NOT deleting branch {workspace.branch_name}: {branch_skip_reason}")
         else:
             branch_skip_reason = "No merge event found"
             logger.info(f"Keeping branch {workspace.branch_name}: {branch_skip_reason}")
@@ -500,7 +521,9 @@ class CleanupService:
                     # SAFE FALLBACK: Only rmtree if NOT registered as worktree
                     # This prevents corrupting git state
                     if worktree_path.exists():
-                        still_registered = self._is_registered_worktree(worktree_path, repo_path)
+                        still_registered = self._is_registered_worktree(
+                            worktree_path, repo_path
+                        )
                         # Get worktree list for debugging
                         worktree_list_result = subprocess.run(
                             ["git", "worktree", "list"],
@@ -509,7 +532,11 @@ class CleanupService:
                             text=True,
                             timeout=10,
                         )
-                        worktree_list_excerpt = worktree_list_result.stdout[:500] if worktree_list_result.returncode == 0 else None
+                        worktree_list_excerpt = (
+                            worktree_list_result.stdout[:500]
+                            if worktree_list_result.returncode == 0
+                            else None
+                        )
 
                         if still_registered:
                             logger.error(
@@ -536,8 +563,12 @@ class CleanupService:
                     "worktree_removed": False,
                     "cleanup_failed": True,
                     "failure_reason": "Worktree still registered, cannot safely remove",
-                    "git_worktree_remove_stderr": _sanitize_output(worktree_remove_error),
-                    "git_worktree_list_excerpt": _sanitize_output(worktree_list_excerpt),
+                    "git_worktree_remove_stderr": _sanitize_output(
+                        worktree_remove_error
+                    ),
+                    "git_worktree_list_excerpt": _sanitize_output(
+                        worktree_list_excerpt
+                    ),
                     "branch_name": workspace.branch_name,
                     "branch_was_merged": branch_merged,
                     "force_used": force,
@@ -701,13 +732,15 @@ class CleanupService:
                     actor_type=ActorType.SYSTEM.value,
                     actor_id=actor_id,
                     reason=f"Worktree cleanup EXCEPTION: {worktree_path}",
-                    payload_json=json.dumps({
-                        "worktree_path": str(worktree_path),
-                        "cleanup_failed": True,
-                        "failure_reason": f"Exception: {_sanitize_output(str(e))}",
-                        "exception_type": type(e).__name__,
-                        "branch_name": workspace.branch_name,
-                    }),
+                    payload_json=json.dumps(
+                        {
+                            "worktree_path": str(worktree_path),
+                            "cleanup_failed": True,
+                            "failure_reason": f"Exception: {_sanitize_output(str(e))}",
+                            "exception_type": type(e).__name__,
+                            "branch_name": workspace.branch_name,
+                        }
+                    ),
                 )
                 self.db.add(event)
                 await self.db.flush()
@@ -734,7 +767,9 @@ class CleanupService:
         result = CleanupResult()
         cleanup_config = self.config_service.get_cleanup_config()
 
-        ttl_threshold = datetime.now(UTC) - timedelta(days=cleanup_config.worktree_ttl_days)
+        ttl_threshold = datetime.now(UTC) - timedelta(
+            days=cleanup_config.worktree_ttl_days
+        )
 
         # Find stale workspaces with their tickets
         query = (
@@ -873,7 +908,9 @@ class CleanupService:
         cleanup_config = self.config_service.get_cleanup_config()
         repo_path = self.config_service.get_repo_root()
 
-        ttl_threshold = datetime.now(UTC) - timedelta(days=cleanup_config.evidence_ttl_days)
+        ttl_threshold = datetime.now(UTC) - timedelta(
+            days=cleanup_config.evidence_ttl_days
+        )
 
         # Find old evidence records
         query = select(Evidence).where(Evidence.created_at < ttl_threshold)
@@ -897,7 +934,9 @@ class CleanupService:
                             result.evidence_files_deleted += 1
                             result.bytes_freed += size
                         except Exception as e:
-                            logger.error(f"Failed to delete evidence file {stdout_path}: {e}")
+                            logger.error(
+                                f"Failed to delete evidence file {stdout_path}: {e}"
+                            )
                             result.evidence_files_failed += 1
 
             # Delete stderr file
@@ -916,7 +955,9 @@ class CleanupService:
                             result.evidence_files_deleted += 1
                             result.bytes_freed += size
                         except Exception as e:
-                            logger.error(f"Failed to delete evidence file {stderr_path}: {e}")
+                            logger.error(
+                                f"Failed to delete evidence file {stderr_path}: {e}"
+                            )
                             result.evidence_files_failed += 1
 
         return result

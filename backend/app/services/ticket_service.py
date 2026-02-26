@@ -27,7 +27,9 @@ from app.state_machine import (
 logger = logging.getLogger(__name__)
 
 # Thread pool for running blocking workspace cleanup operations
-_cleanup_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="workspace_cleanup")
+_cleanup_executor = ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="workspace_cleanup"
+)
 
 
 class TicketService:
@@ -55,7 +57,9 @@ class TicketService:
             )
             blocker = result.scalar_one_or_none()
             if not blocker:
-                raise ResourceNotFoundError("Blocking Ticket", data.blocked_by_ticket_id)
+                raise ResourceNotFoundError(
+                    "Blocking Ticket", data.blocked_by_ticket_id
+                )
             blocked_by_title = blocker.title
 
         # Fetch board_id from the parent goal
@@ -225,7 +229,9 @@ class TicketService:
             active_verify = active_verify_result.scalar_one_or_none()
 
             if active_verify:
-                logger.info(f"Skipping verify enqueue for ticket {ticket_id} - already has active job {active_verify.id}")
+                logger.info(
+                    f"Skipping verify enqueue for ticket {ticket_id} - already has active job {active_verify.id}"
+                )
                 return None
 
             # Create the job record
@@ -246,6 +252,7 @@ class TicketService:
 
             # Enqueue the verify task via unified dispatch
             from app.services.task_dispatch import enqueue_task
+
             task = enqueue_task("verify_ticket", args=[job.id])
 
             # Store the task ID (new transaction after commit)
@@ -256,7 +263,9 @@ class TicketService:
             return job.id
 
         except Exception as e:
-            logger.error(f"Failed to auto-enqueue verify job for ticket {ticket_id}: {e}")
+            logger.error(
+                f"Failed to auto-enqueue verify job for ticket {ticket_id}: {e}"
+            )
             return None
 
     async def _cleanup_workspace_async(self, ticket_id: str) -> None:
@@ -395,7 +404,6 @@ class TicketService:
         """
         from sqlalchemy import delete
 
-
         # Build query
         query = select(Ticket)
         if board_id:
@@ -420,11 +428,12 @@ class TicketService:
         if cleanup_tasks:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
-                    timeout=30.0
+                    asyncio.gather(*cleanup_tasks, return_exceptions=True), timeout=30.0
                 )
             except TimeoutError:
-                logger.warning("Workspace cleanup timed out during bulk ticket deletion")
+                logger.warning(
+                    "Workspace cleanup timed out during bulk ticket deletion"
+                )
 
         # Delete all tickets (cascade will handle related records)
         delete_query = delete(Ticket)
@@ -434,5 +443,7 @@ class TicketService:
         await self.db.execute(delete_query)
         await self.db.commit()
 
-        logger.info(f"Deleted {count} tickets" + (f" from board {board_id}" if board_id else ""))
+        logger.info(
+            f"Deleted {count} tickets" + (f" from board {board_id}" if board_id else "")
+        )
         return count

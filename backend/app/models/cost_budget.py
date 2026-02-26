@@ -15,7 +15,12 @@ class CostBudget(Base):
     __tablename__ = "cost_budgets"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    goal_id = Column(String(36), ForeignKey("goals.id", ondelete="CASCADE"), nullable=True, index=True)
+    goal_id = Column(
+        String(36),
+        ForeignKey("goals.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
     # Budget limits (None = unlimited)
     daily_budget = Column(Float, nullable=True)
@@ -29,7 +34,9 @@ class CostBudget(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     # Relationships
     goal = relationship("Goal", back_populates="budget")

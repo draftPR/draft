@@ -41,6 +41,7 @@ FOLLOWUP_MARKER = "planner_followup_created"
 
 class PlannerLockError(Exception):
     """Raised when planner lock cannot be acquired."""
+
     pass
 
 
@@ -59,6 +60,7 @@ def run_planner_tick_sync() -> dict:
 
     # Load config
     from pathlib import Path
+
     kanban_root = Path(__file__).parent.parent.parent.parent
     config_service = ConfigService(repo_path=kanban_root)
     config = config_service.get_planner_config()
@@ -215,14 +217,17 @@ def _release_lock_sync(db, owner_id: str) -> None:
 def _count_active_executions_sync(db) -> int:
     """Count active executions (queued + running execute jobs)."""
     from sqlalchemy import func as sql_func
+
     count = db.execute(
         select(sql_func.count(Job.id)).where(
             and_(
                 Job.kind == JobKind.EXECUTE.value,
-                Job.status.in_([
-                    JobStatus.QUEUED.value,
-                    JobStatus.RUNNING.value,
-                ]),
+                Job.status.in_(
+                    [
+                        JobStatus.QUEUED.value,
+                        JobStatus.RUNNING.value,
+                    ]
+                ),
             )
         )
     ).scalar_one()
@@ -253,16 +258,20 @@ def _unblock_ready_tickets_sync(db) -> int:
     Returns:
         Number of tickets that were unblocked.
     """
-    blocked_tickets = db.execute(
-        select(Ticket)
-        .where(
-            and_(
-                Ticket.state == TicketState.BLOCKED.value,
-                Ticket.blocked_by_ticket_id.isnot(None),
+    blocked_tickets = (
+        db.execute(
+            select(Ticket)
+            .where(
+                and_(
+                    Ticket.state == TicketState.BLOCKED.value,
+                    Ticket.blocked_by_ticket_id.isnot(None),
+                )
             )
+            .options(selectinload(Ticket.blocked_by))
         )
-        .options(selectinload(Ticket.blocked_by))
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     unblocked = 0
     for ticket in blocked_tickets:
@@ -282,11 +291,13 @@ def _unblock_ready_tickets_sync(db) -> int:
                 actor_type=ActorType.PLANNER.value,
                 actor_id="planner",
                 reason=f"Unblocked: blocking ticket '{ticket.blocked_by.title}' is now done",
-                payload_json=json.dumps({
-                    "blocker_ticket_id": ticket.blocked_by_ticket_id,
-                    "blocker_title": ticket.blocked_by.title,
-                    "action": "unblocked",
-                }),
+                payload_json=json.dumps(
+                    {
+                        "blocker_ticket_id": ticket.blocked_by_ticket_id,
+                        "blocker_title": ticket.blocked_by.title,
+                        "action": "unblocked",
+                    }
+                ),
             )
             db.add(event)
 
@@ -321,16 +332,20 @@ def _pick_and_execute_next_sync(db) -> list[str]:
         return []
 
     # Find planned tickets ordered by priority
-    planned_tickets = db.execute(
-        select(Ticket)
-        .where(Ticket.state == TicketState.PLANNED.value)
-        .options(selectinload(Ticket.blocked_by))
-        .order_by(
-            Ticket.priority.desc().nulls_last(),
-            Ticket.created_at.asc(),
+    planned_tickets = (
+        db.execute(
+            select(Ticket)
+            .where(Ticket.state == TicketState.PLANNED.value)
+            .options(selectinload(Ticket.blocked_by))
+            .order_by(
+                Ticket.priority.desc().nulls_last(),
+                Ticket.created_at.asc(),
+            )
+            .limit(slots * 2)  # Fetch extra in case some are dependency-blocked
         )
-        .limit(slots * 2)  # Fetch extra in case some are dependency-blocked
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     if not planned_tickets:
         return []
@@ -341,13 +356,17 @@ def _pick_and_execute_next_sync(db) -> list[str]:
             select(Job.ticket_id).where(
                 and_(
                     Job.kind == JobKind.EXECUTE.value,
-                    Job.status.in_([
-                        JobStatus.QUEUED.value,
-                        JobStatus.RUNNING.value,
-                    ]),
+                    Job.status.in_(
+                        [
+                            JobStatus.QUEUED.value,
+                            JobStatus.RUNNING.value,
+                        ]
+                    ),
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
     job_ids = []
@@ -365,9 +384,10 @@ def _pick_and_execute_next_sync(db) -> list[str]:
             if blocker is None or blocker.state != TicketState.DONE.value:
                 blocker_title = blocker.title if blocker else "unknown"
                 logger.info(
-                    "Ticket %s blocked by incomplete %s (%s), "
-                    "moving to BLOCKED",
-                    ticket.id, ticket.blocked_by_ticket_id, blocker_title,
+                    "Ticket %s blocked by incomplete %s (%s), moving to BLOCKED",
+                    ticket.id,
+                    ticket.blocked_by_ticket_id,
+                    blocker_title,
                 )
                 ticket.state = TicketState.BLOCKED.value
                 event = TicketEvent(
@@ -378,10 +398,12 @@ def _pick_and_execute_next_sync(db) -> list[str]:
                     actor_type=ActorType.PLANNER.value,
                     actor_id="planner",
                     reason=f"Blocked by incomplete ticket: {blocker_title}",
-                    payload_json=json.dumps({
-                        "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
-                        "blocked_by_title": blocker_title,
-                    }),
+                    payload_json=json.dumps(
+                        {
+                            "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
+                            "blocked_by_title": blocker_title,
+                        }
+                    ),
                 )
                 db.add(event)
                 continue
@@ -405,17 +427,17 @@ def _pick_and_execute_next_sync(db) -> list[str]:
             actor_type=ActorType.PLANNER.value,
             actor_id="planner",
             reason="Planner enqueued execute job",
-            payload_json=json.dumps({
-                "action": "enqueued_execute",
-                "job_id": job.id,
-            }),
+            payload_json=json.dumps(
+                {
+                    "action": "enqueued_execute",
+                    "job_id": job.id,
+                }
+            ),
         )
         db.add(event)
         job_ids.append(job.id)
 
-        logger.info(
-            f"Planner created execute job {job.id} for ticket {ticket.id}"
-        )
+        logger.info(f"Planner created execute job {job.id} for ticket {ticket.id}")
 
     if job_ids:
         logger.info(
@@ -442,15 +464,21 @@ def _execute_queued_message_sync(db) -> str | None:
 
     # Find tickets that might have queued messages
     # These are tickets ready for re-execution after completing a cycle
-    ready_tickets = db.execute(
-        select(Ticket).where(
-            Ticket.state.in_([
-                TicketState.DONE.value,  # Approved but has queued follow-up
-                TicketState.NEEDS_HUMAN.value,  # Ready for human input (with queued message)
-                TicketState.BLOCKED.value,  # Blocked but has queued fix
-            ])
+    ready_tickets = (
+        db.execute(
+            select(Ticket).where(
+                Ticket.state.in_(
+                    [
+                        TicketState.DONE.value,  # Approved but has queued follow-up
+                        TicketState.NEEDS_HUMAN.value,  # Ready for human input (with queued message)
+                        TicketState.BLOCKED.value,  # Blocked but has queued fix
+                    ]
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     for ticket in ready_tickets:
         # Check if this ticket has a queued message
@@ -460,12 +488,14 @@ def _execute_queued_message_sync(db) -> str | None:
 
         # Check no active jobs for this ticket
         active_job = db.execute(
-            select(Job.id).where(
+            select(Job.id)
+            .where(
                 and_(
                     Job.ticket_id == ticket.id,
                     Job.status.in_([JobStatus.QUEUED.value, JobStatus.RUNNING.value]),
                 )
-            ).limit(1)
+            )
+            .limit(1)
         ).scalar_one_or_none()
 
         if active_job:
@@ -486,11 +516,13 @@ def _execute_queued_message_sync(db) -> str | None:
             actor_type=ActorType.PLANNER.value,
             actor_id="planner",
             reason=f"Executing queued follow-up: {queued.message[:100]}...",
-            payload_json=json.dumps({
-                "action": "queued_followup",
-                "queued_message": queued.message,
-                "queued_at": queued.queued_at.isoformat(),
-            }),
+            payload_json=json.dumps(
+                {
+                    "action": "queued_followup",
+                    "queued_message": queued.message,
+                    "queued_at": queued.queued_at.isoformat(),
+                }
+            ),
         )
         db.add(event)
 
@@ -555,11 +587,15 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
     followups_created = 0
 
     # Find blocked tickets
-    blocked_tickets = db.execute(
-        select(Ticket)
-        .where(Ticket.state == TicketState.BLOCKED.value)
-        .options(selectinload(Ticket.goal), selectinload(Ticket.events))
-    ).scalars().all()
+    blocked_tickets = (
+        db.execute(
+            select(Ticket)
+            .where(Ticket.state == TicketState.BLOCKED.value)
+            .options(selectinload(Ticket.goal), selectinload(Ticket.events))
+        )
+        .scalars()
+        .all()
+    )
 
     llm_service = LLMService(config)
 
@@ -570,7 +606,8 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
 
         # Cap: count existing follow-ups
         existing_followup_count = sum(
-            1 for event in ticket.events
+            1
+            for event in ticket.events
             if event.payload_json and FOLLOWUP_MARKER in event.payload_json
         )
         if existing_followup_count >= config.max_followups_per_ticket:
@@ -651,10 +688,12 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
             actor_type=ActorType.PLANNER.value,
             actor_id="planner",
             reason=f"Follow-up for blocked ticket: {ticket.title}",
-            payload_json=json.dumps({
-                "parent_ticket_id": ticket.id,
-                "verification": proposal.get("verification", []),
-            }),
+            payload_json=json.dumps(
+                {
+                    "parent_ticket_id": ticket.id,
+                    "verification": proposal.get("verification", []),
+                }
+            ),
         )
         db.add(creation_event)
 
@@ -667,18 +706,23 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
             actor_type=ActorType.PLANNER.value,
             actor_id="planner",
             reason=f"Created follow-up ticket: {followup_ticket.title}",
-            payload_json=json.dumps({
-                FOLLOWUP_MARKER: True,
-                "followup_ticket_id": followup_ticket.id,
-            }),
+            payload_json=json.dumps(
+                {
+                    FOLLOWUP_MARKER: True,
+                    "followup_ticket_id": followup_ticket.id,
+                }
+            ),
         )
         db.add(link_event)
 
         followups_created += 1
-        logger.info(f"Created follow-up ticket {followup_ticket.id} for blocked ticket {ticket.id}")
+        logger.info(
+            f"Created follow-up ticket {followup_ticket.id} for blocked ticket {ticket.id}"
+        )
 
         try:
             from app.routers.debug import add_orchestrator_log
+
             add_orchestrator_log(
                 "INFO",
                 f"Follow-up created: '{followup_ticket.title}'",
@@ -767,7 +811,9 @@ Generate a follow-up ticket proposal as JSON."""
 
         return {
             "title": data.get("title", "Follow-up for blocked ticket"),
-            "description": data.get("description", "Address the blocker from the original ticket."),
+            "description": data.get(
+                "description", "Address the blocker from the original ticket."
+            ),
             "verification": data.get("verification", []),
         }
     except Exception as e:
@@ -788,11 +834,15 @@ def _generate_reflections_sync(db, config: PlannerConfig) -> int:
     reflections_added = 0
 
     # Find done tickets
-    done_tickets = db.execute(
-        select(Ticket)
-        .where(Ticket.state == TicketState.DONE.value)
-        .options(selectinload(Ticket.events), selectinload(Ticket.evidence))
-    ).scalars().all()
+    done_tickets = (
+        db.execute(
+            select(Ticket)
+            .where(Ticket.state == TicketState.DONE.value)
+            .options(selectinload(Ticket.events), selectinload(Ticket.evidence))
+        )
+        .scalars()
+        .all()
+    )
 
     llm_service = LLMService(config)
 
@@ -833,10 +883,12 @@ def _generate_reflections_sync(db, config: PlannerConfig) -> int:
             actor_type=ActorType.PLANNER.value,
             actor_id="planner",
             reason=reflection,
-            payload_json=json.dumps({
-                REFLECTION_MARKER: True,
-                "type": "reflection_added",
-            }),
+            payload_json=json.dumps(
+                {
+                    REFLECTION_MARKER: True,
+                    "type": "reflection_added",
+                }
+            ),
         )
         db.add(reflection_event)
 

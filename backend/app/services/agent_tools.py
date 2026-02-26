@@ -57,8 +57,12 @@ async def analyze_codebase(repo_root: str) -> str:
             "total_lines": sum(f.line_count for f in context.file_tree),
             "todo_count": context.todo_count,
             "has_readme": bool(context.readme_excerpt),
-            "readme_excerpt": context.readme_excerpt[:500] if context.readme_excerpt else None,
-            "file_tree_sample": [f.path for f in context.file_tree[:50]],  # Cap at 50 files
+            "readme_excerpt": context.readme_excerpt[:500]
+            if context.readme_excerpt
+            else None,
+            "file_tree_sample": [
+                f.path for f in context.file_tree[:50]
+            ],  # Cap at 50 files
             "stats": {
                 "files_scanned": context.stats.files_scanned,
                 "bytes_read": context.stats.bytes_read,
@@ -69,11 +73,13 @@ async def analyze_codebase(repo_root: str) -> str:
         return json.dumps(result, indent=2)
 
     except Exception as e:
-        return json.dumps({
-            "error": str(e),
-            "project_type": "unknown",
-            "file_count": 0,
-        })
+        return json.dumps(
+            {
+                "error": str(e),
+                "project_type": "unknown",
+                "file_count": 0,
+            }
+        )
 
 
 @tool
@@ -122,8 +128,8 @@ async def search_tickets(
             # Simple text search in title and description
             search_term = f"%{query.lower()}%"
             stmt = stmt.where(
-                (Ticket.title.ilike(search_term)) |
-                (Ticket.description.ilike(search_term))
+                (Ticket.title.ilike(search_term))
+                | (Ticket.description.ilike(search_term))
             )
 
         # Execute query
@@ -135,7 +141,9 @@ async def search_tickets(
             {
                 "id": t.id,
                 "title": t.title,
-                "description": t.description[:200] if t.description else None,  # Cap at 200 chars
+                "description": t.description[:200]
+                if t.description
+                else None,  # Cap at 200 chars
                 "state": t.state,
                 "priority": t.priority,
                 "blocked_by_ticket_id": t.blocked_by_ticket_id,
@@ -143,17 +151,22 @@ async def search_tickets(
             for t in tickets
         ]
 
-        return json.dumps({
-            "total": len(tickets_data),
-            "tickets": tickets_data,
-        }, indent=2)
+        return json.dumps(
+            {
+                "total": len(tickets_data),
+                "tickets": tickets_data,
+            },
+            indent=2,
+        )
 
     except Exception as e:
-        return json.dumps({
-            "error": str(e),
-            "total": 0,
-            "tickets": [],
-        })
+        return json.dumps(
+            {
+                "error": str(e),
+                "total": 0,
+                "tickets": [],
+            }
+        )
 
 
 @tool
@@ -187,10 +200,12 @@ async def get_goal_context(db: AsyncSession, goal_id: str) -> str:
         # Get goal
         goal = await db.get(Goal, goal_id)
         if not goal:
-            return json.dumps({
-                "error": f"Goal {goal_id} not found",
-                "id": goal_id,
-            })
+            return json.dumps(
+                {
+                    "error": f"Goal {goal_id} not found",
+                    "id": goal_id,
+                }
+            )
 
         # Count tickets by state
         stmt = select(Ticket).where(Ticket.goal_id == goal_id)
@@ -206,7 +221,9 @@ async def get_goal_context(db: AsyncSession, goal_id: str) -> str:
         result_data = {
             "id": goal.id,
             "title": goal.title,
-            "description": goal.description[:500] if goal.description else None,  # Cap at 500 chars
+            "description": goal.description[:500]
+            if goal.description
+            else None,  # Cap at 500 chars
             "created_at": goal.created_at.isoformat() if goal.created_at else None,
             "ticket_counts": {
                 **ticket_counts,
@@ -217,10 +234,12 @@ async def get_goal_context(db: AsyncSession, goal_id: str) -> str:
         return json.dumps(result_data, indent=2)
 
     except Exception as e:
-        return json.dumps({
-            "error": str(e),
-            "id": goal_id,
-        })
+        return json.dumps(
+            {
+                "error": str(e),
+                "id": goal_id,
+            }
+        )
 
 
 @tool
@@ -253,7 +272,6 @@ async def analyze_ticket_changes(
         }
     """
     try:
-
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
 
@@ -269,27 +287,31 @@ async def analyze_ticket_changes(
         ticket = result.scalar_one_or_none()
 
         if not ticket:
-            return json.dumps({
-                "error": f"Ticket {ticket_id} not found",
-                "ticket_id": ticket_id,
-            })
+            return json.dumps(
+                {
+                    "error": f"Ticket {ticket_id} not found",
+                    "ticket_id": ticket_id,
+                }
+            )
 
         # Get latest revision
         revisions = sorted(ticket.revisions, key=lambda r: r.number, reverse=True)
         latest_revision = revisions[0] if revisions else None
 
         if not latest_revision:
-            return json.dumps({
-                "ticket_id": ticket_id,
-                "ticket_title": ticket.title,
-                "state": ticket.state,
-                "files_changed": [],
-                "file_count": 0,
-                "lines_added": 0,
-                "lines_deleted": 0,
-                "verification_passed": False,
-                "has_revision": False,
-            })
+            return json.dumps(
+                {
+                    "ticket_id": ticket_id,
+                    "ticket_title": ticket.title,
+                    "state": ticket.state,
+                    "files_changed": [],
+                    "file_count": 0,
+                    "lines_added": 0,
+                    "lines_deleted": 0,
+                    "verification_passed": False,
+                    "has_revision": False,
+                }
+            )
 
         # Load diff stat from evidence (deterministic)
         files_changed = []
@@ -340,10 +362,12 @@ async def analyze_ticket_changes(
         return json.dumps(result_data, indent=2)
 
     except Exception as e:
-        return json.dumps({
-            "error": str(e),
-            "ticket_id": ticket_id,
-        })
+        return json.dumps(
+            {
+                "error": str(e),
+                "ticket_id": ticket_id,
+            }
+        )
 
 
 # Export tools for easy import

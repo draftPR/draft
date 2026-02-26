@@ -45,5 +45,6 @@ def test_subprocess_streaming():
     print(f"\nReceived {len(received_lines)} lines")
     print(f"Return code: {process.returncode}")
 
+
 if __name__ == "__main__":
     test_subprocess_streaming()

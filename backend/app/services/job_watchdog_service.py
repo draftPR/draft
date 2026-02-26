@@ -192,9 +192,7 @@ def run_job_watchdog() -> WatchdogResult:
         # BUT: Only fail if there are NO running jobs (worker is idle but not picking up work)
         # If there are running jobs, the worker is just busy - let queued jobs wait
         running_jobs_count = (
-            db.query(Job)
-            .filter(Job.status == JobStatus.RUNNING.value)
-            .count()
+            db.query(Job).filter(Job.status == JobStatus.RUNNING.value).count()
         )
 
         if running_jobs_count == 0:
@@ -341,7 +339,9 @@ def _fail_job_with_retry(
                     time.sleep(RETRY_DELAY_SECONDS)
                     db.rollback()
                 else:
-                    logger.error(f"Failed to fail job {job.id} after {MAX_RETRIES} attempts: {e}")
+                    logger.error(
+                        f"Failed to fail job {job.id} after {MAX_RETRIES} attempts: {e}"
+                    )
                     result.details.append(f"[RETRY FAILED] Job {job.id}: {reason}")
             else:
                 raise

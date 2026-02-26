@@ -14,7 +14,9 @@ _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 
 # Database URL - defaults to SQLite file in the backend directory
 # Use absolute path to ensure consistency across different working directories
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{_BACKEND_DIR}/kanban.db")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", f"sqlite+aiosqlite:///{_BACKEND_DIR}/kanban.db"
+)
 
 _is_sqlite = "sqlite" in DATABASE_URL
 
@@ -30,6 +32,7 @@ engine = create_async_engine(
 
 # Enable WAL mode for SQLite to prevent readers from blocking writers
 if _is_sqlite:
+
     @event.listens_for(engine.sync_engine, "connect")
     def _set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()

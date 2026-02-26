@@ -19,7 +19,7 @@ if _DATABASE_URL:
     # Handle both sqlite:///path and sqlite+aiosqlite:///path
     for prefix in ("sqlite+aiosqlite:///", "sqlite:///"):
         if _DATABASE_URL.startswith(prefix):
-            _extracted = _DATABASE_URL[len(prefix):]
+            _extracted = _DATABASE_URL[len(prefix) :]
             if _extracted:
                 _DB_PATH = _extracted
             break
@@ -74,7 +74,9 @@ def idempotency_get_lock(cache_key: str) -> str | None:
         conn.close()
 
 
-def idempotency_store_result(cache_key: str, result_value: str, ttl_seconds: int) -> None:
+def idempotency_store_result(
+    cache_key: str, result_value: str, ttl_seconds: int
+) -> None:
     """Store the result and clear the lock."""
     conn = _get_conn()
     try:
@@ -135,9 +137,7 @@ def rate_limit_check_and_record(
     conn = _get_conn()
     try:
         # Cleanup expired
-        conn.execute(
-            "DELETE FROM rate_limit_entries WHERE expires_at < ?", (now,)
-        )
+        conn.execute("DELETE FROM rate_limit_entries WHERE expires_at < ?", (now,))
 
         # Sum current cost in window (also filter by expires_at for consistency)
         row = conn.execute(
@@ -168,9 +168,7 @@ def rate_limit_check_and_record(
         conn.close()
 
 
-def rate_limit_check_only(
-    client_key: str, window_seconds: int
-) -> tuple[int, float]:
+def rate_limit_check_only(client_key: str, window_seconds: int) -> tuple[int, float]:
     """Check current usage without recording. Returns (current_cost, oldest_time)."""
     now = time.time()
     window_start = now - window_seconds
@@ -178,9 +176,7 @@ def rate_limit_check_only(
     conn = _get_conn()
     try:
         # Cleanup expired
-        conn.execute(
-            "DELETE FROM rate_limit_entries WHERE expires_at < ?", (now,)
-        )
+        conn.execute("DELETE FROM rate_limit_entries WHERE expires_at < ?", (now,))
 
         row = conn.execute(
             "SELECT COALESCE(SUM(cost), 0) FROM rate_limit_entries "

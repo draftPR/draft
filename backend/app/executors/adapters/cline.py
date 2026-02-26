@@ -36,19 +36,19 @@ class ClineAdapter(ExecutorAdapter):
                     "model": {
                         "type": "string",
                         "default": "claude-3-5-sonnet-20241022",
-                        "description": "LLM model to use"
+                        "description": "LLM model to use",
                     },
                     "api_provider": {
                         "type": "string",
                         "enum": ["anthropic", "openai", "bedrock"],
                         "default": "anthropic",
-                        "description": "API provider"
-                    }
-                }
+                        "description": "API provider",
+                    },
+                },
             },
             documentation_url="https://github.com/cline/cline",
             author="Cline",
-            license="Apache-2.0"
+            license="Apache-2.0",
         )
 
     async def is_available(self) -> bool:
@@ -58,7 +58,9 @@ class ClineAdapter(ExecutorAdapter):
     async def execute(self, request: ExecutionRequest) -> ExecutionResult:
         """Execute using Cline."""
         if not await self.is_available():
-            raise ExecutorNotFoundError("Cline not found. Install the Cline VS Code extension with CLI support.")
+            raise ExecutorNotFoundError(
+                "Cline not found. Install the Cline VS Code extension with CLI support."
+            )
 
         # Build command
         cmd = ["cline", "execute"]
@@ -79,24 +81,25 @@ class ClineAdapter(ExecutorAdapter):
                 cwd=request.working_directory,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **request.environment}
+                env={**os.environ, **request.environment},
             )
 
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=request.timeout_seconds
+                process.communicate(), timeout=request.timeout_seconds
             )
 
             return ExecutionResult(
                 exit_code=process.returncode,
-                stdout=stdout.decode('utf-8', errors='replace'),
-                stderr=stderr.decode('utf-8', errors='replace'),
-                duration_seconds=0.0
+                stdout=stdout.decode("utf-8", errors="replace"),
+                stderr=stderr.decode("utf-8", errors="replace"),
+                duration_seconds=0.0,
             )
 
         except TimeoutError:
             process.kill()
-            raise ExecutorTimeoutError(f"Cline execution timed out after {request.timeout_seconds}s")
+            raise ExecutorTimeoutError(
+                f"Cline execution timed out after {request.timeout_seconds}s"
+            )
         except Exception as e:
             raise ExecutorInvocationError(f"Cline execution failed: {str(e)}")
 
@@ -112,13 +115,13 @@ class ClineAdapter(ExecutorAdapter):
             cwd=request.working_directory,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            env={**os.environ, **request.environment}
+            env={**os.environ, **request.environment},
         )
 
         while True:
             line = await process.stdout.readline()
             if not line:
                 break
-            yield line.decode('utf-8', errors='replace')
+            yield line.decode("utf-8", errors="replace")
 
         await process.wait()

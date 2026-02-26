@@ -148,8 +148,9 @@ async def test_at_most_one_open_revision_per_ticket(
 
     # Refresh rev1 and verify it's superseded
     await db.refresh(revision1)
-    assert revision1.status == RevisionStatus.SUPERSEDED.value, \
+    assert revision1.status == RevisionStatus.SUPERSEDED.value, (
         "Previous open revision should be superseded"
+    )
 
     # Verify rev2 is open
     assert revision2.status == RevisionStatus.OPEN.value
@@ -162,8 +163,9 @@ async def test_at_most_one_open_revision_per_ticket(
         )
     )
     open_revisions = result.scalars().all()
-    assert len(open_revisions) == 1, \
+    assert len(open_revisions) == 1, (
         f"Expected exactly 1 open revision, got {len(open_revisions)}"
+    )
     assert open_revisions[0].id == revision2.id
 
 
@@ -472,8 +474,9 @@ async def test_job_source_revision_traceability(
 
     # Verify the traceability link
     await db.refresh(new_job)
-    assert new_job.source_revision_id == revision.id, \
+    assert new_job.source_revision_id == revision.id, (
         "Job should have source_revision_id linking to the revision being addressed"
+    )
 
 
 # ==================== Test: Superseded Revision Guards ====================
@@ -534,9 +537,7 @@ async def test_cannot_add_comment_to_superseded_revision(
 
     # Verify revision1 is now superseded
     db.expire_all()
-    result = await db.execute(
-        select(Revision).where(Revision.id == revision1_id)
-    )
+    result = await db.execute(select(Revision).where(Revision.id == revision1_id))
     revision1_refreshed = result.scalar_one()
     assert revision1_refreshed.status == "superseded"
 
@@ -615,4 +616,3 @@ async def test_cannot_submit_review_to_superseded_revision(
         )
 
     assert "superseded" in str(exc_info.value).lower()
-

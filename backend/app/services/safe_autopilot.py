@@ -23,14 +23,16 @@ logger = logging.getLogger(__name__)
 
 class GateAction(StrEnum):
     """What to do when a gate fails."""
-    BLOCK = "block"      # Stop execution, mark as blocked
-    PAUSE = "pause"      # Pause for human review
-    ALERT = "alert"      # Alert but continue
+
+    BLOCK = "block"  # Stop execution, mark as blocked
+    PAUSE = "pause"  # Pause for human review
+    ALERT = "alert"  # Alert but continue
 
 
 @dataclass
 class GateContext:
     """Context information for gate evaluation."""
+
     ticket: Ticket
     goal: Goal | None
     total_cost_so_far: float
@@ -48,6 +50,7 @@ class GateContext:
 @dataclass
 class GateResult:
     """Result of evaluating a safety gate."""
+
     gate_name: str
     passed: bool
     action: GateAction
@@ -79,18 +82,14 @@ class TestsPassedGate(SafetyGate):
 
     async def evaluate(self, context: GateContext) -> GateResult:
         if context.all_tests_passed:
-            return GateResult(
-                gate_name=self.name,
-                passed=True,
-                action=self.action
-            )
+            return GateResult(gate_name=self.name, passed=True, action=self.action)
         else:
             return GateResult(
                 gate_name=self.name,
                 passed=False,
                 action=self.action,
                 reason="Not all verification tests passed",
-                details={"tests_passed": context.all_tests_passed}
+                details={"tests_passed": context.all_tests_passed},
             )
 
 
@@ -101,7 +100,7 @@ class DiffSizeGate(SafetyGate):
         self,
         max_files: int = 50,
         max_lines: int = 1000,
-        action: GateAction = GateAction.PAUSE
+        action: GateAction = GateAction.PAUSE,
     ):
         super().__init__("diff_size_threshold", action)
         self.max_files = max_files
@@ -116,8 +115,8 @@ class DiffSizeGate(SafetyGate):
                 reason=f"Too many files changed: {context.total_files_changed} > {self.max_files}",
                 details={
                     "files_changed": context.total_files_changed,
-                    "max_files": self.max_files
-                }
+                    "max_files": self.max_files,
+                },
             )
 
         if context.total_lines_changed > self.max_lines:
@@ -128,8 +127,8 @@ class DiffSizeGate(SafetyGate):
                 reason=f"Too many lines changed: {context.total_lines_changed} > {self.max_lines}",
                 details={
                     "lines_changed": context.total_lines_changed,
-                    "max_lines": self.max_lines
-                }
+                    "max_lines": self.max_lines,
+                },
             )
 
         return GateResult(
@@ -138,8 +137,8 @@ class DiffSizeGate(SafetyGate):
             action=self.action,
             details={
                 "files_changed": context.total_files_changed,
-                "lines_changed": context.total_lines_changed
-            }
+                "lines_changed": context.total_lines_changed,
+            },
         )
 
 
@@ -179,23 +178,17 @@ class SensitiveFilesGate(SafetyGate):
                 passed=False,
                 action=self.action,
                 reason=f"Modified sensitive files: {', '.join(sensitive_files)}",
-                details={"sensitive_files": sensitive_files}
+                details={"sensitive_files": sensitive_files},
             )
 
-        return GateResult(
-            gate_name=self.name,
-            passed=True,
-            action=self.action
-        )
+        return GateResult(gate_name=self.name, passed=True, action=self.action)
 
 
 class BudgetGate(SafetyGate):
     """Gate that checks if budget is within limits."""
 
     def __init__(
-        self,
-        warning_threshold: float = 0.8,
-        action: GateAction = GateAction.PAUSE
+        self, warning_threshold: float = 0.8, action: GateAction = GateAction.PAUSE
     ):
         super().__init__("cost_budget", action)
         self.warning_threshold = warning_threshold
@@ -207,7 +200,7 @@ class BudgetGate(SafetyGate):
                 gate_name=self.name,
                 passed=True,
                 action=self.action,
-                details={"budget_set": False}
+                details={"budget_set": False},
             )
 
         if context.budget_limit <= 0:
@@ -216,7 +209,7 @@ class BudgetGate(SafetyGate):
                 gate_name=self.name,
                 passed=True,
                 action=self.action,
-                details={"budget_unlimited": True}
+                details={"budget_unlimited": True},
             )
 
         budget_used_pct = context.total_cost_so_far / context.budget_limit
@@ -230,8 +223,8 @@ class BudgetGate(SafetyGate):
                 details={
                     "total_cost": context.total_cost_so_far,
                     "budget_limit": context.budget_limit,
-                    "budget_used_pct": budget_used_pct
-                }
+                    "budget_used_pct": budget_used_pct,
+                },
             )
 
         if budget_used_pct >= self.warning_threshold:
@@ -239,13 +232,13 @@ class BudgetGate(SafetyGate):
                 gate_name=self.name,
                 passed=False,
                 action=self.action,
-                reason=f"Budget warning: {budget_used_pct*100:.1f}% used (${context.total_cost_so_far:.2f} / ${context.budget_limit:.2f})",
+                reason=f"Budget warning: {budget_used_pct * 100:.1f}% used (${context.total_cost_so_far:.2f} / ${context.budget_limit:.2f})",
                 details={
                     "total_cost": context.total_cost_so_far,
                     "budget_limit": context.budget_limit,
                     "budget_used_pct": budget_used_pct,
-                    "warning_threshold": self.warning_threshold
-                }
+                    "warning_threshold": self.warning_threshold,
+                },
             )
 
         return GateResult(
@@ -255,8 +248,8 @@ class BudgetGate(SafetyGate):
             details={
                 "total_cost": context.total_cost_so_far,
                 "budget_limit": context.budget_limit,
-                "budget_used_pct": budget_used_pct
-            }
+                "budget_used_pct": budget_used_pct,
+            },
         )
 
 
@@ -268,7 +261,7 @@ class CustomGate(SafetyGate):
         name: str,
         check_func: Callable[[GateContext], bool],
         action: GateAction = GateAction.PAUSE,
-        failure_message: str = "Custom gate check failed"
+        failure_message: str = "Custom gate check failed",
     ):
         super().__init__(name, action)
         self.check_func = check_func
@@ -279,17 +272,13 @@ class CustomGate(SafetyGate):
             passed = self.check_func(context)
 
             if passed:
-                return GateResult(
-                    gate_name=self.name,
-                    passed=True,
-                    action=self.action
-                )
+                return GateResult(gate_name=self.name, passed=True, action=self.action)
             else:
                 return GateResult(
                     gate_name=self.name,
                     passed=False,
                     action=self.action,
-                    reason=self.failure_message
+                    reason=self.failure_message,
                 )
         except Exception as e:
             logger.exception(f"Custom gate {self.name} evaluation failed")
@@ -297,7 +286,7 @@ class CustomGate(SafetyGate):
                 gate_name=self.name,
                 passed=False,
                 action=GateAction.BLOCK,
-                reason=f"Gate evaluation error: {str(e)}"
+                reason=f"Gate evaluation error: {str(e)}",
             )
 
 
@@ -350,12 +339,14 @@ class SafeAutopilot:
                     )
             except Exception as e:
                 logger.exception(f"Gate {gate.name} evaluation crashed")
-                results.append(GateResult(
-                    gate_name=gate.name,
-                    passed=False,
-                    action=GateAction.BLOCK,
-                    reason=f"Gate evaluation crashed: {str(e)}"
-                ))
+                results.append(
+                    GateResult(
+                        gate_name=gate.name,
+                        passed=False,
+                        action=GateAction.BLOCK,
+                        reason=f"Gate evaluation crashed: {str(e)}",
+                    )
+                )
 
         return results
 
@@ -369,16 +360,10 @@ class SafeAutopilot:
         results = await self.check_gates(ticket)
 
         # Check for any blocking failures
-        blocked = any(
-            not r.passed and r.action == GateAction.BLOCK
-            for r in results
-        )
+        blocked = any(not r.passed and r.action == GateAction.BLOCK for r in results)
 
         # Check for any pause requests
-        paused = any(
-            not r.passed and r.action == GateAction.PAUSE
-            for r in results
-        )
+        paused = any(not r.passed and r.action == GateAction.PAUSE for r in results)
 
         can_continue = not blocked and not paused
 
@@ -421,6 +406,7 @@ class SafeAutopilot:
         total_lines_changed = 0
 
         from app.models.evidence import Evidence
+
         result = await self.db.execute(
             select(Evidence)
             .join(Job, Job.id == Evidence.job_id)
@@ -434,12 +420,13 @@ class SafeAutopilot:
             # Format: "3 files changed, 45 insertions(+), 12 deletions(-)"
             if evidence.content:
                 import re
-                files_match = re.search(r'(\d+) files? changed', evidence.content)
+
+                files_match = re.search(r"(\d+) files? changed", evidence.content)
                 if files_match:
                     total_files_changed += int(files_match.group(1))
 
-                insertions_match = re.search(r'(\d+) insertions?', evidence.content)
-                deletions_match = re.search(r'(\d+) deletions?', evidence.content)
+                insertions_match = re.search(r"(\d+) insertions?", evidence.content)
+                deletions_match = re.search(r"(\d+) deletions?", evidence.content)
 
                 if insertions_match:
                     total_lines_changed += int(insertions_match.group(1))
@@ -459,7 +446,10 @@ class SafeAutopilot:
             if evidence.content:
                 # Extract file paths from diff headers
                 import re
-                file_matches = re.findall(r'^\+\+\+ b/(.+)$', evidence.content, re.MULTILINE)
+
+                file_matches = re.findall(
+                    r"^\+\+\+ b/(.+)$", evidence.content, re.MULTILINE
+                )
                 modified_files.extend(file_matches)
 
         # Check if tests passed
@@ -473,16 +463,14 @@ class SafeAutopilot:
             total_lines_changed=total_lines_changed,
             all_tests_passed=all_tests_passed,
             modified_files=modified_files,
-            budget_limit=budget_limit
+            budget_limit=budget_limit,
         )
 
     async def _check_tests_passed(self, ticket: Ticket) -> bool:
         """Check if all verification tests passed for this ticket."""
         # Get verification jobs for this ticket
         result = await self.db.execute(
-            select(Job)
-            .where(Job.ticket_id == ticket.id)
-            .where(Job.kind == "verify")
+            select(Job).where(Job.ticket_id == ticket.id).where(Job.kind == "verify")
         )
         verify_jobs = result.scalars().all()
 
@@ -504,7 +492,9 @@ def create_yolo_autopilot(db: AsyncSession) -> SafeAutopilot:
     """Create a YOLO autopilot with minimal gates (only tests and budget hard limits)."""
     gates = [
         TestsPassedGate(action=GateAction.BLOCK),
-        BudgetGate(warning_threshold=1.0, action=GateAction.BLOCK),  # Only block on exceeded
+        BudgetGate(
+            warning_threshold=1.0, action=GateAction.BLOCK
+        ),  # Only block on exceeded
     ]
     return SafeAutopilot(db, gates=gates)
 

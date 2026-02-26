@@ -56,7 +56,9 @@ class ReviewSummary(Base):
     )
 
     # Relationships
-    revision: Mapped["Revision"] = relationship("Revision", back_populates="review_summary")
+    revision: Mapped["Revision"] = relationship(
+        "Revision", back_populates="review_summary"
+    )
 
     @property
     def decision_enum(self) -> ReviewDecision:
@@ -65,5 +67,3 @@ class ReviewSummary(Base):
 
     def __repr__(self) -> str:
         return f"<ReviewSummary(id={self.id}, revision_id={self.revision_id}, decision={self.decision})>"
-
-

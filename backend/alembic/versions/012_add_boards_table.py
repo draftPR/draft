@@ -30,8 +30,12 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("repo_root", sa.String(1024), nullable=False),
         sa.Column("default_branch", sa.String(255), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
     )
 
     # Add board_id to goals (using batch mode for SQLite compatibility)
@@ -39,10 +43,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("board_id", sa.String(36), nullable=True))
         batch_op.create_index("ix_goals_board_id", ["board_id"])
         batch_op.create_foreign_key(
-            "fk_goals_board_id",
-            "boards",
-            ["board_id"], ["id"],
-            ondelete="CASCADE"
+            "fk_goals_board_id", "boards", ["board_id"], ["id"], ondelete="CASCADE"
         )
 
     # Add board_id to tickets
@@ -50,10 +51,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("board_id", sa.String(36), nullable=True))
         batch_op.create_index("ix_tickets_board_id", ["board_id"])
         batch_op.create_foreign_key(
-            "fk_tickets_board_id",
-            "boards",
-            ["board_id"], ["id"],
-            ondelete="CASCADE"
+            "fk_tickets_board_id", "boards", ["board_id"], ["id"], ondelete="CASCADE"
         )
 
     # Add board_id to jobs
@@ -61,10 +59,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("board_id", sa.String(36), nullable=True))
         batch_op.create_index("ix_jobs_board_id", ["board_id"])
         batch_op.create_foreign_key(
-            "fk_jobs_board_id",
-            "boards",
-            ["board_id"], ["id"],
-            ondelete="CASCADE"
+            "fk_jobs_board_id", "boards", ["board_id"], ["id"], ondelete="CASCADE"
         )
 
     # Add board_id to workspaces
@@ -72,10 +67,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("board_id", sa.String(36), nullable=True))
         batch_op.create_index("ix_workspaces_board_id", ["board_id"])
         batch_op.create_foreign_key(
-            "fk_workspaces_board_id",
-            "boards",
-            ["board_id"], ["id"],
-            ondelete="CASCADE"
+            "fk_workspaces_board_id", "boards", ["board_id"], ["id"], ondelete="CASCADE"
         )
 
 
@@ -108,4 +100,3 @@ def downgrade() -> None:
 
     # boards table
     op.drop_table("boards")
-

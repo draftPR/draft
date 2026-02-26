@@ -32,9 +32,7 @@ async def seed_demo_data():
 
     async with async_session_maker() as session:
         # Check if demo board already exists
-        result = await session.execute(
-            select(Board).where(Board.id == "demo-board")
-        )
+        result = await session.execute(select(Board).where(Board.id == "demo-board"))
         existing_board = result.scalar_one_or_none()
 
         if existing_board:
@@ -125,9 +123,7 @@ This is a realistic but constrained problem - perfect for demonstrating Alma Kan
 async def clear_demo_data():
     """Clear demo data (useful for resetting)."""
     async with async_session_maker() as session:
-        result = await session.execute(
-            select(Board).where(Board.id == "demo-board")
-        )
+        result = await session.execute(select(Board).where(Board.id == "demo-board"))
         demo_board = result.scalar_one_or_none()
 
         if demo_board:

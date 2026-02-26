@@ -26,7 +26,7 @@ agent_output = """Now I understand the context. This is the Alma Kanban backend 
 print("Testing JSON extraction...")
 
 # Try to extract JSON from markdown code block
-json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', agent_output, re.DOTALL)
+json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", agent_output, re.DOTALL)
 if json_match:
     json_str = json_match.group(1)
     print(f"Found JSON in markdown: {len(json_str)} chars")
@@ -36,7 +36,7 @@ if json_match:
         data = json.loads(json_str)
         print("✅ Parsed successfully!")
         print(f"Tickets: {len(data.get('tickets', []))}")
-        for ticket in data.get('tickets', []):
+        for ticket in data.get("tickets", []):
             print(f"  - {ticket.get('title')}")
     except json.JSONDecodeError as e:
         print(f"❌ JSON parse error: {e}")

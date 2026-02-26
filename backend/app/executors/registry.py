@@ -26,12 +26,14 @@ class ExecutorRegistry:
             class ClaudeAdapter(ExecutorAdapter):
                 ...
         """
+
         def decorator(adapter_class: type[ExecutorAdapter]):
             if name in cls._adapters:
                 logger.warning(f"Overwriting existing executor adapter: {name}")
             cls._adapters[name] = adapter_class
             logger.info(f"Registered executor adapter: {name}")
             return adapter_class
+
         return decorator
 
     @classmethod
@@ -168,6 +170,7 @@ class ExecutorRegistry:
 
 
 # Convenience functions
+
 
 def get_executor(name: str) -> ExecutorAdapter:
     """Get an executor adapter by name.

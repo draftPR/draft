@@ -235,7 +235,9 @@ class TestRateLimitMiddleware:
 
     def test_rate_limit_blocks_when_exceeded(self, sqlite_test_db):
         """Requests exceeding budget should get 429."""
-        app = create_test_app(with_rate_limit=True, rate_limit_budget=5, rate_limit_window=60)
+        app = create_test_app(
+            with_rate_limit=True, rate_limit_budget=5, rate_limit_window=60
+        )
         client = TestClient(app)
 
         # Make requests until rate limited

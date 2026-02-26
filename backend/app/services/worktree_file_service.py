@@ -66,7 +66,9 @@ def build_file_tree(
 
             children = []
             try:
-                entries = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+                entries = sorted(
+                    path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+                )
                 for entry in entries:
                     if entry.name in SKIP_DIRS:
                         continue
