@@ -223,6 +223,33 @@ class RevisionService:
         await self.db.refresh(revision)
         return revision
 
+    async def _get_repo_root_for_ticket(self, ticket_id: str) -> "Path":
+        """Get the repo root for a ticket by looking up its board's repo_root.
+
+        Falls back to ConfigService default if board has no repo_root.
+        """
+        from pathlib import Path
+
+        from app.models.board import Board
+
+        # Get ticket's board
+        result = await self.db.execute(
+            select(Ticket.board_id).where(Ticket.id == ticket_id)
+        )
+        board_id = result.scalar_one_or_none()
+
+        if board_id:
+            board_result = await self.db.execute(
+                select(Board.repo_root).where(Board.id == board_id)
+            )
+            repo_root = board_result.scalar_one_or_none()
+            if repo_root:
+                return Path(repo_root)
+
+        # Fallback to ConfigService default
+        config_service = ConfigService()
+        return config_service.get_repo_root()
+
     async def get_revision_diff(
         self, revision_id: str
     ) -> tuple[str | None, str | None]:
@@ -235,15 +262,16 @@ class RevisionService:
             Tuple of (diff_stat, diff_patch) content strings
         """
         revision = await self.get_revision_by_id(revision_id)
+        repo_root = await self._get_repo_root_for_ticket(revision.ticket_id)
 
         diff_stat = None
         diff_patch = None
 
         if revision.diff_stat_evidence:
-            diff_stat = await self._read_evidence_content(revision.diff_stat_evidence)
+            diff_stat = await self._read_evidence_content(revision.diff_stat_evidence, repo_root)
 
         if revision.diff_patch_evidence:
-            diff_patch = await self._read_evidence_content(revision.diff_patch_evidence)
+            diff_patch = await self._read_evidence_content(revision.diff_patch_evidence, repo_root)
 
         return diff_stat, diff_patch
 
@@ -259,9 +287,10 @@ class RevisionService:
             diff_stat content string or None
         """
         revision = await self.get_revision_by_id(revision_id)
+        repo_root = await self._get_repo_root_for_ticket(revision.ticket_id)
 
         if revision.diff_stat_evidence:
-            return await self._read_evidence_content(revision.diff_stat_evidence)
+            return await self._read_evidence_content(revision.diff_stat_evidence, repo_root)
         return None
 
     async def get_revision_diff_patch(self, revision_id: str) -> str | None:
@@ -276,12 +305,13 @@ class RevisionService:
             diff_patch content string or None
         """
         revision = await self.get_revision_by_id(revision_id)
+        repo_root = await self._get_repo_root_for_ticket(revision.ticket_id)
 
         if revision.diff_patch_evidence:
-            return await self._read_evidence_content(revision.diff_patch_evidence)
+            return await self._read_evidence_content(revision.diff_patch_evidence, repo_root)
         return None
 
-    async def _read_evidence_content(self, evidence: Evidence) -> str | None:
+    async def _read_evidence_content(self, evidence: Evidence, repo_root: "Path | None" = None) -> str | None:
         """Read the content of an evidence file.
 
         SECURITY: Uses read_artifact() which enforces:
@@ -291,6 +321,7 @@ class RevisionService:
 
         Args:
             evidence: The Evidence instance
+            repo_root: The repo root path (if None, falls back to ConfigService default)
 
         Returns:
             The content string or None if not readable
@@ -299,8 +330,9 @@ class RevisionService:
             return None
 
         try:
-            config_service = ConfigService()
-            repo_root = config_service.get_repo_root()
+            if repo_root is None:
+                config_service = ConfigService()
+                repo_root = config_service.get_repo_root()
             return read_artifact(repo_root, evidence.stdout_path)
         except Exception as e:
             logger.warning(
