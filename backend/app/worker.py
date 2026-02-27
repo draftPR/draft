@@ -670,6 +670,14 @@ def transition_ticket_sync(
             return
 
         from_state = ticket.state
+
+        # Skip no-op transitions (already in target state)
+        if from_state == to_state.value:
+            logger.info(
+                f"Skipping no-op transition for ticket {ticket_id}: already in {from_state}"
+            )
+            return
+
         ticket.state = to_state.value
 
         # Create transition event
