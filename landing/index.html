@@ -6,8 +6,8 @@
     <title>Alma Kanban — Where Agents Ship and Humans Review</title>
     <meta name="description" content="Agent-native project management. AI agents execute tickets, write code, and submit PRs. You review and merge.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <!-- Phosphor Icons - hand-drawn style -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons -->
     <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
     <style>
         :root {
@@ -28,12 +28,14 @@
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
             color: var(--text);
             background: var(--bg);
             line-height: 1.6;
             -webkit-font-smoothing: antialiased;
         }
+        /* Use Inter for body text readability, mono for headings/nav/code */
+        .readable { font-family: 'Inter', -apple-system, sans-serif; }
         a { color: var(--accent-deep); text-decoration: none; }
 
         /* Nav */
@@ -66,7 +68,7 @@
             font-weight: 700;
         }
         .nav-links { display: flex; gap: 2.5rem; align-items: center; }
-        .nav-links a { color: var(--text-secondary); font-size: 0.9rem; font-weight: 500; }
+        .nav-links a { color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; }
         .nav-links a:hover { color: var(--text); }
         .btn {
             display: inline-flex;
@@ -74,45 +76,65 @@
             gap: 0.5rem;
             padding: 0.65rem 1.5rem;
             border-radius: 100px;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             font-weight: 600;
             cursor: pointer;
             border: none;
             transition: all 0.2s ease;
         }
         .btn-primary {
+            background: var(--text);
+            color: white;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25); }
+        .btn-secondary { background: var(--bg-soft); color: var(--text); }
+        .btn-secondary:hover { background: #f0eef2; }
+        .btn-accent {
             background: linear-gradient(135deg, var(--accent), var(--accent-deep));
             color: white;
             box-shadow: 0 2px 12px rgba(139, 92, 246, 0.25);
         }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35); }
-        .btn-secondary { background: var(--bg-soft); color: var(--text); }
-        .btn-secondary:hover { background: #f0eef2; }
+        .btn-accent:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35); }
 
         /* Hero */
         .hero {
             text-align: center;
-            padding: 8rem 2rem 6rem;
+            padding: 6rem 2rem 3rem;
             max-width: 800px;
             margin: 0 auto;
         }
         h1 {
-            font-size: 3.75rem;
+            font-size: 3.5rem;
             font-weight: 800;
-            line-height: 1.08;
+            line-height: 1.1;
             letter-spacing: -0.035em;
             margin-bottom: 1.5rem;
             color: var(--text);
         }
         .hero p {
-            font-size: 1.2rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 1.15rem;
             color: var(--text-secondary);
             max-width: 520px;
             margin: 0 auto 2.5rem;
             line-height: 1.7;
         }
-        .hero-buttons { display: flex; gap: 0.75rem; justify-content: center; }
-        .hero-buttons .btn { padding: 0.85rem 2.25rem; font-size: 0.95rem; }
+        .hero-buttons { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+        .hero-buttons .btn { padding: 0.85rem 2.25rem; font-size: 0.9rem; }
+
+        /* Hero screenshot */
+        .hero-screenshot {
+            max-width: 1000px;
+            margin: 3rem auto 0;
+            padding: 0 2rem;
+        }
+        .hero-screenshot img {
+            width: 100%;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.06);
+            border: 1px solid #e5e7eb;
+        }
 
         /* Sections */
         .section {
@@ -121,16 +143,16 @@
             padding: 6rem 2rem;
         }
         .section-eyebrow {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.14em;
             color: var(--accent-deep);
             text-align: center;
             margin-bottom: 0.75rem;
         }
         h2 {
-            font-size: 2.5rem;
+            font-size: 2.25rem;
             font-weight: 800;
             letter-spacing: -0.025em;
             text-align: center;
@@ -154,22 +176,52 @@
             justify-content: center;
             margin: 0 auto 1.25rem;
             font-size: 1.75rem;
-            color: var(--accent-deep);
         }
         .step:nth-child(1) .step-icon { background: var(--accent-bg); color: var(--accent-deep); }
         .step:nth-child(2) .step-icon { background: var(--amber-bg); color: #d97706; }
         .step:nth-child(3) .step-icon { background: var(--green-bg); color: #059669; }
         .step:nth-child(4) .step-icon { background: var(--rose-bg); color: #e11d48; }
         .step h3 {
-            font-size: 1.05rem;
+            font-size: 0.95rem;
             font-weight: 700;
             margin-bottom: 0.5rem;
         }
         .step p {
-            font-size: 0.88rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
             color: var(--text-secondary);
             line-height: 1.65;
         }
+
+        /* Screenshot showcase */
+        .showcase {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 2rem 2rem 6rem;
+        }
+        .showcase-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        .showcase-item {
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        }
+        .showcase-item img {
+            width: 100%;
+            display: block;
+        }
+        .showcase-caption {
+            padding: 1rem 1.25rem;
+            background: white;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+        }
+        .showcase-caption strong { color: var(--text); }
 
         /* Features */
         .features-bg { background: var(--bg-soft); }
@@ -201,12 +253,13 @@
         .fi-rose { background: var(--rose-bg); color: #e11d48; }
         .fi-blue { background: #eff6ff; color: #2563eb; }
         .feature-card h3 {
-            font-size: 1rem;
+            font-size: 0.92rem;
             font-weight: 700;
             margin-bottom: 0.4rem;
         }
         .feature-card p {
-            font-size: 0.88rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
             color: var(--text-secondary);
             line-height: 1.6;
         }
@@ -215,10 +268,10 @@
         .comp-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
         .comp-table th {
-            font-size: 0.72rem;
+            font-size: 0.68rem;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.08em;
@@ -231,6 +284,7 @@
             padding: 1rem;
             text-align: center;
             color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
         }
         .comp-table td:first-child {
             text-align: left;
@@ -242,6 +296,42 @@
         .comp-table .alma-col { color: var(--accent-deep); font-weight: 600; }
         .yes { color: var(--green); font-weight: 600; }
         .no { color: #d1d5db; }
+
+        /* Waitlist */
+        .waitlist-section {
+            background: linear-gradient(135deg, #1a1a2e, #16162a);
+            padding: 5rem 2rem;
+            text-align: center;
+        }
+        .waitlist-section h2 { color: white; margin-bottom: 1rem; }
+        .waitlist-section p { font-family: 'Inter', sans-serif; color: rgba(255,255,255,0.6); margin-bottom: 2rem; font-size: 1rem; }
+        .waitlist-form {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            max-width: 460px;
+            margin: 0 auto;
+        }
+        .waitlist-form input {
+            flex: 1;
+            padding: 0.85rem 1.25rem;
+            border-radius: 100px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.08);
+            color: white;
+            font-family: inherit;
+            font-size: 0.85rem;
+            outline: none;
+        }
+        .waitlist-form input::placeholder { color: rgba(255,255,255,0.35); }
+        .waitlist-form input:focus { border-color: var(--accent); }
+        .waitlist-form .btn { white-space: nowrap; }
+        .waitlist-count {
+            margin-top: 1rem;
+            font-size: 0.8rem;
+            color: rgba(255,255,255,0.4);
+            font-family: 'Inter', sans-serif;
+        }
 
         /* Pricing */
         .pricing-grid {
@@ -265,7 +355,7 @@
         .price-card.featured .price-features li { color: rgba(255,255,255,0.65); }
         .price-card.featured .price-features li::before { color: var(--accent); }
         .price-tier {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.12em;
@@ -280,6 +370,7 @@
             line-height: 1;
         }
         .price-desc {
+            font-family: 'Inter', sans-serif;
             font-size: 0.85rem;
             color: var(--text-secondary);
             margin: 0.5rem 0 2rem;
@@ -290,8 +381,9 @@
             margin-bottom: 2rem;
         }
         .price-features li {
+            font-family: 'Inter', sans-serif;
             padding: 0.4rem 0;
-            font-size: 0.88rem;
+            font-size: 0.85rem;
             color: var(--text-secondary);
             display: flex;
             align-items: center;
@@ -320,8 +412,8 @@
             border-radius: var(--radius);
             padding: 2rem 2.5rem;
             text-align: left;
-            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-            font-size: 0.85rem;
+            font-family: 'JetBrains Mono', 'SF Mono', monospace;
+            font-size: 0.82rem;
             line-height: 2;
             margin: 2rem auto 0;
             max-width: 550px;
@@ -333,21 +425,23 @@
         footer {
             padding: 3rem 2rem;
             text-align: center;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             color: var(--text-light);
+            font-family: 'Inter', sans-serif;
         }
         footer a { color: var(--text-light); }
         footer a:hover { color: var(--text-secondary); }
 
-        /* Phosphor icons in steps/features */
         .ph { font-size: inherit; }
 
         @media (max-width: 768px) {
-            h1 { font-size: 2.5rem; }
+            h1 { font-size: 2.25rem; }
             h2 { font-size: 1.75rem; }
             .steps, .feature-grid, .pricing-grid { grid-template-columns: 1fr; }
+            .showcase-grid { grid-template-columns: 1fr; }
             .nav-links { display: none; }
-            .hero { padding: 5rem 1.5rem 3rem; }
+            .hero { padding: 4rem 1.5rem 2rem; }
+            .waitlist-form { flex-direction: column; }
         }
     </style>
 </head>
@@ -363,7 +457,7 @@
         <a href="#features">Features</a>
         <a href="#pricing">Pricing</a>
         <a href="https://github.com/doramirdor/alma-kanban" target="_blank">GitHub</a>
-        <a href="#get-started" class="btn btn-primary">Get Started</a>
+        <a href="#waitlist" class="btn btn-primary">Join Waitlist</a>
     </div>
 </nav>
 
@@ -371,10 +465,14 @@
     <h1>Your agents write the code. You review and merge.</h1>
     <p>The first kanban board where AI agents pick up tickets, write code in isolated branches, and submit diffs for your review.</p>
     <div class="hero-buttons">
-        <a href="#get-started" class="btn btn-primary">Get Started Free →</a>
+        <a href="#waitlist" class="btn btn-primary">Join the Waitlist →</a>
         <a href="https://github.com/doramirdor/alma-kanban" class="btn btn-secondary" target="_blank">☆ Star on GitHub</a>
     </div>
 </section>
+
+<div class="hero-screenshot">
+    <img src="demo-videos/demo-agent-fast.gif" alt="Alma Kanban — agent executing a ticket and producing a diff">
+</div>
 
 <section class="section" id="how-it-works">
     <div class="section-eyebrow">How it Works</div>
@@ -402,6 +500,19 @@
         </div>
     </div>
 </section>
+
+<div class="showcase">
+    <div class="showcase-grid">
+        <div class="showcase-item">
+            <img src="demo-videos/demo-ticket.gif" alt="Ticket detail with diff review">
+            <div class="showcase-caption"><strong>Ticket detail</strong> — Review the agent's code changes with a full diff viewer</div>
+        </div>
+        <div class="showcase-item">
+            <img src="demo-videos/demo-agent-fast.gif" alt="Agent executing a ticket">
+            <div class="showcase-caption"><strong>Agent execution</strong> — Watch agents work in real-time with streaming logs</div>
+        </div>
+    </div>
+</div>
 
 <div class="features-bg">
 <section class="section" id="features">
@@ -546,7 +657,7 @@
                 <li>Slack notifications</li>
                 <li>Cloud hosted</li>
             </ul>
-            <a href="#" class="btn btn-primary">Coming Soon</a>
+            <a href="#waitlist" class="btn btn-primary">Join Waitlist</a>
         </div>
         <div class="price-card">
             <div class="price-tier">Team</div>
@@ -559,14 +670,25 @@
                 <li>SSO</li>
                 <li>Audit log</li>
             </ul>
-            <a href="#" class="btn btn-secondary">Contact Us</a>
+            <a href="#waitlist" class="btn btn-secondary">Join Waitlist</a>
         </div>
     </div>
 </section>
 </div>
 
+<section class="waitlist-section" id="waitlist">
+    <div class="section-eyebrow" style="color: var(--accent);">Early Access</div>
+    <h2>Join the waitlist</h2>
+    <p>Be the first to try the hosted version. Self-hosting is available now.</p>
+    <form class="waitlist-form" onsubmit="handleWaitlist(event)">
+        <input type="email" id="waitlist-email" placeholder="you@company.com" required>
+        <button type="submit" class="btn btn-accent">Get Early Access</button>
+    </form>
+    <div class="waitlist-count" id="waitlist-msg"></div>
+</section>
+
 <section class="cta" id="get-started">
-    <div class="section-eyebrow">Get Started</div>
+    <div class="section-eyebrow">Self-Host Now</div>
     <h2>Up and running in 60 seconds</h2>
     <div class="code-block">
         <span class="comment"># Clone and start</span><br>
@@ -581,8 +703,22 @@
 <footer>
     Built by <a href="https://github.com/doramirdor">@doramirdor</a> · 
     <a href="https://github.com/doramirdor/alma-kanban">GitHub</a> · 
-    MIT License
+    BSL 1.1
 </footer>
+
+<script>
+function handleWaitlist(e) {
+    e.preventDefault();
+    const email = document.getElementById('waitlist-email').value;
+    // Store locally for now (replace with real endpoint later)
+    const existing = JSON.parse(localStorage.getItem('alma-waitlist') || '[]');
+    existing.push({ email, ts: Date.now() });
+    localStorage.setItem('alma-waitlist', JSON.stringify(existing));
+    document.getElementById('waitlist-msg').textContent = '✓ You\'re on the list! We\'ll reach out soon.';
+    document.getElementById('waitlist-email').value = '';
+    document.getElementById('waitlist-email').disabled = true;
+}
+</script>
 
 </body>
 </html>
