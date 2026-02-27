@@ -3,579 +3,618 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alma Kanban — Where Agents Ship and Humans Review</title>
-    <meta name="description" content="Agent-native project management. AI agents execute tickets, write code, and submit PRs. You review and merge.">
+    <title>Alma Kanban — Stop babysitting your AI agents</title>
+    <meta name="description" content="Alma turns goals into merged PRs. It generates tickets from your codebase, plans dependencies, dispatches AI agents in isolated branches, runs tests, and delivers reviewed diffs. Open source. Self-hostable.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <!-- Phosphor Icons -->
-    <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --text: #1a1a1a;
-            --text-secondary: #6b7280;
-            --text-light: #9ca3af;
-            --accent: #a78bfa;
-            --accent-deep: #8b5cf6;
-            --accent-hover: #7c3aed;
-            --accent-bg: #f5f3ff;
-            --bg: #ffffff;
-            --bg-soft: #faf9fb;
-            --green: #34d399;
-            --green-bg: #ecfdf5;
-            --amber-bg: #fffbeb;
-            --rose-bg: #fff1f2;
-            --radius: 20px;
-        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-            color: var(--text);
-            background: var(--bg);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #2d2340;
+            background: #faf8ff;
             line-height: 1.6;
             -webkit-font-smoothing: antialiased;
         }
-        /* Use Inter for body text readability, mono for headings/nav/code */
-        .readable { font-family: 'Inter', -apple-system, sans-serif; }
-        a { color: var(--accent-deep); text-decoration: none; }
 
-        /* Nav */
+        a { color: inherit; text-decoration: none; }
+
+        /* ── Nav ── */
         nav {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 1.5rem 2.5rem;
-            max-width: 1200px;
+            padding: 1rem 2rem;
+            max-width: 1080px;
             margin: 0 auto;
         }
         .logo {
-            font-size: 1.15rem;
-            font-weight: 700;
-            color: var(--text);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.9375rem;
+            font-weight: 600;
             display: flex;
-            align-items: center;
-            gap: 0.6rem;
-        }
-        .logo-dot {
-            width: 30px;
-            height: 30px;
-            background: linear-gradient(135deg, var(--accent), var(--accent-deep));
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 14px;
-            font-weight: 700;
-        }
-        .nav-links { display: flex; gap: 2.5rem; align-items: center; }
-        .nav-links a { color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; }
-        .nav-links a:hover { color: var(--text); }
-        .btn {
-            display: inline-flex;
             align-items: center;
             gap: 0.5rem;
-            padding: 0.65rem 1.5rem;
-            border-radius: 100px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            cursor: pointer;
-            border: none;
-            transition: all 0.2s ease;
         }
-        .btn-primary {
-            background: var(--text);
-            color: white;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
-        }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25); }
-        .btn-secondary { background: var(--bg-soft); color: var(--text); }
-        .btn-secondary:hover { background: #f0eef2; }
-        .btn-accent {
-            background: linear-gradient(135deg, var(--accent), var(--accent-deep));
-            color: white;
-            box-shadow: 0 2px 12px rgba(139, 92, 246, 0.25);
-        }
-        .btn-accent:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35); }
-
-        /* Hero */
-        .hero {
-            text-align: center;
-            padding: 6rem 2rem 3rem;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        h1 {
-            font-size: 3.5rem;
-            font-weight: 800;
-            line-height: 1.1;
-            letter-spacing: -0.035em;
-            margin-bottom: 1.5rem;
-            color: var(--text);
-        }
-        .hero p {
-            font-family: 'Inter', sans-serif;
-            font-size: 1.15rem;
-            color: var(--text-secondary);
-            max-width: 520px;
-            margin: 0 auto 2.5rem;
-            line-height: 1.7;
-        }
-        .hero-buttons { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
-        .hero-buttons .btn { padding: 0.85rem 2.25rem; font-size: 0.9rem; }
-
-        /* Hero screenshot */
-        .hero-screenshot {
-            max-width: 1000px;
-            margin: 3rem auto 0;
-            padding: 0 2rem;
-        }
-        .hero-screenshot img {
-            width: 100%;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.06);
-            border: 1px solid #e5e7eb;
-        }
-
-        /* Sections */
-        .section {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 6rem 2rem;
-        }
-        .section-eyebrow {
-            font-size: 0.7rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.14em;
-            color: var(--accent-deep);
-            text-align: center;
-            margin-bottom: 0.75rem;
-        }
-        h2 {
-            font-size: 2.25rem;
-            font-weight: 800;
-            letter-spacing: -0.025em;
-            text-align: center;
-            margin-bottom: 4rem;
-            color: var(--text);
-        }
-
-        /* Steps */
-        .steps {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 2.5rem;
-        }
-        .step { text-align: center; }
-        .step-icon {
-            width: 64px;
-            height: 64px;
-            border-radius: 20px;
+        .logo-mark {
+            width: 26px;
+            height: 26px;
+            background: #9b7ed8;
+            border-radius: 7px;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 auto 1.25rem;
-            font-size: 1.75rem;
-        }
-        .step:nth-child(1) .step-icon { background: var(--accent-bg); color: var(--accent-deep); }
-        .step:nth-child(2) .step-icon { background: var(--amber-bg); color: #d97706; }
-        .step:nth-child(3) .step-icon { background: var(--green-bg); color: #059669; }
-        .step:nth-child(4) .step-icon { background: var(--rose-bg); color: #e11d48; }
-        .step h3 {
-            font-size: 0.95rem;
+            color: white;
+            font-size: 12px;
             font-weight: 700;
-            margin-bottom: 0.5rem;
         }
-        .step p {
-            font-family: 'Inter', sans-serif;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
+        .nav-right { display: flex; gap: 1.75rem; align-items: center; }
+        .nav-right a {
+            font-size: 0.8125rem;
+            color: #71717a;
+            transition: color 0.15s;
+        }
+        .nav-right a:hover { color: #2d2340; }
+        .nav-cta {
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: #6b4c9a !important;
+            padding: 0.4rem 1rem;
+            border: 1px solid #d8cef0;
+            border-radius: 6px;
+            transition: background 0.15s;
+        }
+        .nav-cta:hover { background: #f0eafc; }
+
+        /* ── Hero ── */
+        .hero {
+            max-width: 660px;
+            margin: 0 auto;
+            padding: 5rem 2rem 2rem;
+            text-align: center;
+        }
+        .hero h1 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: clamp(2rem, 5vw, 3rem);
+            font-weight: 700;
+            line-height: 1.15;
+            letter-spacing: -0.03em;
+            margin-bottom: 1.25rem;
+        }
+        .hero p {
+            font-size: 1.0625rem;
+            color: #52525b;
+            line-height: 1.7;
+            max-width: 480px;
+            margin: 0 auto 2rem;
+        }
+        .hero-actions {
+            display: flex;
+            gap: 0.625rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .btn-dark {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.625rem 1.5rem;
+            background: #7c5cbf;
+            color: white;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            font-family: inherit;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-dark:hover { background: #6b4c9a; }
+        .btn-outline {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.625rem 1.5rem;
+            background: transparent;
+            color: #6b4c9a;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            font-family: inherit;
+            border-radius: 8px;
+            border: 1px solid #d8cef0;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-outline:hover { background: #f0eafc; border-color: #b8a5e0; }
+
+        /* ── Product screenshot ── */
+        .product-shot {
+            max-width: 980px;
+            margin: 2.5rem auto 0;
+            padding: 0 2rem;
+        }
+        .product-shot img {
+            width: 100%;
+            border-radius: 10px;
+            border: 1px solid #d8cef0;
+        }
+
+        /* ── Divider ── */
+        .divider {
+            border: none;
+            border-top: 1px dashed #d8cef0;
+            max-width: 1080px;
+            margin: 0 auto;
+        }
+
+        /* ── Sections ── */
+        .section {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 5rem 2rem;
+        }
+        .section-header {
+            max-width: 520px;
+            margin-bottom: 3rem;
+        }
+        .section-header.centered {
+            margin-left: auto;
+            margin-right: auto;
+            text-align: center;
+        }
+        .section-header h2 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 1.625rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            line-height: 1.25;
+            margin-bottom: 0.75rem;
+        }
+        .section-header p {
+            color: #71717a;
+            font-size: 0.9375rem;
             line-height: 1.65;
         }
 
-        /* Screenshot showcase */
-        .showcase {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 2rem 2rem 6rem;
-        }
-        .showcase-grid {
+        /* ── How it works ── */
+        .flow {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
+            gap: 3rem 4rem;
         }
-        .showcase-item {
-            border-radius: 16px;
-            overflow: hidden;
-            border: 1px solid #e5e7eb;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        .flow-step h3 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.375rem;
         }
-        .showcase-item img {
-            width: 100%;
-            display: block;
+        .flow-step h3 span {
+            color: #b8a5e0;
+            margin-right: 0.5rem;
         }
-        .showcase-caption {
-            padding: 1rem 1.25rem;
-            background: white;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            font-family: 'Inter', sans-serif;
-        }
-        .showcase-caption strong { color: var(--text); }
-
-        /* Features */
-        .features-bg { background: var(--bg-soft); }
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.75rem;
-        }
-        .feature-card {
-            background: white;
-            border-radius: var(--radius);
-            padding: 2rem;
-            transition: transform 0.2s ease;
-        }
-        .feature-card:hover { transform: translateY(-3px); }
-        .feature-icon-wrap {
-            width: 48px;
-            height: 48px;
-            border-radius: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 1.25rem;
-            font-size: 1.4rem;
-        }
-        .fi-purple { background: var(--accent-bg); color: var(--accent-deep); }
-        .fi-green { background: var(--green-bg); color: #059669; }
-        .fi-amber { background: var(--amber-bg); color: #d97706; }
-        .fi-rose { background: var(--rose-bg); color: #e11d48; }
-        .fi-blue { background: #eff6ff; color: #2563eb; }
-        .feature-card h3 {
-            font-size: 0.92rem;
-            font-weight: 700;
-            margin-bottom: 0.4rem;
-        }
-        .feature-card p {
-            font-family: 'Inter', sans-serif;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
+        .flow-step p {
+            font-size: 0.875rem;
+            color: #52525b;
             line-height: 1.6;
         }
 
-        /* Comparison */
+        /* ── Showcase ── */
+        .showcase {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 0 2rem 5rem;
+        }
+        .showcase-card {
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #d8cef0;
+        }
+        .showcase-card img { width: 100%; display: block; }
+        .showcase-label {
+            padding: 0.75rem 1rem;
+            font-size: 0.8125rem;
+            color: #71717a;
+        }
+        .showcase-label strong { color: #2d2340; font-weight: 600; }
+
+        /* ── Features ── */
+        .features-wrap {
+            background: #f3edff;
+            border-top: 1px dashed #d8cef0;
+            border-bottom: 1px dashed #d8cef0;
+        }
+        .feature-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 2.5rem 3rem;
+        }
+        .feature-item h3 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+        .feature-item p {
+            font-size: 0.8125rem;
+            color: #71717a;
+            line-height: 1.55;
+        }
+
+        /* ── Comparison ── */
         .comp-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.85rem;
+            font-size: 0.8125rem;
         }
         .comp-table th {
-            font-size: 0.68rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.6875rem;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-light);
-            padding: 1rem;
+            letter-spacing: 0.04em;
+            color: #9b7ed8;
+            padding: 0.75rem 0.875rem;
             text-align: center;
+            border-bottom: 1px dashed #d8cef0;
         }
         .comp-table th:first-child { text-align: left; }
         .comp-table td {
-            padding: 1rem;
+            padding: 0.75rem 0.875rem;
             text-align: center;
-            color: var(--text-secondary);
-            font-family: 'Inter', sans-serif;
+            color: #71717a;
+            border-bottom: 1px solid #f0eafc;
         }
         .comp-table td:first-child {
             text-align: left;
-            color: var(--text);
+            color: #2d2340;
             font-weight: 500;
         }
-        .comp-table tr { border-bottom: 1px solid #f3f4f6; }
-        .comp-table thead tr { border-bottom: 2px solid #ede9fe; }
-        .comp-table .alma-col { color: var(--accent-deep); font-weight: 600; }
-        .yes { color: var(--green); font-weight: 600; }
-        .no { color: #d1d5db; }
+        .comp-table .highlight { font-weight: 600; color: #6b4c9a; }
+        .comp-table .yes { color: #7c5cbf; font-weight: 600; }
+        .comp-table .no { color: #d8cef0; }
 
-        /* Waitlist */
-        .waitlist-section {
-            background: linear-gradient(135deg, #1a1a2e, #16162a);
-            padding: 5rem 2rem;
-            text-align: center;
-        }
-        .waitlist-section h2 { color: white; margin-bottom: 1rem; }
-        .waitlist-section p { font-family: 'Inter', sans-serif; color: rgba(255,255,255,0.6); margin-bottom: 2rem; font-size: 1rem; }
-        .waitlist-form {
-            display: flex;
-            gap: 0.5rem;
-            justify-content: center;
-            max-width: 460px;
-            margin: 0 auto;
-        }
-        .waitlist-form input {
-            flex: 1;
-            padding: 0.85rem 1.25rem;
-            border-radius: 100px;
-            border: 1px solid rgba(255,255,255,0.15);
-            background: rgba(255,255,255,0.08);
-            color: white;
-            font-family: inherit;
-            font-size: 0.85rem;
-            outline: none;
-        }
-        .waitlist-form input::placeholder { color: rgba(255,255,255,0.35); }
-        .waitlist-form input:focus { border-color: var(--accent); }
-        .waitlist-form .btn { white-space: nowrap; }
-        .waitlist-count {
-            margin-top: 1rem;
-            font-size: 0.8rem;
-            color: rgba(255,255,255,0.4);
-            font-family: 'Inter', sans-serif;
-        }
-
-        /* Pricing */
+        /* ── Pricing ── */
         .pricing-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 1.5rem;
-            max-width: 960px;
+            gap: 1px;
+            background: #d8cef0;
+            border: 1px solid #d8cef0;
+            border-radius: 12px;
+            overflow: hidden;
+            max-width: 840px;
             margin: 0 auto;
         }
-        .price-card {
+        .price-col {
             background: white;
-            border-radius: var(--radius);
-            padding: 2.5rem 2rem;
-            text-align: center;
+            padding: 2rem 1.75rem;
+            display: flex;
+            flex-direction: column;
         }
-        .price-card.featured {
-            background: var(--text);
+        .price-col.dark {
+            background: #3d2a6b;
             color: white;
         }
-        .price-card.featured .price-desc,
-        .price-card.featured .price-features li { color: rgba(255,255,255,0.65); }
-        .price-card.featured .price-features li::before { color: var(--accent); }
-        .price-tier {
-            font-size: 0.7rem;
+        .price-name {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.75rem;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.12em;
-            margin-bottom: 1rem;
-            color: var(--text-secondary);
+            letter-spacing: 0.06em;
+            color: #a1a1aa;
+            margin-bottom: 0.5rem;
         }
-        .price-card.featured .price-tier { color: rgba(255,255,255,0.4); }
-        .price-amount {
-            font-size: 3rem;
-            font-weight: 800;
+        .price-col.dark .price-name { color: #71717a; }
+        .price-num {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 2.25rem;
+            font-weight: 700;
             letter-spacing: -0.03em;
             line-height: 1;
         }
-        .price-desc {
-            font-family: 'Inter', sans-serif;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            margin: 0.5rem 0 2rem;
+        .price-num span { font-size: 0.875rem; font-weight: 400; color: #a1a1aa; }
+        .price-col.dark .price-num span { color: #52525b; }
+        .price-note {
+            font-size: 0.8125rem;
+            color: #71717a;
+            margin: 0.25rem 0 1.25rem;
         }
-        .price-features {
+        .price-col.dark .price-note { color: #52525b; }
+        .price-list {
             list-style: none;
-            text-align: left;
-            margin-bottom: 2rem;
+            flex: 1;
+            margin-bottom: 1.5rem;
         }
-        .price-features li {
-            font-family: 'Inter', sans-serif;
-            padding: 0.4rem 0;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            display: flex;
-            align-items: center;
-            gap: 0.6rem;
+        .price-list li {
+            font-size: 0.8125rem;
+            color: #52525b;
+            padding: 0.3rem 0;
         }
-        .price-features li::before {
-            content: '✓';
-            color: var(--green);
-            font-weight: 700;
-            font-size: 0.85rem;
+        .price-list li::before {
+            content: '\2014';
+            margin-right: 0.5rem;
+            color: #d4d4d8;
         }
-        .price-card .btn { width: 100%; justify-content: center; padding: 0.75rem; }
-        .price-card.featured .btn-primary { background: white; color: var(--text); box-shadow: none; }
-        .price-card.featured .btn-primary:hover { background: #f3f4f6; }
-
-        /* CTA */
-        .cta {
+        .price-col.dark .price-list li { color: #a1a1aa; }
+        .price-col.dark .price-list li::before { color: #3f3f46; }
+        .price-btn {
+            display: block;
             text-align: center;
-            padding: 6rem 2rem;
-            max-width: 700px;
+            padding: 0.5rem;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            font-family: inherit;
+            border-radius: 6px;
+            border: 1px solid #d8cef0;
+            background: transparent;
+            color: #6b4c9a;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .price-btn:hover { background: #f0eafc; }
+        .price-col.dark .price-btn {
+            background: white;
+            color: #3d2a6b;
+            border-color: white;
+        }
+        .price-col.dark .price-btn:hover { background: #f0eafc; }
+
+        /* ── Waitlist ── */
+        .waitlist {
+            max-width: 440px;
+            margin: 0 auto;
+            padding: 5rem 2rem;
+            text-align: center;
+        }
+        .waitlist h2 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 1.375rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+        }
+        .waitlist > p {
+            color: #71717a;
+            font-size: 0.875rem;
+            margin-bottom: 1.5rem;
+        }
+        .waitlist-form {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .waitlist-form input {
+            flex: 1;
+            padding: 0.575rem 0.875rem;
+            border-radius: 6px;
+            border: 1px solid #d8cef0;
+            font-family: inherit;
+            font-size: 0.8125rem;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .waitlist-form input:focus { border-color: #9b7ed8; }
+        .waitlist-form input::placeholder { color: #a1a1aa; }
+        .waitlist-msg {
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: #a1a1aa;
+        }
+
+        /* ── Self-host ── */
+        .self-host {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 0 2rem 5rem;
+            text-align: center;
+        }
+        .self-host h3 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.375rem;
+        }
+        .self-host > p {
+            color: #71717a;
+            font-size: 0.8125rem;
+            margin-bottom: 1.25rem;
+        }
+        .terminal {
+            background: #2d2340;
+            color: #a1a1aa;
+            border-radius: 10px;
+            padding: 1.5rem 1.75rem;
+            text-align: left;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.8125rem;
+            line-height: 1.9;
+        }
+        .terminal .c { color: #6b5a8a; }
+        .terminal .k { color: #a78bfa; }
+
+        /* ── Footer ── */
+        footer {
+            padding: 2rem;
+            text-align: center;
+            font-size: 0.75rem;
+            color: #9b7ed8;
+            border-top: 1px dashed #d8cef0;
+            max-width: 1080px;
             margin: 0 auto;
         }
-        .code-block {
-            background: #1e1b2e;
-            color: #e2dff0;
-            border-radius: var(--radius);
-            padding: 2rem 2.5rem;
-            text-align: left;
-            font-family: 'JetBrains Mono', 'SF Mono', monospace;
-            font-size: 0.82rem;
-            line-height: 2;
-            margin: 2rem auto 0;
-            max-width: 550px;
+        footer a { color: #71717a; }
+        footer a:hover { color: #6b4c9a; }
+
+        /* ── Hand-drawn sketchy style for step numbers and feature headings ── */
+        .flow-step h3 span {
+            font-family: 'Caveat', cursive;
+            font-size: 1.3rem;
+            font-weight: 600;
         }
-        .code-block .comment { color: #6b6684; }
-        .code-block .cmd { color: var(--accent); }
-
-        /* Footer */
-        footer {
-            padding: 3rem 2rem;
-            text-align: center;
-            font-size: 0.8rem;
-            color: var(--text-light);
-            font-family: 'Inter', sans-serif;
+        .feature-item h3::before {
+            font-family: 'Caveat', cursive;
+            font-size: 1.1rem;
+            margin-right: 0.35rem;
         }
-        footer a { color: var(--text-light); }
-        footer a:hover { color: var(--text-secondary); }
+        .feature-item:nth-child(1) h3::before { content: '✎ '; }
+        .feature-item:nth-child(2) h3::before { content: '⑂ '; }
+        .feature-item:nth-child(3) h3::before { content: '◎ '; }
+        .feature-item:nth-child(4) h3::before { content: '✧ '; }
+        .feature-item:nth-child(5) h3::before { content: '⚡ '; }
+        .feature-item:nth-child(6) h3::before { content: '↻ '; }
+        .feature-item:nth-child(7) h3::before { content: '◈ '; }
+        .feature-item:nth-child(8) h3::before { content: '☰ '; }
+        .feature-item:nth-child(9) h3::before { content: '△ '; }
+        .flow-step h3 {
+            font-family: 'Caveat', 'IBM Plex Mono', cursive;
+            font-size: 1.1rem;
+        }
+        .section-header h2 {
+            position: relative;
+        }
+        .waitlist h2 {
+            font-family: 'Caveat', 'IBM Plex Mono', cursive;
+            font-size: 1.75rem;
+        }
 
-        .ph { font-size: inherit; }
-
+        /* ── Responsive ── */
         @media (max-width: 768px) {
-            h1 { font-size: 2.25rem; }
-            h2 { font-size: 1.75rem; }
-            .steps, .feature-grid, .pricing-grid { grid-template-columns: 1fr; }
-            .showcase-grid { grid-template-columns: 1fr; }
-            .nav-links { display: none; }
-            .hero { padding: 4rem 1.5rem 2rem; }
+            .hero h1 { font-size: 1.75rem; }
+            .flow { grid-template-columns: 1fr; gap: 2rem; }
+            .feature-list { grid-template-columns: 1fr; gap: 1.75rem; }
+            .showcase { grid-template-columns: 1fr; }
+            .pricing-grid { grid-template-columns: 1fr; }
+            .nav-right { display: none; }
             .waitlist-form { flex-direction: column; }
+            .section { padding: 3.5rem 1.5rem; }
         }
     </style>
 </head>
 <body>
 
 <nav>
-    <div class="logo">
-        <div class="logo-dot">A</div>
+    <a href="/" class="logo">
+        <div class="logo-mark">A</div>
         Alma Kanban
-    </div>
-    <div class="nav-links">
-        <a href="#how-it-works">How it Works</a>
+    </a>
+    <div class="nav-right">
+        <a href="#how-it-works">How it works</a>
         <a href="#features">Features</a>
         <a href="#pricing">Pricing</a>
         <a href="https://github.com/doramirdor/alma-kanban" target="_blank">GitHub</a>
-        <a href="#waitlist" class="btn btn-primary">Join Waitlist</a>
+        <a href="#waitlist" class="nav-cta">Get early access</a>
     </div>
 </nav>
 
 <section class="hero">
-    <h1>Your agents write the code. You review and merge.</h1>
-    <p>The first kanban board where AI agents pick up tickets, write code in isolated branches, and submit diffs for your review.</p>
-    <div class="hero-buttons">
-        <a href="#waitlist" class="btn btn-primary">Join the Waitlist →</a>
-        <a href="https://github.com/doramirdor/alma-kanban" class="btn btn-secondary" target="_blank">☆ Star on GitHub</a>
+    <h1>Stop babysitting your AI agents</h1>
+    <p>Alma is the autonomous delivery pipeline between "describe what you want" and "merge to main." It generates tickets from your codebase, plans the work, runs agents in isolated branches, verifies with tests, and delivers reviewed diffs. You just review and ship.</p>
+    <div class="hero-actions">
+        <a href="#waitlist" class="btn-dark">Get early access</a>
+        <a href="https://github.com/doramirdor/alma-kanban" class="btn-outline" target="_blank">View on GitHub</a>
     </div>
 </section>
 
-<div class="hero-screenshot">
-    <img src="demo-videos/demo-agent-fast.gif" alt="Alma Kanban — agent executing a ticket and producing a diff">
+<div class="product-shot">
+    <img src="demo-videos/board-overview.png" alt="Alma Kanban board — tickets flowing through the full autonomous pipeline">
 </div>
 
+<hr class="divider" style="margin-top: 5rem;">
+
 <section class="section" id="how-it-works">
-    <div class="section-eyebrow">How it Works</div>
-    <h2>From idea to merged code in minutes</h2>
-    <div class="steps">
-        <div class="step">
-            <div class="step-icon"><i class="ph-duotone ph-target"></i></div>
-            <h3>Describe the goal</h3>
-            <p>Point at your codebase. Alma analyzes the code and generates scoped, accurate tickets.</p>
+    <div class="section-header">
+        <h2>From goal to merged PR</h2>
+        <p>Point Alma at your repo. Describe what you want. Come back to review diffs.</p>
+    </div>
+    <div class="flow">
+        <div class="flow-step">
+            <h3><span>1</span> Describe a goal</h3>
+            <p>Tell Alma what you want built. It reads your codebase and generates scoped, accurate tickets with dependency ordering. No hallucinated file paths.</p>
         </div>
-        <div class="step">
-            <div class="step-icon"><i class="ph-duotone ph-lightning"></i></div>
-            <h3>Agents execute</h3>
-            <p>AI agents pick up tickets and write real code in isolated git worktrees. Run many in parallel.</p>
+        <div class="flow-step">
+            <h3><span>2</span> Autonomous planning</h3>
+            <p>The planner builds a dependency DAG, queues tickets in order, and dispatches AI agents. It auto-follows-up on failures and proposes fixes.</p>
         </div>
-        <div class="step">
-            <div class="step-icon"><i class="ph-duotone ph-eye"></i></div>
-            <h3>You review</h3>
-            <p>GitHub-style diff viewer with inline comments. Approve, request changes, or let agents iterate.</p>
+        <div class="flow-step">
+            <h3><span>3</span> Isolated execution + verification</h3>
+            <p>Each ticket runs in its own git worktree. After the agent finishes, verification commands (tests, lints) run automatically. Failures get retried.</p>
         </div>
-        <div class="step">
-            <div class="step-icon"><i class="ph-duotone ph-rocket-launch"></i></div>
-            <h3>Merge and ship</h3>
-            <p>One click to merge to main. Or auto-create a GitHub PR. Full lifecycle, one tool.</p>
+        <div class="flow-step">
+            <h3><span>4</span> Review, merge, ship</h3>
+            <p>Full diff viewer with inline comments. Approve, request changes, or let agents iterate. One click to merge or auto-create a GitHub PR.</p>
         </div>
     </div>
 </section>
 
 <div class="showcase">
-    <div class="showcase-grid">
-        <div class="showcase-item">
-            <img src="demo-videos/demo-ticket.gif" alt="Ticket detail with diff review">
-            <div class="showcase-caption"><strong>Ticket detail</strong> — Review the agent's code changes with a full diff viewer</div>
-        </div>
-        <div class="showcase-item">
-            <img src="demo-videos/demo-agent-fast.gif" alt="Agent executing a ticket">
-            <div class="showcase-caption"><strong>Agent execution</strong> — Watch agents work in real-time with streaming logs</div>
-        </div>
+    <div class="showcase-card">
+        <img src="demo-videos/ticket-detail.png" alt="Ticket detail with code review and agent activity">
+        <div class="showcase-label"><strong>Review every change</strong> &mdash; full ticket context, agent activity, code diffs, one-click merge</div>
+    </div>
+    <div class="showcase-card">
+        <img src="demo-videos/board-overview.png" alt="Kanban board showing tickets across all pipeline stages">
+        <div class="showcase-label"><strong>See the whole pipeline</strong> &mdash; what's planned, what's running, what needs your review</div>
     </div>
 </div>
 
-<div class="features-bg">
+<div class="features-wrap">
 <section class="section" id="features">
-    <div class="section-eyebrow">Features</div>
-    <h2>Everything you need to ship with agents</h2>
-    <div class="feature-grid">
-        <div class="feature-card">
-            <div class="feature-icon-wrap fi-purple"><i class="ph-duotone ph-brain"></i></div>
-            <h3>Codebase Analysis</h3>
-            <p>Point at a repo and Alma generates tickets from actual code. No hallucinated functions.</p>
+    <div class="section-header">
+        <h2>Everything your AI agents are missing</h2>
+    </div>
+    <div class="feature-list">
+        <div class="feature-item">
+            <h3>Codebase-aware tickets</h3>
+            <p>Tickets generated from your actual code, not from a prompt that guesses at your project structure.</p>
         </div>
-        <div class="feature-card">
-            <div class="feature-icon-wrap fi-green"><i class="ph-duotone ph-git-branch"></i></div>
-            <h3>Git Worktree Isolation</h3>
-            <p>Each ticket runs in its own worktree. Agents never conflict with each other or your main branch.</p>
+        <div class="feature-item">
+            <h3>Git worktree isolation</h3>
+            <p>Every ticket runs in its own branch. Agents never touch each other's work or your main branch.</p>
         </div>
-        <div class="feature-card">
-            <div class="feature-icon-wrap fi-amber"><i class="ph-duotone ph-chat-circle-text"></i></div>
-            <h3>Code Review Built In</h3>
-            <p>Full diff viewer with syntax highlighting and inline comments. No context switching.</p>
+        <div class="feature-item">
+            <h3>Built-in code review</h3>
+            <p>Diff viewer with syntax highlighting and inline comments. No context-switching to GitHub.</p>
         </div>
-        <div class="feature-card">
-            <div class="feature-icon-wrap fi-rose"><i class="ph-duotone ph-robot"></i></div>
-            <h3>Multi-Agent Support</h3>
-            <p>Run Claude Code, Codex, or any agent. Assign by capability. Track performance per agent.</p>
+        <div class="feature-item">
+            <h3>Bring any agent</h3>
+            <p>Claude Code, Codex, or your own. Assign by capability.</p>
         </div>
-        <div class="feature-card">
-            <div class="feature-icon-wrap fi-blue"><i class="ph-duotone ph-plugs-connected"></i></div>
-            <h3>REST API and MCP</h3>
-            <p>Full API for programmatic access. MCP server so agents can discover and work tickets natively.</p>
+        <div class="feature-item">
+            <h3>REST API + MCP</h3>
+            <p>Full API for automation. MCP server so agents can discover and work tickets natively.</p>
         </div>
-        <div class="feature-card">
-            <div class="feature-icon-wrap fi-green"><i class="ph-duotone ph-arrows-clockwise"></i></div>
-            <h3>GitHub Sync</h3>
+        <div class="feature-item">
+            <h3>GitHub sync</h3>
             <p>Import issues, export PRs. Two-way sync keeps your existing workflow intact.</p>
         </div>
-        <div class="feature-card">
-            <div class="feature-icon-wrap fi-amber"><i class="ph-duotone ph-chart-line-up"></i></div>
-            <h3>Live Dashboard</h3>
-            <p>See what every agent is working on. Streaming logs, cost tracking, completion estimates.</p>
+        <div class="feature-item">
+            <h3>Live dashboard</h3>
+            <p>See what every agent is doing. Streaming logs, cost tracking, completion status.</p>
         </div>
-        <div class="feature-card">
-            <div class="feature-icon-wrap fi-purple"><i class="ph-duotone ph-shield-check"></i></div>
-            <h3>Autonomy Controls</h3>
-            <p>Auto-approve low-risk changes, require review for sensitive code. You set the guardrails.</p>
+        <div class="feature-item">
+            <h3>Autonomy controls</h3>
+            <p>Auto-approve safe changes, require review for sensitive code. You set the boundaries.</p>
         </div>
-        <div class="feature-card">
-            <div class="feature-icon-wrap fi-rose"><i class="ph-duotone ph-house-simple"></i></div>
-            <h3>Self-Hostable</h3>
-            <p>SQLite backend, zero dependencies. Run on your machine with full control. Or use cloud.</p>
+        <div class="feature-item">
+            <h3>Self-hostable</h3>
+            <p>SQLite backend, zero external dependencies. Clone, docker compose up, done.</p>
         </div>
     </div>
 </section>
 </div>
 
 <section class="section">
-    <div class="section-eyebrow">Comparison</div>
-    <h2>Why teams choose Alma</h2>
+    <div class="section-header centered">
+        <h2>How Alma compares</h2>
+    </div>
     <table class="comp-table">
         <thead>
             <tr>
                 <th></th>
-                <th class="alma-col">Alma Kanban</th>
+                <th class="highlight">Alma</th>
                 <th>Vibe Kanban</th>
                 <th>Linear</th>
                 <th>GitHub Issues</th>
@@ -583,140 +622,160 @@
         </thead>
         <tbody>
             <tr>
-                <td>Generate tickets from code</td>
-                <td class="yes">✓</td>
-                <td class="no">—</td>
-                <td class="no">—</td>
-                <td class="no">—</td>
+                <td>Goal &rarr; ticket generation</td>
+                <td class="yes">&check;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
             </tr>
             <tr>
-                <td>Agent executes code</td>
-                <td class="yes">✓</td>
-                <td class="yes">✓</td>
-                <td class="no">—</td>
-                <td class="no">—</td>
+                <td>Dependency planning (DAG)</td>
+                <td class="yes">&check;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
+            </tr>
+            <tr>
+                <td>Autonomous planner / autopilot</td>
+                <td class="yes">&check;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
+            </tr>
+            <tr>
+                <td>Agents execute code</td>
+                <td class="yes">&check;</td>
+                <td class="yes">&check;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
+            </tr>
+            <tr>
+                <td>Verification pipeline</td>
+                <td class="yes">&check;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
             </tr>
             <tr>
                 <td>Built-in code review</td>
-                <td class="yes">✓</td>
-                <td class="yes">✓</td>
-                <td class="no">—</td>
-                <td class="no">—</td>
+                <td class="yes">&check;</td>
+                <td class="yes">&check;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
             </tr>
             <tr>
-                <td>Auto-merge to main</td>
-                <td class="yes">✓</td>
-                <td class="no">—</td>
-                <td class="no">—</td>
-                <td class="no">—</td>
+                <td>Auto-merge / GitHub PR</td>
+                <td class="yes">&check;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
             </tr>
             <tr>
-                <td>Self-hostable (free)</td>
-                <td class="yes">✓</td>
-                <td class="no">—</td>
-                <td class="no">—</td>
-                <td class="yes">✓</td>
+                <td>Self-hostable</td>
+                <td class="yes">&check;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
+                <td class="yes">&check;</td>
             </tr>
             <tr>
                 <td>Open source</td>
-                <td class="yes">✓</td>
-                <td class="yes">✓</td>
-                <td class="no">—</td>
-                <td class="no">—</td>
+                <td class="yes">&check;</td>
+                <td class="yes">&check;</td>
+                <td class="no">&mdash;</td>
+                <td class="no">&mdash;</td>
             </tr>
         </tbody>
     </table>
 </section>
 
-<div class="features-bg">
+<hr class="divider">
+
 <section class="section" id="pricing">
-    <div class="section-eyebrow">Pricing</div>
-    <h2>Start free, scale when ready</h2>
+    <div class="section-header centered">
+        <h2>Pricing</h2>
+        <p>Self-host free forever. Upgrade when you need parallel agents or team features.</p>
+    </div>
     <div class="pricing-grid">
-        <div class="price-card">
-            <div class="price-tier">Free</div>
-            <div class="price-amount">$0</div>
-            <div class="price-desc">Self-hosted, forever</div>
-            <ul class="price-features">
-                <li>Unlimited repos</li>
+        <div class="price-col">
+            <div class="price-name">Free</div>
+            <div class="price-num">$0</div>
+            <div class="price-note">Self-hosted, forever</div>
+            <ul class="price-list">
+                <li>Unlimited repositories</li>
                 <li>1 agent at a time</li>
                 <li>Full code review</li>
-                <li>Codebase analysis</li>
                 <li>REST API</li>
             </ul>
-            <a href="#get-started" class="btn btn-secondary">Self-Host Free</a>
+            <a href="#get-started" class="price-btn">Self-host now</a>
         </div>
-        <div class="price-card featured">
-            <div class="price-tier">Pro</div>
-            <div class="price-amount">$29</div>
-            <div class="price-desc">per month</div>
-            <ul class="price-features">
+        <div class="price-col dark">
+            <div class="price-name">Pro</div>
+            <div class="price-num">$29<span>/mo</span></div>
+            <div class="price-note">Cloud hosted</div>
+            <ul class="price-list">
                 <li>Everything in Free</li>
                 <li>5 parallel agents</li>
                 <li>GitHub PR sync</li>
                 <li>Slack notifications</li>
-                <li>Cloud hosted</li>
             </ul>
-            <a href="#waitlist" class="btn btn-primary">Join Waitlist</a>
+            <a href="#waitlist" class="price-btn">Join waitlist</a>
         </div>
-        <div class="price-card">
-            <div class="price-tier">Team</div>
-            <div class="price-amount">$99</div>
-            <div class="price-desc">per month</div>
-            <ul class="price-features">
+        <div class="price-col">
+            <div class="price-name">Team</div>
+            <div class="price-num">$99<span>/mo</span></div>
+            <div class="price-note">For engineering teams</div>
+            <ul class="price-list">
                 <li>Everything in Pro</li>
                 <li>Unlimited agents</li>
                 <li>Team workspaces</li>
-                <li>SSO</li>
-                <li>Audit log</li>
+                <li>SSO &amp; audit log</li>
             </ul>
-            <a href="#waitlist" class="btn btn-secondary">Join Waitlist</a>
+            <a href="#waitlist" class="price-btn">Join waitlist</a>
         </div>
     </div>
 </section>
-</div>
 
-<section class="waitlist-section" id="waitlist">
-    <div class="section-eyebrow" style="color: var(--accent);">Early Access</div>
-    <h2>Join the waitlist</h2>
-    <p>Be the first to try the hosted version. Self-hosting is available now.</p>
+<hr class="divider">
+
+<section class="waitlist" id="waitlist">
+    <h2>Stop managing agents. Start shipping.</h2>
+    <p>Self-host free today, or join the waitlist for the hosted version.</p>
     <form class="waitlist-form" onsubmit="handleWaitlist(event)">
         <input type="email" id="waitlist-email" placeholder="you@company.com" required>
-        <button type="submit" class="btn btn-accent">Get Early Access</button>
+        <button type="submit" class="btn-dark">Join</button>
     </form>
-    <div class="waitlist-count" id="waitlist-msg"></div>
+    <div class="waitlist-msg" id="waitlist-msg"></div>
 </section>
 
-<section class="cta" id="get-started">
-    <div class="section-eyebrow">Self-Host Now</div>
-    <h2>Up and running in 60 seconds</h2>
-    <div class="code-block">
-        <span class="comment"># Clone and start</span><br>
-        <span class="cmd">git clone</span> https://github.com/doramirdor/alma-kanban<br>
-        <span class="cmd">cd</span> alma-kanban<br>
-        <span class="cmd">docker compose up</span><br><br>
-        <span class="comment"># Open http://localhost:8000</span><br>
-        <span class="comment"># Point at your repo. Let agents work.</span>
+<div class="self-host" id="get-started">
+    <h3>Or self-host right now</h3>
+    <p>Three commands. No account required.</p>
+    <div class="terminal">
+        <span class="c"># Clone and start</span><br>
+        <span class="k">git clone</span> https://github.com/doramirdor/alma-kanban<br>
+        <span class="k">cd</span> alma-kanban<br>
+        <span class="k">docker compose up</span><br><br>
+        <span class="c"># Open http://localhost:8000</span>
     </div>
-</section>
+</div>
 
 <footer>
-    Built by <a href="https://github.com/doramirdor">@doramirdor</a> · 
-    <a href="https://github.com/doramirdor/alma-kanban">GitHub</a> · 
+    Built by <a href="https://github.com/doramirdor">@doramirdor</a> &middot;
+    <a href="https://github.com/doramirdor/alma-kanban">GitHub</a> &middot;
     BSL 1.1
 </footer>
 
 <script>
 function handleWaitlist(e) {
     e.preventDefault();
-    const email = document.getElementById('waitlist-email').value;
-    // Store locally for now (replace with real endpoint later)
-    const existing = JSON.parse(localStorage.getItem('alma-waitlist') || '[]');
-    existing.push({ email, ts: Date.now() });
+    var email = document.getElementById('waitlist-email').value;
+    var existing = JSON.parse(localStorage.getItem('alma-waitlist') || '[]');
+    existing.push({ email: email, ts: Date.now() });
     localStorage.setItem('alma-waitlist', JSON.stringify(existing));
-    document.getElementById('waitlist-msg').textContent = '✓ You\'re on the list! We\'ll reach out soon.';
+    document.getElementById('waitlist-msg').textContent = 'You\'re on the list.';
     document.getElementById('waitlist-email').value = '';
     document.getElementById('waitlist-email').disabled = true;
+    e.target.querySelector('button').disabled = true;
 }
 </script>
 
