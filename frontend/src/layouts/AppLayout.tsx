@@ -13,6 +13,7 @@ import { BoardSelector } from "@/components/BoardSelector";
 import { RepoDiscoveryDialog } from "@/components/RepoDiscoveryDialog";
 import { CreateGoalDialog } from "@/components/CreateGoalDialog";
 import { CreateTicketDialog } from "@/components/CreateTicketDialog";
+import { BoardSettingsDialog } from "@/components/BoardSettingsDialog";
 import { GoalsListDialog } from "@/components/GoalsListDialog";
 import { QueueStatusDialog } from "@/components/QueueStatusDialog";
 import { DebugPanel } from "@/components/DebugPanel";
@@ -177,6 +178,17 @@ export function AppLayout() {
                 <FolderGit2 className="h-4 w-4 mr-1.5" />
                 Add Projects
               </Button>
+              {currentBoard && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => ui.setBoardSettingsOpen(true)}
+                  className="h-8"
+                  title="Board Settings"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              )}
             </div>
             <nav className="flex items-center gap-2">
               {import.meta.env.DEV && (
@@ -297,6 +309,18 @@ export function AppLayout() {
         onOpenChange={ui.setRepoDiscoveryOpen}
         onReposAdded={refreshBoard}
       />
+      {currentBoard && (
+        <BoardSettingsDialog
+          open={ui.boardSettingsOpen}
+          onOpenChange={ui.setBoardSettingsOpen}
+          boardId={currentBoard.id}
+          onTicketsDeleted={refreshBoard}
+          onBoardDeleted={() => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.boards.all });
+            navigate("/");
+          }}
+        />
+      )}
 
       {/* Debug Panel */}
       <DebugPanel

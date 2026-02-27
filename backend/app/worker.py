@@ -264,10 +264,14 @@ def get_evidence_dir(
 ) -> Path:
     """Get the directory for storing evidence files.
 
+    Evidence is stored in a persistent location at {repo_root}/.smartkanban/evidence/{job_id}/
+    so it survives worktree cleanup. Falls back to worktree-relative or FALLBACK_LOGS_DIR
+    if repo_root is not available.
+
     Args:
         worktree_path: Path to the worktree (if available)
         job_id: UUID of the job
-        repo_root: Path to the main repo root (for validation)
+        repo_root: Path to the main repo root (for persistent storage)
 
     Returns:
         Path to evidence directory
@@ -275,13 +279,15 @@ def get_evidence_dir(
     Raises:
         ValueError: If evidence_dir would be outside repo_root/.smartkanban
     """
-    if worktree_path:
+    if repo_root:
+        evidence_dir = repo_root / ".smartkanban" / "evidence" / job_id
+    elif worktree_path:
         evidence_dir = worktree_path / ".smartkanban" / "evidence" / job_id
     else:
         evidence_dir = FALLBACK_LOGS_DIR / "evidence" / job_id
 
     # Hardening: Validate evidence_dir is under repo_root/.smartkanban (if repo_root provided)
-    if repo_root and worktree_path:
+    if repo_root:
         import os
 
         allowed_root = (repo_root / ".smartkanban").resolve(strict=False)
@@ -1798,7 +1804,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 
     # Build prompt bundle
     write_log(log_path, "Building prompt bundle...")
-    prompt_builder = PromptBundleBuilder(worktree_path, job_id)
+    prompt_builder = PromptBundleBuilder(worktree_path, job_id, repo_root=main_repo_path)
     verify_commands = (
         config.verify_config.commands if config.verify_config.commands else None
     )
@@ -2742,8 +2748,11 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
             "error": f"Ticket must be in 'needs_human' state to resume, got '{ticket.state}'",
         }
 
-    # Get evidence directory
-    evidence_dir = worktree_path / ".smartkanban" / "jobs" / job_id / "evidence"
+    # Get repo root for evidence storage and relative path computation
+    repo_root = WorkspaceService.get_repo_path()
+
+    # Get evidence directory (persistent location outside worktree)
+    evidence_dir = repo_root / ".smartkanban" / "evidence" / job_id
     evidence_dir.mkdir(parents=True, exist_ok=True)
     evidence_records: list[str] = []
 
@@ -2751,9 +2760,6 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
     write_log(log_path, "Capturing git diff...")
     diff_stat_evidence_id = str(uuid.uuid4())
     diff_patch_evidence_id = str(uuid.uuid4())
-
-    # Get repo root for relative path computation
-    repo_root = WorkspaceService.get_repo_path()
 
     diff_exit_code, diff_stat_path, diff_patch_path, diff_stat, has_changes = (
         capture_git_diff(

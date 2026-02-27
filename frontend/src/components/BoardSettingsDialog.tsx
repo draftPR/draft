@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { clearBoardConfig, getBoardConfig, updateBoardConfig, getExecutorModels, deleteAllTickets, type ExecutorModel } from "@/services/api";
+import { clearBoardConfig, getBoardConfig, updateBoardConfig, getExecutorModels, deleteAllTickets, deleteBoard, type ExecutorModel } from "@/services/api";
 import { toast } from "sonner";
 import { AlertCircle, Info, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -27,6 +27,7 @@ interface BoardSettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   boardId: string;
   onTicketsDeleted?: () => void;
+  onBoardDeleted?: () => void;
 }
 
 const EXECUTOR_OPTIONS = [
@@ -40,10 +41,12 @@ export function BoardSettingsDialog({
   onOpenChange,
   boardId,
   onTicketsDeleted,
+  onBoardDeleted,
 }: BoardSettingsDialogProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deletingBoard, setDeletingBoard] = useState(false);
   const [hasOverrides, setHasOverrides] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
 
@@ -203,6 +206,30 @@ export function BoardSettingsDialog({
     }
   };
 
+  const handleDeleteBoard = async () => {
+    if (
+      !confirm(
+        "Are you sure? This will delete the board and all its tickets. This action cannot be undone."
+      )
+    ) {
+      return;
+    }
+
+    setDeletingBoard(true);
+    try {
+      await deleteBoard(boardId);
+      toast.success("Board deleted successfully");
+      onOpenChange(false);
+      onBoardDeleted?.();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to delete board";
+      toast.error(message);
+    } finally {
+      setDeletingBoard(false);
+    }
+  };
+
   if (loading) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -337,7 +364,7 @@ export function BoardSettingsDialog({
                 type="button"
                 variant="destructive"
                 onClick={handleDeleteAllTickets}
-                disabled={deleting || saving}
+                disabled={deleting || deletingBoard || saving}
                 className="w-full gap-2"
               >
                 {deleting ? (
@@ -349,6 +376,25 @@ export function BoardSettingsDialog({
                   <>
                     <Trash2 className="h-4 w-4" />
                     Delete All Tickets
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDeleteBoard}
+                disabled={deleting || deletingBoard || saving}
+                className="w-full gap-2"
+              >
+                {deletingBoard ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Deleting Board...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    Delete Board
                   </>
                 )}
               </Button>

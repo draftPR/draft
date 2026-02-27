@@ -15,6 +15,7 @@ interface UIState {
   dashboardOpen: boolean;
   shortcutsHelpOpen: boolean;
   repoDiscoveryOpen: boolean;
+  boardSettingsOpen: boolean;
 
   setGoalDialogOpen: (open: boolean) => void;
   setTicketDialogOpen: (open: boolean) => void;
@@ -24,6 +25,7 @@ interface UIState {
   setDashboardOpen: (open: boolean) => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setRepoDiscoveryOpen: (open: boolean) => void;
+  setBoardSettingsOpen: (open: boolean) => void;
   toggleDebugPanel: () => void;
 }
 
@@ -36,6 +38,7 @@ export const useUIStore = create<UIState>((set) => ({
   dashboardOpen: false,
   shortcutsHelpOpen: false,
   repoDiscoveryOpen: false,
+  boardSettingsOpen: false,
 
   setGoalDialogOpen: (open) => set({ goalDialogOpen: open }),
   setTicketDialogOpen: (open) => set({ ticketDialogOpen: open }),
@@ -45,6 +48,7 @@ export const useUIStore = create<UIState>((set) => ({
   setDashboardOpen: (open) => set({ dashboardOpen: open }),
   setShortcutsHelpOpen: (open) => set({ shortcutsHelpOpen: open }),
   setRepoDiscoveryOpen: (open) => set({ repoDiscoveryOpen: open }),
+  setBoardSettingsOpen: (open) => set({ boardSettingsOpen: open }),
   toggleDebugPanel: () =>
     set((state) => ({ debugPanelOpen: !state.debugPanelOpen })),
 }));

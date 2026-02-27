@@ -355,16 +355,18 @@ class PromptBundleBuilder:
 
     PROMPT_FILENAME = "prompt.txt"
 
-    def __init__(self, worktree_path: Path, job_id: str):
+    def __init__(self, worktree_path: Path, job_id: str, repo_root: Path | None = None):
         """
         Initialize the prompt bundle builder.
 
         Args:
             worktree_path: Path to the worktree directory.
             job_id: UUID of the job.
+            repo_root: Path to the main repo root (for persistent evidence storage).
         """
         self.worktree_path = worktree_path
         self.job_id = job_id
+        self.repo_root = repo_root
         self.job_dir = worktree_path / ".smartkanban" / "jobs" / job_id
 
     @property
@@ -622,9 +624,15 @@ class PromptBundleBuilder:
         """
         Get the evidence directory for this job.
 
+        Evidence is stored in a persistent location outside the worktree
+        so it survives worktree cleanup.
+
         Returns:
             Path to the evidence directory.
         """
-        evidence_dir = self.job_dir / "evidence"
+        if self.repo_root:
+            evidence_dir = self.repo_root / ".smartkanban" / "evidence" / self.job_id
+        else:
+            evidence_dir = self.job_dir / "evidence"
         evidence_dir.mkdir(parents=True, exist_ok=True)
         return evidence_dir

@@ -140,6 +140,12 @@ export async function saveExecutorProfiles(
   });
 }
 
+export async function deleteBoard(boardId: string): Promise<void> {
+  return apiFetch<void>(`/boards/${boardId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function deleteAllTickets(boardId: string): Promise<{ message: string }> {
   return apiFetch<{ message: string }>(`/boards/${boardId}/tickets`, {
     method: "DELETE",
