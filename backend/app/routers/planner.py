@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.ticket_event import TicketEvent
@@ -167,6 +168,7 @@ async def _get_last_tick_stats(db: AsyncSession) -> LastTickStats | None:
 
     result = await db.execute(
         select(TicketEvent)
+        .options(selectinload(TicketEvent.ticket))
         .where(
             and_(
                 TicketEvent.actor_type == ActorType.PLANNER.value,
