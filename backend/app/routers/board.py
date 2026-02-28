@@ -27,8 +27,30 @@ from app.services.board_service import BoardService
 from app.services.config_service import ConfigService
 from app.services.ticket_generation_service import TicketGenerationService
 from app.services.ticket_service import TicketService
+from app.templates import get_template, list_templates
 
 router = APIRouter(prefix="/boards", tags=["boards"])
+
+
+# ============================================================================
+# Template endpoints
+# ============================================================================
+
+
+@router.get(
+    "/templates",
+    summary="List available project templates",
+)
+async def get_templates():
+    """Get all available project templates.
+
+    Templates provide pre-configured board settings and starter goals
+    for common project types like web apps, APIs, mobile apps, etc.
+
+    Use the template_id when creating a board to apply a template.
+    """
+    templates = list_templates()
+    return {"templates": templates, "total": len(templates)}
 
 
 # ============================================================================

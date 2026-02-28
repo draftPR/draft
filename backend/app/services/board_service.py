@@ -47,6 +47,9 @@ class BoardService:
 
         The board is initialized with default config to prevent falling back
         to YAML config which may have non-optimal defaults (e.g., "auto" model).
+
+        If template_id is provided, applies template configuration and creates
+        starter goals (unless create_starter_goals=False).
         """
         # Validate repo_root exists and is a git repo
         repo_path = Path(data.repo_root).resolve()
@@ -57,17 +60,50 @@ class BoardService:
         if not (repo_path / ".git").exists():
             raise ValueError(f"repo_root is not a git repository: {data.repo_root}")
 
+        # Apply template config if template_id provided
+        board_config = self.get_default_board_config()
+        if data.template_id:
+            from app.templates import get_template
+
+            template = get_template(data.template_id)
+            if not template:
+                raise ValueError(f"Invalid template_id: {data.template_id}")
+
+            # Merge template config with defaults (template takes precedence)
+            if template.get("config"):
+                from app.services.config_service import deep_merge_dicts
+
+                board_config = deep_merge_dicts(board_config, template["config"])
+
         board = Board(
             id=str(uuid.uuid4()),
             name=data.name,
             description=data.description,
             repo_root=str(repo_path),  # Store resolved absolute path
             default_branch=data.default_branch,
-            config=self.get_default_board_config(),  # Initialize with defaults
+            config=board_config,
         )
         self.db.add(board)
         await self.db.commit()
         await self.db.refresh(board)
+
+        # Create starter goals if template provided and requested
+        if data.template_id and data.create_starter_goals:
+            from app.templates import get_template
+
+            template = get_template(data.template_id)
+            if template and template.get("starter_goals"):
+                for goal_data in template["starter_goals"]:
+                    goal = Goal(
+                        id=str(uuid.uuid4()),
+                        board_id=board.id,
+                        title=goal_data["title"],
+                        description=goal_data["description"],
+                    )
+                    self.db.add(goal)
+
+                await self.db.commit()
+
         return board
 
     async def get_board_by_id(self, board_id: str) -> Board:

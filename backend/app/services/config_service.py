@@ -1,5 +1,6 @@
 """Service for reading and parsing smartkanban.yaml configuration."""
 
+import logging
 import os
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -7,6 +8,33 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
+
+
+def deep_merge_dicts(base: dict, override: dict) -> dict:
+    """Deep merge two dictionaries.
+
+    Args:
+        base: Base dictionary
+        override: Dictionary with override values
+
+    Returns:
+        Merged dictionary (new dict, doesn't modify inputs)
+
+    Example:
+        >>> base = {"a": 1, "b": {"c": 2}}
+        >>> override = {"b": {"d": 3}}
+        >>> deep_merge_dicts(base, override)
+        {"a": 1, "b": {"c": 2, "d": 3}}
+    """
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge_dicts(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 
 class YoloStatus(StrEnum):
@@ -169,6 +197,7 @@ class VerifyConfig:
     commands: list[str] = field(default_factory=list)
     on_success: str = "needs_human"  # DEPRECATED: Always "needs_human", kept for backwards compatibility
     on_failure: str = "blocked"  # "blocked" (only option for now)
+    extra_allowed_commands: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "VerifyConfig":
@@ -177,6 +206,7 @@ class VerifyConfig:
             commands=data.get("commands") or [],
             on_success="needs_human",  # Always needs_human - user must approve to move to done
             on_failure=data.get("on_failure", "blocked"),
+            extra_allowed_commands=data.get("extra_allowed_commands") or [],
         )
 
 
@@ -658,13 +688,29 @@ class ConfigService:
                 return SmartKanbanConfig()
 
             if not isinstance(data, dict):
+                logger.warning(
+                    "Config file %s has invalid format (expected dict, got %s); "
+                    "using default configuration",
+                    self.config_path,
+                    type(data).__name__,
+                )
                 return SmartKanbanConfig()
 
             return SmartKanbanConfig.from_dict(data)
 
-        except yaml.YAMLError:
+        except yaml.YAMLError as e:
+            logger.warning(
+                "Failed to parse config file %s: %s; using default configuration",
+                self.config_path,
+                e,
+            )
             return SmartKanbanConfig()
-        except OSError:
+        except OSError as e:
+            logger.warning(
+                "Failed to read config file %s: %s; using default configuration",
+                self.config_path,
+                e,
+            )
             return SmartKanbanConfig()
 
     def load_config_with_board_overrides(

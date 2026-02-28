@@ -21,6 +21,14 @@ class BoardCreate(BaseModel):
         max_length=255,
         description="Default branch (e.g., main, master)",
     )
+    template_id: str | None = Field(
+        None,
+        description="Optional template ID to apply project template configuration and starter goals",
+    )
+    create_starter_goals: bool = Field(
+        True,
+        description="Whether to create starter goals from the template (default: true)",
+    )
 
 
 class BoardUpdate(BaseModel):
@@ -44,6 +52,7 @@ class BoardResponse(BaseModel):
     description: str | None
     repo_root: str
     default_branch: str | None
+    config: dict | None
     created_at: datetime
     updated_at: datetime
 
