@@ -55,6 +55,32 @@ _job_context = threading.local()
 _active_processes: dict[str, subprocess.Popen] = {}
 _active_processes_lock = threading.Lock()
 
+# Executor retry configuration
+EXECUTOR_MAX_RETRIES = 2  # Retry up to 2 times (3 total attempts)
+EXECUTOR_RETRY_DELAY_BASE = 5  # Base delay in seconds (exponential backoff)
+
+# Retry-eligible exit codes (transient failures)
+RETRYABLE_EXIT_CODES = {
+    -1,  # Timeout or general failure
+    124,  # Timeout (from timeout command)
+    137,  # SIGKILL (OOM or external kill)
+    143,  # SIGTERM
+}
+
+# Retry-eligible error patterns in stderr (network/API issues)
+RETRYABLE_ERROR_PATTERNS = [
+    "connection reset",
+    "connection refused",
+    "network error",
+    "rate limit",
+    "503 service unavailable",
+    "502 bad gateway",
+    "504 gateway timeout",
+    "temporary failure",
+    "timeout",
+    "timed out",
+]
+
 
 def ensure_fallback_logs_dir() -> None:
     """Ensure the fallback logs directory exists."""
@@ -96,6 +122,29 @@ def write_log(log_path: Path, message: str, job_id: str | None = None) -> None:
 def set_current_job(job_id: str | None) -> None:
     """Set the current job ID for this thread (THREAD-SAFE)."""
     _job_context.job_id = job_id
+
+
+def is_retryable_error(exit_code: int, stderr: str) -> bool:
+    """Check if an executor error is retryable (transient failure).
+    
+    Args:
+        exit_code: The process exit code
+        stderr: The stderr output from the process
+        
+    Returns:
+        True if the error is likely transient and worth retrying
+    """
+    # Check exit code
+    if exit_code in RETRYABLE_EXIT_CODES:
+        return True
+    
+    # Check stderr for known transient error patterns
+    stderr_lower = stderr.lower()
+    for pattern in RETRYABLE_ERROR_PATTERNS:
+        if pattern in stderr_lower:
+            return True
+            
+    return False
 
 
 def register_active_process(job_id: str, process: subprocess.Popen) -> None:
@@ -316,6 +365,7 @@ def run_verification_command(
     evidence_id: str,
     repo_root: Path,
     timeout: int = 300,
+    extra_allowed_commands: list[str] | None = None,
 ) -> tuple[int, str, str]:
     """
     Run a verification command and capture output (SECURE - no shell injection).
@@ -330,6 +380,7 @@ def run_verification_command(
         evidence_id: UUID for naming evidence files
         repo_root: Path to repo root (for computing relative paths)
         timeout: Command timeout in seconds
+        extra_allowed_commands: Additional commands to allow (from config)
 
     Returns:
         Tuple of (exit_code, stdout_relpath, stderr_relpath) - paths are relative to repo_root
@@ -367,6 +418,8 @@ def run_verification_command(
         "flake8",
         "pylint",
     }
+    if extra_allowed_commands:
+        ALLOWED_COMMANDS.update(extra_allowed_commands)
 
     try:
         # SECURE: Parse command string into argv array (prevents injection)
@@ -678,6 +731,24 @@ def transition_ticket_sync(
             )
             return
 
+        # Validate state transition against the state machine
+        from app.state_machine import validate_transition as sm_validate
+
+        try:
+            from_state_enum = TicketState(from_state)
+        except ValueError:
+            logger.error(
+                f"Invalid current state '{from_state}' for ticket {ticket_id}"
+            )
+            return
+
+        if not sm_validate(from_state_enum, to_state):
+            logger.error(
+                f"Invalid state transition {from_state} -> {to_state.value} "
+                f"for ticket {ticket_id}, skipping"
+            )
+            return
+
         ticket.state = to_state.value
 
         # Create transition event
@@ -921,11 +992,14 @@ def run_executor_cli(
 
                 # Check if job was canceled
                 if job_id and check_canceled(job_id):
-                    logger.info(f"Job {job_id} canceled, killing process {process.pid}")
-                    process.kill()
+                    logger.info(f"Job {job_id} canceled, attempting graceful shutdown of process {process.pid}")
+                    # Try SIGTERM first for graceful shutdown
+                    process.terminate()
                     try:
                         process.wait(timeout=5)
+                        logger.info(f"Process {process.pid} terminated gracefully")
                     except subprocess.TimeoutExpired:
+                        logger.warning(f"Process {process.pid} did not terminate gracefully, using SIGKILL")
                         process.kill()  # Force kill if still alive
                         process.wait()
                     stdout_lines.append("\n[CANCELED] Job canceled by user")
@@ -934,8 +1008,16 @@ def run_executor_cli(
 
                 # Check timeout
                 if time.time() - start_time > timeout:
-                    process.kill()
-                    process.wait()
+                    logger.warning(f"Process {process.pid} exceeded timeout {timeout}s, attempting graceful shutdown")
+                    # Try SIGTERM first for graceful shutdown
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                        logger.info(f"Process {process.pid} terminated gracefully after timeout")
+                    except subprocess.TimeoutExpired:
+                        logger.warning(f"Process {process.pid} did not terminate gracefully, using SIGKILL")
+                        process.kill()
+                        process.wait()
                     stdout_lines.append(
                         f"\n[TIMEOUT] Process killed after {timeout} seconds"
                     )
@@ -967,18 +1049,29 @@ def run_executor_cli(
                     pass
 
         # Wait for output threads to finish (with timeout to prevent blocking)
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
+        # Try longer timeout first (10s)
+        stdout_thread.join(timeout=10)
+        stderr_thread.join(timeout=10)
 
-        # CRITICAL: Warn if threads didn't stop (indicates resource leak)
+        # CRITICAL: If threads didn't stop, force cleanup
+        threads_stuck = False
         if stdout_thread.is_alive():
-            logger.warning(
-                f"stdout thread for job {job_id[:8] if job_id else 'unknown'} did not stop after 5s timeout - potential resource leak"
+            logger.error(
+                f"stdout thread for job {job_id[:8] if job_id else 'unknown'} did not stop after 10s - forcing cleanup"
             )
+            threads_stuck = True
+            # Thread will be GC'd because daemon=True, but we lost some output
+            # This is acceptable - better than blocking indefinitely
+            
         if stderr_thread.is_alive():
-            logger.warning(
-                f"stderr thread for job {job_id[:8] if job_id else 'unknown'} did not stop after 5s timeout - potential resource leak"
+            logger.error(
+                f"stderr thread for job {job_id[:8] if job_id else 'unknown'} did not stop after 10s - forcing cleanup"
             )
+            threads_stuck = True
+        
+        if threads_stuck:
+            # Add warning to output that some logs may be incomplete
+            stdout_lines.append("\n[WARNING] Output streaming threads did not terminate cleanly - some logs may be incomplete")
 
         # Write captured output to files
         stdout_path.write_text("\n".join(stdout_lines))
@@ -1012,8 +1105,106 @@ def run_executor_cli(
         stdout_path.write_text("")
         stderr_path.write_text(f"Error running executor CLI: {str(e)}")
         stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stderr_rel = str(stdout_path.relative_to(repo_root))
         return -1, stdout_rel, stderr_rel
+
+
+def run_executor_cli_with_retry(
+    command: list[str],
+    cwd: Path,
+    evidence_dir: Path,
+    evidence_id: str,
+    repo_root: Path,
+    timeout: int = 600,
+    job_id: str | None = None,
+    normalize_logs: bool = False,
+    stdin_content: str | None = None,
+    log_path: Path | None = None,
+) -> tuple[int, str, str]:
+    """
+    Wrapper for run_executor_cli with retry logic for transient failures.
+    
+    Retries up to EXECUTOR_MAX_RETRIES times with exponential backoff when:
+    - Exit code is in RETRYABLE_EXIT_CODES (timeout, kill, term)
+    - Stderr contains known transient error patterns (network, rate limit, etc.)
+    
+    Args:
+        Same as run_executor_cli, plus:
+        log_path: Optional path to write retry messages
+        
+    Returns:
+        Same as run_executor_cli: (exit_code, stdout_relpath, stderr_relpath)
+    """
+    last_exit_code = -1
+    last_stderr_path = ""
+    
+    for attempt in range(EXECUTOR_MAX_RETRIES + 1):  # 0, 1, 2 = 3 total attempts
+        if attempt > 0:
+            # This is a retry - calculate backoff delay
+            delay = EXECUTOR_RETRY_DELAY_BASE * (2 ** (attempt - 1))  # Exponential backoff: 5s, 10s
+            retry_msg = f"Retry attempt {attempt}/{EXECUTOR_MAX_RETRIES} after {delay}s delay..."
+            logger.info(retry_msg)
+            if log_path:
+                write_log(log_path, retry_msg, job_id)
+            time.sleep(delay)
+            
+        # Run the executor
+        exit_code, stdout_rel, stderr_rel = run_executor_cli(
+            command=command,
+            cwd=cwd,
+            evidence_dir=evidence_dir,
+            evidence_id=f"{evidence_id}_attempt{attempt}" if attempt > 0 else evidence_id,
+            repo_root=repo_root,
+            timeout=timeout,
+            job_id=job_id,
+            normalize_logs=normalize_logs,
+            stdin_content=stdin_content,
+        )
+        
+        last_exit_code = exit_code
+        last_stderr_path = stderr_rel
+        
+        # Success - return immediately
+        if exit_code == 0:
+            if attempt > 0:
+                success_msg = f"Executor succeeded on retry attempt {attempt}"
+                logger.info(success_msg)
+                if log_path:
+                    write_log(log_path, success_msg, job_id)
+            return exit_code, stdout_rel, stderr_rel
+        
+        # Check if this is the last attempt
+        if attempt >= EXECUTOR_MAX_RETRIES:
+            break
+            
+        # Check if error is retryable
+        try:
+            stderr_content = (repo_root / stderr_rel).read_text()
+        except Exception:
+            stderr_content = ""
+            
+        if is_retryable_error(exit_code, stderr_content):
+            retry_reason = f"Executor failed with retryable error (exit_code={exit_code})"
+            logger.warning(retry_reason)
+            if log_path:
+                write_log(log_path, retry_reason, job_id)
+            # Continue to next iteration (retry)
+        else:
+            # Not retryable - fail immediately
+            non_retry_msg = f"Executor failed with non-retryable error (exit_code={exit_code}) - not retrying"
+            logger.info(non_retry_msg)
+            if log_path:
+                write_log(log_path, non_retry_msg, job_id)
+            break
+    
+    # All retries exhausted or non-retryable error
+    if attempt > 0:
+        exhausted_msg = f"Executor failed after {attempt + 1} attempts (final exit_code={last_exit_code})"
+        logger.error(exhausted_msg)
+        if log_path:
+            write_log(log_path, exhausted_msg, job_id)
+    
+    return last_exit_code, stdout_rel, last_stderr_path
 
 
 def capture_git_diff(
@@ -1931,7 +2122,8 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # Enable log normalization for cursor-agent (outputs JSON streaming format)
     should_normalize = executor_info.executor_type == ExecutorType.CURSOR_AGENT
 
-    executor_exit_code, executor_stdout_path, executor_stderr_path = run_executor_cli(
+    # Use retry wrapper for improved reliability (handles transient failures)
+    executor_exit_code, executor_stdout_path, executor_stderr_path = run_executor_cli_with_retry(
         command=executor_command,
         cwd=worktree_path,
         evidence_dir=evidence_dir,
@@ -1941,6 +2133,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         job_id=job_id,  # Enable real-time streaming
         normalize_logs=should_normalize,  # Parse cursor-agent JSON for nice display
         stdin_content=executor_stdin,  # Pipe prompt via stdin (ARG_MAX safety)
+        log_path=log_path,  # Enable retry logging
     )
 
     # Calculate execution duration
@@ -2434,6 +2627,7 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
             evidence_id=evidence_id,
             repo_root=repo_root,
             timeout=300,
+            extra_allowed_commands=verify_config.extra_allowed_commands,
         )
 
         cmd_duration_ms = int((time.time() - cmd_start_time) * 1000)
