@@ -50,14 +50,20 @@ class GoalService:
         await self.db.refresh(goal)
         return goal
 
-    async def get_goals(self) -> list[Goal]:
+    async def get_goals(self, board_id: str | None = None) -> list[Goal]:
         """
-        Get all goals.
+        Get all goals, optionally filtered by board.
+
+        Args:
+            board_id: If provided, only return goals for this board
 
         Returns:
-            List of all Goal instances
+            List of Goal instances
         """
-        result = await self.db.execute(select(Goal).order_by(Goal.created_at.desc()))
+        stmt = select(Goal)
+        if board_id:
+            stmt = stmt.where(Goal.board_id == board_id)
+        result = await self.db.execute(stmt.order_by(Goal.created_at.desc()))
         return list(result.scalars().all())
 
     async def update_goal(self, goal_id: str, data: GoalUpdate) -> Goal:

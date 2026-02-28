@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createTicket, fetchGoals } from "@/services/api";
+import { useBoard } from "@/contexts/BoardContext";
 import { ActorType, type Goal } from "@/types/api";
 import { toast } from "sonner";
 import { Loader2, AlertCircle } from "lucide-react";
@@ -35,6 +36,7 @@ export function CreateTicketDialog({
   onOpenChange,
   onSuccess,
 }: CreateTicketDialogProps) {
+  const { currentBoard } = useBoard();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [goalsError, setGoalsError] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function CreateTicketDialog({
     if (open) {
       setGoalsLoading(true);
       setGoalsError(null);
-      fetchGoals()
+      fetchGoals(currentBoard?.id)
         .then((response) => {
           setGoals(response.goals);
           // Auto-select if only one goal
@@ -66,7 +68,7 @@ export function CreateTicketDialog({
           setGoalsLoading(false);
         });
     }
-  }, [open]);
+  }, [open, currentBoard?.id]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

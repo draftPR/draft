@@ -51,11 +51,12 @@ async def create_goal(
     summary="List all goals",
 )
 async def list_goals(
+    board_id: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> GoalListResponse:
-    """Get all goals."""
+    """Get all goals, optionally filtered by board_id."""
     service = GoalService(db)
-    goals = await service.get_goals()
+    goals = await service.get_goals(board_id=board_id)
     return GoalListResponse(
         goals=[GoalResponse.model_validate(g) for g in goals],
         total=len(goals),

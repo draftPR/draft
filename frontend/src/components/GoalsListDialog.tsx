@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { GoalDetailDialog } from "@/components/GoalDetailDialog";
 import { fetchGoals } from "@/services/api";
 import type { Goal } from "@/types/api";
+import { useBoard } from "@/contexts/BoardContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -41,6 +42,7 @@ export function GoalsListDialog({
   onOpenChange,
   onBoardRefresh,
 }: GoalsListDialogProps) {
+  const { currentBoard } = useBoard();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function GoalsListDialog({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetchGoals();
+      const response = await fetchGoals(currentBoard?.id);
       setGoals(response.goals);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load goals";
@@ -60,7 +62,7 @@ export function GoalsListDialog({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentBoard?.id]);
 
   useEffect(() => {
     if (open) {

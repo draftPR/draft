@@ -1460,11 +1460,11 @@ Now analyze the codebase and generate the JSON."""
 
                 # Wait for process to complete
                 try:
-                    process.wait(timeout=120)
+                    process.wait(timeout=600)
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait()
-                    raise ValueError("Agent timed out after 120 seconds")
+                    raise ValueError("Agent timed out after 600 seconds")
 
                 if process.returncode != 0:
                     stderr = process.stderr.read()
@@ -1481,7 +1481,7 @@ Now analyze the codebase and generate the JSON."""
                     cwd=repo_root,
                     capture_output=True,
                     text=True,
-                    timeout=120,  # 2 minute timeout for ticket generation
+                    timeout=600,  # 10 minute timeout for ticket generation
                     env=clean_env,
                 )
 
@@ -1495,7 +1495,7 @@ Now analyze the codebase and generate the JSON."""
                 return result.stdout
 
         except subprocess.TimeoutExpired:
-            raise ValueError("Agent timed out after 120 seconds")
+            raise ValueError("Agent timed out after 600 seconds")
         except FileNotFoundError:
             raise ValueError(f"Agent command not found: {cmd[0]}")
 

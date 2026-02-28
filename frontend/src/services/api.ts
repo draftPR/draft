@@ -296,8 +296,9 @@ export async function createGoal(data: GoalCreate): Promise<Goal> {
 /**
  * Fetch all goals
  */
-export async function fetchGoals(): Promise<GoalListResponse> {
-  return apiFetch<GoalListResponse>("/goals");
+export async function fetchGoals(boardId?: string): Promise<GoalListResponse> {
+  const query = boardId ? `?board_id=${encodeURIComponent(boardId)}` : "";
+  return apiFetch<GoalListResponse>(`/goals${query}`);
 }
 
 /**

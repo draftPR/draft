@@ -3,6 +3,17 @@ import { render, screen, waitFor } from "@/test/test-utils";
 import userEvent from "@testing-library/user-event";
 import { CreateTicketDialog } from "../CreateTicketDialog";
 
+vi.mock("@/contexts/BoardContext", () => ({
+  useBoard: () => ({
+    currentBoard: { id: "board-1", name: "Test Board", repo_root: "/tmp/test-repo", description: null, default_branch: "main", created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:00:00Z" },
+    boards: [],
+    isLoading: false,
+    error: null,
+    setCurrentBoard: vi.fn(),
+    refreshBoards: vi.fn(),
+  }),
+}));
+
 describe("CreateTicketDialog", () => {
   const defaultProps = {
     open: true,

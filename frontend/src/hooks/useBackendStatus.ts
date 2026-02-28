@@ -28,6 +28,7 @@ export interface BackendStatus {
 const PING_INTERVAL_MS = 10_000; // check every 10 s while online
 const OFFLINE_PING_INTERVAL_MS = 30_000; // back off when offline
 const FAIL_THRESHOLD = 2; // consecutive failures before we declare offline
+const AUTO_WAKE_COOLDOWN_MS = 60_000; // don't auto-wake more than once per minute
 
 export function useBackendStatus(): BackendStatus {
   const [isOffline, setIsOffline] = useState(false);
@@ -35,6 +36,7 @@ export function useBackendStatus(): BackendStatus {
   const [waking, setWaking] = useState(false);
   const failCount = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const lastAutoWake = useRef(0);
 
   const ping = useCallback(async () => {
     try {
@@ -55,6 +57,21 @@ export function useBackendStatus(): BackendStatus {
     failCount.current += 1;
     if (failCount.current >= FAIL_THRESHOLD) {
       setIsOffline(true);
+
+      // Auto-wake: ask the Vite plugin to restart the backend (with cooldown)
+      const now = Date.now();
+      if (now - lastAutoWake.current > AUTO_WAKE_COOLDOWN_MS) {
+        lastAutoWake.current = now;
+        fetch("/__api/wake-backend", { signal: AbortSignal.timeout(20_000) })
+          .then((r) => {
+            if (r.ok) {
+              failCount.current = 0;
+              setIsOffline(false);
+              setLastSeen(Date.now());
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, []);
 

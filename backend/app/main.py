@@ -126,8 +126,8 @@ app = FastAPI(
 # Security headers (add first, applies to all responses)
 app.add_middleware(SecurityHeadersMiddleware)
 
-# Request timeout (120s global timeout)
-app.add_middleware(TimeoutMiddleware, timeout_seconds=120)
+# Request timeout (600s global timeout, needed for long-running analysis)
+app.add_middleware(TimeoutMiddleware, timeout_seconds=600)
 
 # CORS configuration — supports both dev (vite on :5173) and production (same origin)
 _frontend_url = os.getenv("FRONTEND_URL")

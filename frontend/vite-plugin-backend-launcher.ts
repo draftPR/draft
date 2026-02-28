@@ -1,18 +1,23 @@
 /**
- * Vite plugin that can start the backend server on demand.
+ * Vite plugin that manages the backend server lifecycle.
  *
  * Exposes `GET /__api/wake-backend` — the frontend calls this when the
  * backend is unreachable.  The plugin checks if the backend is already
  * running, and if not, spawns `uvicorn` as a detached child process.
+ *
+ * Also runs a background health monitor that auto-restarts the backend
+ * if it crashes (checked every 30 s).
  */
 
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "vite";
 
 const HEALTH_ENDPOINT = "http://localhost:8000/health";
 const POLL_INTERVAL_MS = 500;
 const STARTUP_TIMEOUT_MS = 15_000;
+const HEALTH_CHECK_INTERVAL_MS = 30_000;
 
 async function isBackendRunning(): Promise<boolean> {
   try {
@@ -45,8 +50,39 @@ function waitForBackend(): Promise<boolean> {
   });
 }
 
+function spawnBackend(projectRoot: string): ChildProcess | null {
+  try {
+    const backendDir = join(projectRoot, "backend");
+    const venvPython = join(backendDir, "venv", "bin", "python");
+    const logFile = join(backendDir, "uvicorn.log");
+
+    // Log to file so crashes are diagnosable (rotated on each spawn)
+    const logStream = createWriteStream(logFile, { flags: "a" });
+
+    const child = spawn(
+      venvPython,
+      ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+      {
+        cwd: backendDir,
+        detached: true,
+        stdio: ["ignore", logStream, logStream],
+      },
+    );
+    child.unref();
+    // Close our handle — the child keeps writing via its inherited fd
+    logStream.close();
+    return child;
+  } catch {
+    return null;
+  }
+}
+
 export default function backendLauncher(): Plugin {
   let projectRoot = "";
+  let healthCheckTimer: ReturnType<typeof setInterval> | undefined;
+  // Track whether we've ever started the backend (don't auto-restart
+  // a backend we didn't start — the user might be running it manually).
+  let weStartedBackend = false;
 
   return {
     name: "backend-launcher",
@@ -57,6 +93,20 @@ export default function backendLauncher(): Plugin {
     },
 
     configureServer(server) {
+      // Start health monitor that auto-restarts the backend if it crashes
+      healthCheckTimer = setInterval(async () => {
+        if (!weStartedBackend) return;
+        if (await isBackendRunning()) return;
+
+        console.log("[backend-launcher] Backend is down, auto-restarting...");
+        spawnBackend(projectRoot);
+      }, HEALTH_CHECK_INTERVAL_MS);
+
+      // Clean up on server close
+      server.httpServer?.on("close", () => {
+        if (healthCheckTimer) clearInterval(healthCheckTimer);
+      });
+
       server.middlewares.use(async (req, res, next) => {
         if (req.url !== "/__api/wake-backend") {
           next();
@@ -71,25 +121,13 @@ export default function backendLauncher(): Plugin {
         }
 
         // Spawn the backend
-        try {
-          const backendDir = join(projectRoot, "backend");
-          const venvPython = join(backendDir, "venv", "bin", "python");
-
-          const child = spawn(
-            venvPython,
-            ["-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
-            {
-              cwd: backendDir,
-              detached: true,
-              stdio: "ignore",
-            },
-          );
-          child.unref();
-        } catch (err) {
+        const child = spawnBackend(projectRoot);
+        if (!child) {
           res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ status: "spawn_failed", error: String(err) }));
+          res.end(JSON.stringify({ status: "spawn_failed" }));
           return;
         }
+        weStartedBackend = true;
 
         // Wait for it to come up
         const ok = await waitForBackend();
