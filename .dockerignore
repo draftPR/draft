@@ -3,11 +3,13 @@
 .gitignore
 
 # Python
+venv/
 backend/venv
 backend/.venv
 **/__pycache__
 **/*.pyc
 **/*.pyo
+*.egg-info/
 backend/.ruff_cache
 backend/.pytest_cache
 backend/.mypy_cache
@@ -15,8 +17,12 @@ backend/celerybeat-schedule*
 backend/logs/
 
 # Node
+node_modules/
 frontend/node_modules
 frontend/dist
+
+# Environment
+.env
 
 # IDE
 .vscode
@@ -30,10 +36,16 @@ Thumbs.db
 
 # Project
 .smartkanban/
-*.db
-*.sqlite3
+
+# Test artifacts
+test-results/
+playwright-report/
 
 # Docs
 *.md
 !README.md
 LICENSE
+
+# Databases (local dev only)
+*.db
+*.sqlite3

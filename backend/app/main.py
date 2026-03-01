@@ -16,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.database import init_db
 from app.exceptions import (
     ConfigurationError,
+    ConflictError,
     InvalidStateTransitionError,
     LLMAPIError,
     ResourceNotFoundError,
@@ -202,6 +203,20 @@ async def validation_error_handler(
     )
 
 
+@app.exception_handler(ConflictError)
+async def conflict_error_handler(
+    request: Request, exc: ConflictError
+) -> JSONResponse:
+    """Handle conflict errors (e.g., duplicate operations, stale state)."""
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": exc.message,
+            "error_type": "conflict",
+        },
+    )
+
+
 @app.exception_handler(ConfigurationError)
 async def configuration_error_handler(
     request: Request, exc: ConfigurationError
@@ -318,7 +333,9 @@ async def healthcheck_detailed(request: Request) -> JSONResponse:
 
     Returns 200 if all healthy, 503 if any component unhealthy.
     """
-    from datetime import UTC, datetime
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import func, select
 
     from app.database import get_db
 
@@ -333,8 +350,6 @@ async def healthcheck_detailed(request: Request) -> JSONResponse:
     # Check database
     try:
         async for db in get_db():
-            from sqlalchemy import select
-
             await db.execute(select(1))
             checks["checks"]["database"] = "ok"
             break
@@ -356,6 +371,54 @@ async def healthcheck_detailed(request: Request) -> JSONResponse:
     except Exception as e:
         checks["checks"]["disk_space"] = f"error: {str(e)}"
         logger.error(f"Disk space check failed: {e}")
+
+    # Check worker health
+    try:
+        from app.services.sqlite_worker import _worker
+
+        worker_running = _worker is not None and _worker._running
+        checks["checks"]["worker"] = "running" if worker_running else "stopped"
+        if not worker_running:
+            checks["status"] = "degraded"
+    except Exception as e:
+        checks["checks"]["worker"] = f"error: {str(e)}"
+
+    # Check last planner tick time
+    try:
+        async for db in get_db():
+            from app.models.planner_lock import PlannerLock
+
+            lock_result = await db.execute(
+                select(PlannerLock).where(PlannerLock.lock_key == "planner_tick")
+            )
+            lock = lock_result.scalar_one_or_none()
+            if lock:
+                checks["checks"]["planner_lock"] = {
+                    "held": True,
+                    "acquired_at": lock.acquired_at.isoformat()
+                    if lock.acquired_at
+                    else None,
+                }
+            else:
+                checks["checks"]["planner_lock"] = {"held": False}
+
+            # Count stuck jobs (RUNNING longer than 30 minutes)
+            from app.models.job import Job, JobStatus
+
+            thirty_min_ago = datetime.now(UTC) - timedelta(minutes=30)
+            stuck_result = await db.execute(
+                select(func.count(Job.id)).where(
+                    Job.status == JobStatus.RUNNING.value,
+                    Job.started_at < thirty_min_ago,
+                )
+            )
+            stuck_count = stuck_result.scalar() or 0
+            checks["checks"]["stuck_jobs"] = stuck_count
+            if stuck_count > 0:
+                checks["status"] = "degraded"
+            break
+    except Exception as e:
+        checks["checks"]["worker_details"] = f"error: {str(e)}"
 
     status_code = 200 if checks["status"] == "healthy" else 503
     return JSONResponse(content=checks, status_code=status_code)

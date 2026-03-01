@@ -119,7 +119,10 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({ json: {} }),
   );
 
-  // Goals
+  // Goals (match with or without ?board_id= query param)
+  await page.route(`${API}/goals?**`, (route) => {
+    return route.fulfill({ json: { goals: [mockGoal] } });
+  });
   await page.route(`${API}/goals`, (route) => {
     if (route.request().method() === "POST") {
       return route.fulfill({ json: mockGoal, status: 201 });
@@ -197,6 +200,13 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({
       json: [
         { name: "claude", display_name: "Claude Code", available: true },
+      ],
+    }),
+  );
+  await page.route(`${API}/executors/*/models`, (route) =>
+    route.fulfill({
+      json: [
+        { id: "auto", name: "Auto (recommended)", description: "Automatically select the best model" },
       ],
     }),
   );

@@ -62,6 +62,12 @@ class Ticket(Base):
         index=True,
     )
     priority: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sort_order: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        doc="Manual sort order within a state column (lower = higher position)",
+    )
     verification_commands_json: Mapped[str | None] = mapped_column(
         Text, nullable=True, doc="JSON array of verification commands"
     )

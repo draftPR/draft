@@ -8,7 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.board import Board
 from app.models.evidence import Evidence
+from app.models.job import Job
 from app.services.config_service import ConfigService
 from app.utils.artifact_reader import read_artifact
 
@@ -27,8 +29,27 @@ async def get_evidence_by_id(evidence_id: str, db: AsyncSession) -> Evidence:
     return evidence
 
 
-def get_repo_root() -> Path:
-    """Get the repository root path from config."""
+async def _get_repo_root_for_evidence(
+    evidence: Evidence, db: AsyncSession
+) -> Path:
+    """Get repo_root from the board associated with this evidence's job.
+
+    Falls back to the global ConfigService repo_root if no board is found.
+    """
+    if evidence.job_id:
+        job_result = await db.execute(
+            select(Job).where(Job.id == evidence.job_id)
+        )
+        job = job_result.scalar_one_or_none()
+        if job and job.board_id:
+            board_result = await db.execute(
+                select(Board).where(Board.id == job.board_id)
+            )
+            board = board_result.scalar_one_or_none()
+            if board and board.repo_root:
+                return Path(board.repo_root)
+
+    # Fallback to global config
     config_service = ConfigService()
     return config_service.get_repo_root()
 
@@ -47,7 +68,7 @@ async def get_evidence_stdout(
     Security: Only reads files under <repo_root>/.smartkanban/
     """
     evidence = await get_evidence_by_id(evidence_id, db)
-    repo_root = get_repo_root()
+    repo_root = await _get_repo_root_for_evidence(evidence, db)
 
     content = read_artifact(repo_root, evidence.stdout_path)
     if content is None:
@@ -70,7 +91,7 @@ async def get_evidence_stderr(
     Security: Only reads files under <repo_root>/.smartkanban/
     """
     evidence = await get_evidence_by_id(evidence_id, db)
-    repo_root = get_repo_root()
+    repo_root = await _get_repo_root_for_evidence(evidence, db)
 
     content = read_artifact(repo_root, evidence.stderr_path)
     if content is None:

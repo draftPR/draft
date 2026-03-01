@@ -43,7 +43,7 @@ export function GlobalSettingsDialog({
 
   // Form state
   const [executorModel, setExecutorModel] = useState<string>("auto");
-  const [timeout, setTimeout] = useState(600);
+  const [timeoutValue, setTimeoutValue] = useState(600);
   const [preferredExecutor, setPreferredExecutor] = useState("cursor-agent");
   const [modelOptions, setModelOptions] = useState<ExecutorModel[]>([]);
   const [configPath, setConfigPath] = useState("");
@@ -92,7 +92,7 @@ export function GlobalSettingsDialog({
 
       const execConfig = response.execute_config;
       if (execConfig.timeout !== undefined) {
-        setTimeout(execConfig.timeout);
+        setTimeoutValue(execConfig.timeout);
       }
       if (execConfig.preferred_executor !== undefined) {
         setPreferredExecutor(execConfig.preferred_executor);
@@ -115,7 +115,7 @@ export function GlobalSettingsDialog({
       await updateGlobalSettings({
         execute_config: {
           executor_model: executorModel,
-          timeout,
+          timeout: timeoutValue,
           preferred_executor: preferredExecutor,
         },
       });
@@ -220,15 +220,15 @@ export function GlobalSettingsDialog({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label htmlFor="timeout">Execution Timeout</Label>
-              <span className="text-sm text-muted-foreground">{timeout}s</span>
+              <span className="text-sm text-muted-foreground">{timeoutValue}s</span>
             </div>
             <Slider
               id="timeout"
               min={60}
               max={900}
               step={30}
-              value={[timeout]}
-              onValueChange={(value) => setTimeout(value[0])}
+              value={[timeoutValue]}
+              onValueChange={(value) => setTimeoutValue(value[0])}
               className="w-full"
             />
             <p className="text-xs text-muted-foreground">

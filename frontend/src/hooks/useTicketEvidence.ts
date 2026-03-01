@@ -62,6 +62,8 @@ export interface TicketEvidence {
   rollback_steps: RollbackStep[];
 }
 
+const BASE_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
 export function useTicketEvidence(ticketId: string) {
   const [evidence, setEvidence] = useState<TicketEvidence | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,7 +80,7 @@ export function useTicketEvidence(ticketId: string) {
         setLoading(true);
         setError(null);
 
-        const response = await fetch(`http://localhost:8000/tickets/${ticketId}/evidence`);
+        const response = await fetch(`${BASE_URL}/tickets/${ticketId}/evidence`);
 
         if (!response.ok) {
           throw new Error(`Failed to fetch evidence: ${response.statusText}`);
@@ -100,7 +102,7 @@ export function useTicketEvidence(ticketId: string) {
   const refetch = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/tickets/${ticketId}/evidence`);
+      const response = await fetch(`${BASE_URL}/tickets/${ticketId}/evidence`);
       if (!response.ok) {
         throw new Error(`Failed to fetch evidence: ${response.statusText}`);
       }

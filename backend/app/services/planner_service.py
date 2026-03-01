@@ -55,7 +55,7 @@ from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 
 # Deferred import to avoid circular dependency with async database
-# from app.routers.debug import add_orchestrator_log  # imported inside methods
+# from app.services.orchestrator_log import add_orchestrator_log  # imported inside methods
 from app.schemas.planner import PlannerAction, PlannerActionType, PlannerTickResponse
 from app.services.config_service import ConfigService, PlannerConfig
 from app.services.llm_service import LLMService
@@ -173,7 +173,7 @@ class PlannerService:
         previously staged changes. Do not add DB writes before _acquire_lock().
         """
         # Local import to avoid circular dependency with async database at module load
-        from app.routers.debug import add_orchestrator_log
+        from app.services.orchestrator_log import add_orchestrator_log
 
         actions: list[PlannerAction] = []
         jobs_to_enqueue: list[str] = []  # Job IDs to enqueue AFTER commit

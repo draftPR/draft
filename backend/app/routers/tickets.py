@@ -1,17 +1,20 @@
 """API router for Ticket endpoints."""
 
 import json
+import logging
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.evidence import Evidence
 from app.models.job import JobKind
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
+from app.schemas.common import PaginatedResponse
 from app.schemas.evidence import EvidenceListResponse, EvidenceResponse
 from app.schemas.job import JobCreateResponse, JobListResponse, JobResponse
 from app.schemas.planner import (
@@ -25,17 +28,34 @@ from app.schemas.ticket import (
     BulkAcceptRequest,
     BulkAcceptResponse,
     BulkAcceptResult,
+    BulkTransitionRequest,
+    BulkTransitionResponse,
+    BulkTransitionResult,
     TicketCreate,
     TicketDetailResponse,
+    TicketReorderRequest,
     TicketResponse,
     TicketTransition,
+    TicketUpdate,
 )
 from app.schemas.ticket_event import TicketEventListResponse, TicketEventResponse
 from app.services.job_service import JobService
 from app.services.ticket_service import TicketService
-from app.state_machine import ActorType, EventType, TicketState
+from app.state_machine import ActorType, EventType, TicketState, validate_transition
+from app.websocket.manager import manager as connection_manager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
+
+
+async def _broadcast_board_invalidate(board_id: str | None, reason: str = "ticket_mutation") -> None:
+    """Broadcast a board invalidation message via WebSocket if board_id is available."""
+    if board_id:
+        await connection_manager.broadcast(
+            f"board:{board_id}",
+            {"type": "invalidate", "reason": reason},
+        )
 
 
 @router.post(
@@ -55,6 +75,102 @@ async def create_ticket(
     service = TicketService(db)
     ticket = await service.create_ticket(data)
     return TicketResponse.model_validate(ticket)
+
+
+@router.get(
+    "",
+    response_model=PaginatedResponse[TicketResponse],
+    summary="List tickets with optional filtering and pagination",
+)
+async def list_tickets(
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    state: TicketState | None = Query(None, description="Filter by ticket state"),
+    priority_min: int | None = Query(
+        None, ge=0, le=100, description="Minimum priority"
+    ),
+    priority_max: int | None = Query(
+        None, ge=0, le=100, description="Maximum priority"
+    ),
+    goal_id: str | None = Query(None, description="Filter by goal ID"),
+    board_id: str | None = Query(None, description="Filter by board ID"),
+    q: str | None = Query(
+        None,
+        min_length=1,
+        max_length=200,
+        description="Text search on title/description",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> PaginatedResponse[TicketResponse]:
+    """
+    List tickets with optional filtering and pagination.
+
+    **Filters:**
+    - `state`: Filter by ticket state (e.g., planned, executing)
+    - `priority_min` / `priority_max`: Filter by priority range
+    - `goal_id`: Filter by parent goal
+    - `board_id`: Filter by board
+    - `q`: Full-text search on title and description
+
+    **Pagination:**
+    - `page`: Page number (1-based, default 1)
+    - `limit`: Items per page (default 50, max 200)
+    """
+    query = select(Ticket).options(selectinload(Ticket.blocked_by))
+    count_query = select(func.count(Ticket.id))
+
+    # Apply filters
+    if state is not None:
+        query = query.where(Ticket.state == state.value)
+        count_query = count_query.where(Ticket.state == state.value)
+    if priority_min is not None:
+        query = query.where(Ticket.priority >= priority_min)
+        count_query = count_query.where(Ticket.priority >= priority_min)
+    if priority_max is not None:
+        query = query.where(Ticket.priority <= priority_max)
+        count_query = count_query.where(Ticket.priority <= priority_max)
+    if goal_id is not None:
+        query = query.where(Ticket.goal_id == goal_id)
+        count_query = count_query.where(Ticket.goal_id == goal_id)
+    if board_id is not None:
+        query = query.where(Ticket.board_id == board_id)
+        count_query = count_query.where(Ticket.board_id == board_id)
+    if q is not None:
+        search_pattern = f"%{q}%"
+        search_filter = or_(
+            Ticket.title.ilike(search_pattern),
+            Ticket.description.ilike(search_pattern),
+        )
+        query = query.where(search_filter)
+        count_query = count_query.where(search_filter)
+
+    # Get total count
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    # Apply ordering and pagination
+    offset = (page - 1) * limit
+    query = query.order_by(
+        Ticket.priority.desc().nulls_last(),
+        Ticket.created_at.desc(),
+    ).offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    tickets = result.scalars().all()
+
+    items = []
+    for ticket in tickets:
+        ticket_data = TicketResponse.model_validate(ticket).model_dump()
+        if ticket.blocked_by_ticket_id and ticket.blocked_by:
+            ticket_data["blocked_by_ticket_title"] = ticket.blocked_by.title
+        items.append(TicketResponse(**ticket_data))
+
+    return PaginatedResponse[TicketResponse](
+        items=items,
+        total=total,
+        page=page,
+        limit=limit,
+    )
 
 
 @router.get(
@@ -126,8 +242,9 @@ async def delete_ticket(
 
     service = TicketService(db)
 
-    # Verify ticket exists
-    await service.get_ticket_by_id(ticket_id)
+    # Verify ticket exists and get board_id for broadcast
+    ticket = await service.get_ticket_by_id(ticket_id)
+    board_id = ticket.board_id
 
     # Clean up workspace (best effort, don't block deletion if it fails)
     try:
@@ -140,7 +257,49 @@ async def delete_ticket(
 
     # Delete the ticket (cascade will handle related records)
     await db.execute(sql_delete(Ticket).where(Ticket.id == ticket_id))
-    await db.commit()
+
+    # Broadcast board invalidation
+    await _broadcast_board_invalidate(board_id, reason="ticket_deleted")
+
+
+@router.patch(
+    "/{ticket_id}",
+    response_model=TicketResponse,
+    summary="Update a ticket",
+)
+async def update_ticket(
+    ticket_id: str,
+    data: TicketUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> TicketResponse:
+    """Update a ticket's title, description, or priority."""
+    service = TicketService(db)
+    ticket = await service.get_ticket_by_id(ticket_id)
+
+    if "title" in data.model_fields_set:
+        ticket.title = data.title
+    if "description" in data.model_fields_set:
+        ticket.description = data.description
+    if "priority" in data.model_fields_set:
+        ticket.priority = data.priority
+
+    await db.flush()
+    await db.refresh(ticket)
+
+    # Broadcast board invalidation
+    await _broadcast_board_invalidate(ticket.board_id, reason="ticket_updated")
+
+    return TicketResponse(
+        id=ticket.id,
+        goal_id=ticket.goal_id,
+        title=ticket.title,
+        description=ticket.description,
+        state=ticket.state,
+        priority=ticket.priority,
+        blocked_by_ticket_id=ticket.blocked_by_ticket_id,
+        created_at=ticket.created_at,
+        updated_at=ticket.updated_at,
+    )
 
 
 @router.post(
@@ -291,6 +450,164 @@ async def bulk_accept_tickets(
 
 
 @router.post(
+    "/bulk-transition",
+    response_model=BulkTransitionResponse,
+    summary="Bulk transition multiple tickets to a new state",
+)
+async def bulk_transition_tickets(
+    data: BulkTransitionRequest,
+    db: AsyncSession = Depends(get_db),
+) -> BulkTransitionResponse:
+    """
+    Transition multiple tickets to a new state in a single request.
+
+    Each ticket is validated independently against the state machine.
+    Tickets that fail validation are skipped (partial success is allowed).
+
+    **Use cases:**
+    - Bulk abandon tickets
+    - Bulk move tickets back to planned
+    - Bulk mark tickets as done
+    """
+    service = TicketService(db)
+    results: list[BulkTransitionResult] = []
+    transitioned_count = 0
+    failed_count = 0
+
+    for ticket_id in data.ticket_ids:
+        try:
+            ticket = await service.get_ticket_by_id(ticket_id)
+            from_state = TicketState(ticket.state)
+
+            # Validate transition
+            if not validate_transition(from_state, data.target_state):
+                results.append(
+                    BulkTransitionResult(
+                        ticket_id=ticket_id,
+                        success=False,
+                        error=(
+                            f"Invalid transition from '{from_state.value}' "
+                            f"to '{data.target_state.value}'"
+                        ),
+                        from_state=from_state.value,
+                        to_state=data.target_state.value,
+                    )
+                )
+                failed_count += 1
+                continue
+
+            await service.transition_ticket(
+                ticket_id=ticket_id,
+                to_state=data.target_state,
+                actor_type=data.actor_type,
+                actor_id=data.actor_id,
+                reason=data.reason,
+            )
+            results.append(
+                BulkTransitionResult(
+                    ticket_id=ticket_id,
+                    success=True,
+                    from_state=from_state.value,
+                    to_state=data.target_state.value,
+                )
+            )
+            transitioned_count += 1
+        except Exception as e:
+            results.append(
+                BulkTransitionResult(
+                    ticket_id=ticket_id,
+                    success=False,
+                    error=str(e),
+                )
+            )
+            failed_count += 1
+
+    # Commit all successful transitions
+    if transitioned_count > 0:
+        await db.commit()
+
+    return BulkTransitionResponse(
+        results=results,
+        transitioned_count=transitioned_count,
+        failed_count=failed_count,
+    )
+
+
+@router.patch(
+    "/reorder",
+    response_model=TicketResponse,
+    summary="Reorder a ticket within a state column",
+)
+async def reorder_ticket(
+    data: TicketReorderRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TicketResponse:
+    """
+    Reorder a ticket within its state column by updating sort_order.
+
+    Moves the ticket to `new_index` (0-based) within the specified
+    `column_state`. Other tickets in the column are re-indexed to
+    maintain a contiguous order.
+
+    **Note:** The ticket must already be in the specified column_state.
+    """
+    # Verify the ticket exists and is in the correct state
+    service = TicketService(db)
+    ticket = await service.get_ticket_by_id(data.ticket_id)
+
+    if ticket.state != data.column_state.value:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Ticket is in '{ticket.state}' state, "
+                f"not '{data.column_state.value}'"
+            ),
+        )
+
+    # Get all tickets in the same column, ordered by sort_order
+    column_query = (
+        select(Ticket)
+        .where(Ticket.state == data.column_state.value)
+        .order_by(
+            Ticket.sort_order.asc().nulls_last(),
+            Ticket.priority.desc().nulls_last(),
+            Ticket.created_at.desc(),
+        )
+    )
+    # Scope to same board if ticket has board_id
+    if ticket.board_id:
+        column_query = column_query.where(
+            Ticket.board_id == ticket.board_id
+        )
+
+    result = await db.execute(column_query)
+    column_tickets = list(result.scalars().all())
+
+    # Remove the target ticket from the list
+    column_tickets = [t for t in column_tickets if t.id != data.ticket_id]
+
+    # Clamp new_index to valid range
+    new_index = min(data.new_index, len(column_tickets))
+
+    # Insert at new position
+    column_tickets.insert(new_index, ticket)
+
+    # Re-assign sort_order for all tickets in the column
+    for idx, t in enumerate(column_tickets):
+        t.sort_order = idx
+
+    await db.flush()
+    await db.refresh(ticket)
+
+    # Broadcast board invalidation
+    await _broadcast_board_invalidate(
+        ticket.board_id, reason="ticket_reordered"
+    )
+
+    return TicketResponse.model_validate(ticket)
+
+
+@router.post(
     "/{ticket_id}/transition",
     response_model=TicketResponse,
     summary="Transition a ticket to a new state",
@@ -314,6 +631,10 @@ async def transition_ticket(
         actor_id=data.actor_id,
         reason=data.reason,
     )
+
+    # Broadcast board invalidation
+    await _broadcast_board_invalidate(ticket.board_id, reason="ticket_transition")
+
     return TicketResponse.model_validate(ticket)
 
 

@@ -157,6 +157,13 @@ export type TicketCreate = Pick<
   >;
 export type TicketTransition = components["schemas"]["TicketTransition"];
 
+/** Partial update payload for editing a ticket's title/description. */
+export interface TicketUpdate {
+  title?: string;
+  description?: string | null;
+  priority?: number | null;
+}
+
 // --- Ticket Event types ---
 export type TicketEvent = components["schemas"]["TicketEventResponse"];
 export type TicketEventListResponse =

@@ -13,6 +13,7 @@ import { AppLayout } from "@/layouts/AppLayout";
 import { BoardProvider } from "@/contexts/BoardContext";
 
 import { BoardLayout } from "@/components/BoardLayout";
+import { DashboardPage } from "@/pages/DashboardPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 
 export const router = createBrowserRouter([
@@ -31,6 +32,10 @@ export const router = createBrowserRouter([
       {
         path: "boards/:boardId/tickets/:ticketId",
         element: <BoardLayout />,
+      },
+      {
+        path: "boards/:boardId/dashboard",
+        element: <DashboardPage />,
       },
       {
         path: "settings",

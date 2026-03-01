@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { useNavigate } from "react-router";
 import { Bell, Check, Trash2, AlertCircle, CheckCircle, AlertTriangle, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -6,6 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useNotificationStore, type AppNotification } from "@/stores/notificationStore";
+import { useBoard } from "@/contexts/BoardContext";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
@@ -23,14 +26,25 @@ function NotificationIcon({ type }: { type: AppNotification["type"] }) {
 }
 
 export function NotificationCenter() {
+  const navigate = useNavigate();
+  const { currentBoard } = useBoard();
   const notifications = useNotificationStore((s) => s.notifications);
   const markRead = useNotificationStore((s) => s.markRead);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const clearAll = useNotificationStore((s) => s.clearAll);
-  const unreadCount = useNotificationStore((s) => s.unreadCount());
+  const unreadCount = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
+  const [open, setOpen] = useState(false);
+
+  const handleNotificationClick = (n: AppNotification) => {
+    markRead(n.id);
+    if (n.ticketId && currentBoard?.id) {
+      setOpen(false);
+      navigate(`/boards/${currentBoard.id}/tickets/${n.ticketId}`);
+    }
+  };
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className="h-8 relative" title="Notifications">
           <Bell className="h-4 w-4" />
@@ -73,8 +87,9 @@ export function NotificationCenter() {
                 className={cn(
                   "w-full text-left px-3 py-2.5 flex items-start gap-2.5 hover:bg-muted/50 transition-colors border-b border-border/30 last:border-0",
                   !n.read && "bg-muted/30",
+                  n.ticketId && "cursor-pointer",
                 )}
-                onClick={() => markRead(n.id)}
+                onClick={() => handleNotificationClick(n)}
               >
                 <NotificationIcon type={n.type} />
                 <div className="flex-1 min-w-0">

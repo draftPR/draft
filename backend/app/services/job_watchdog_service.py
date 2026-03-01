@@ -172,20 +172,32 @@ def run_job_watchdog() -> WatchdogResult:
 
         # 4. Re-enqueue jobs that may have lost their Celery tasks (30s threshold)
         # This catches jobs where the Celery task was lost from Redis but the DB shows queued
-        reenqueue_threshold = now_naive - timedelta(seconds=QUEUED_REENQUEUE_SECONDS)
-        potentially_lost_jobs = (
-            db.query(Job)
-            .filter(
-                Job.status == JobStatus.QUEUED.value,
-                Job.created_at < reenqueue_threshold,
-            )
-            .all()
+        # BUT: Only re-enqueue when no RUNNING jobs exist — otherwise the worker is just
+        # busy and the jobs will be picked up when the current job completes.
+        # Re-enqueueing while busy creates duplicate job_queue entries.
+        running_jobs_count = (
+            db.query(Job).filter(Job.status == JobStatus.RUNNING.value).count()
         )
 
-        for job in potentially_lost_jobs:
-            reenqueued = _reenqueue_lost_task(db, job, result)
-            if reenqueued:
-                result.lost_tasks_reenqueued += 1
+        if running_jobs_count == 0:
+            reenqueue_threshold = now_naive - timedelta(seconds=QUEUED_REENQUEUE_SECONDS)
+            potentially_lost_jobs = (
+                db.query(Job)
+                .filter(
+                    Job.status == JobStatus.QUEUED.value,
+                    Job.created_at < reenqueue_threshold,
+                )
+                .all()
+            )
+
+            for job in potentially_lost_jobs:
+                reenqueued = _reenqueue_lost_task(db, job, result)
+                if reenqueued:
+                    result.lost_tasks_reenqueued += 1
+        else:
+            logger.debug(
+                f"Skipping re-enqueue: {running_jobs_count} jobs currently running"
+            )
 
         # 5. Find QUEUED jobs that haven't been picked up even after re-enqueue attempts
         # This is the final fallback - fail jobs stuck for too long

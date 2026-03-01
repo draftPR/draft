@@ -27,6 +27,14 @@ class TicketCreate(BaseModel):
     )
 
 
+class TicketUpdate(BaseModel):
+    """Schema for updating an existing ticket."""
+
+    title: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    priority: int | None = Field(None, ge=0, le=100)
+
+
 class TicketResponse(BaseModel):
     """Schema for ticket response."""
 
@@ -36,6 +44,9 @@ class TicketResponse(BaseModel):
     description: str | None
     state: TicketState
     priority: int | None
+    sort_order: int | None = Field(
+        None, description="Manual sort order within state column"
+    )
     blocked_by_ticket_id: str | None = Field(
         None, description="UUID of ticket blocking this one"
     )
@@ -171,4 +182,56 @@ class BulkAcceptResponse(BaseModel):
     queued_ticket_id: str | None = Field(
         None,
         description="Ticket ID that was queued (first in request order)",
+    )
+
+
+class BulkTransitionRequest(BaseModel):
+    """Schema for bulk state transition of multiple tickets."""
+
+    ticket_ids: list[str] = Field(
+        ..., min_length=1, description="List of ticket IDs to transition"
+    )
+    target_state: TicketState = Field(
+        ..., description="Target state for all tickets"
+    )
+    reason: str = Field(
+        default="Bulk transition",
+        description="Reason for the state transition",
+    )
+    actor_type: ActorType = Field(
+        default=ActorType.HUMAN,
+        description="Type of actor performing the transition",
+    )
+    actor_id: str | None = Field(
+        None, description="ID of the actor performing the transition"
+    )
+
+
+class BulkTransitionResult(BaseModel):
+    """Result for a single ticket in a bulk transition."""
+
+    ticket_id: str
+    success: bool
+    error: str | None = None
+    from_state: str | None = None
+    to_state: str | None = None
+
+
+class BulkTransitionResponse(BaseModel):
+    """Response for bulk state transition operation."""
+
+    results: list[BulkTransitionResult]
+    transitioned_count: int
+    failed_count: int
+
+
+class TicketReorderRequest(BaseModel):
+    """Schema for reordering a ticket within a column."""
+
+    ticket_id: str = Field(..., description="Ticket ID to reorder")
+    new_index: int = Field(
+        ..., ge=0, description="New position index (0-based) within the column"
+    )
+    column_state: TicketState = Field(
+        ..., description="State column in which to reorder"
     )

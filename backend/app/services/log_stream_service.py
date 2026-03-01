@@ -81,6 +81,11 @@ class InMemoryBroadcaster:
     Thread-safe for worker threads.
     """
 
+    # History is retained for 5 minutes after a job finishes, then cleaned up.
+    _HISTORY_RETENTION_SECONDS = 300
+    # Run stale history cleanup every N pushes to amortize cost.
+    _CLEANUP_INTERVAL_PUSHES = 100
+
     def __init__(self):
         self._lock = threading.Lock()
         # job_id -> set of async queues
@@ -88,6 +93,10 @@ class InMemoryBroadcaster:
         # job_id -> list of messages (for history/catch-up)
         self._history: dict[str, list[LogMessage]] = defaultdict(list)
         self._max_history = 500
+        # job_id -> monotonic timestamp when the job finished
+        self._finished_at: dict[str, float] = {}
+        # Counter for amortized cleanup
+        self._push_count: int = 0
 
     def push(self, job_id: str, msg: LogMessage) -> None:
         """Push message to all local subscribers (thread-safe)."""
@@ -105,6 +114,12 @@ class InMemoryBroadcaster:
                     queue.put_nowait(msg)
                 except asyncio.QueueFull:
                     pass  # Drop if subscriber is slow
+
+            # Periodic cleanup of stale history
+            self._push_count += 1
+            if self._push_count >= self._CLEANUP_INTERVAL_PUSHES:
+                self._push_count = 0
+                self._cleanup_stale_history()
 
     def subscribe(self, job_id: str) -> asyncio.Queue:
         """Create a subscription queue for a job."""
@@ -125,11 +140,26 @@ class InMemoryBroadcaster:
             return list(self._history.get(job_id, []))
 
     def cleanup(self, job_id: str) -> None:
-        """Clean up after job finishes."""
+        """Clean up subscribers and schedule history for deferred removal."""
         with self._lock:
             self._subscribers.pop(job_id, None)
-            # Keep history for a bit for late subscribers
-            # (cleanup happens via TTL in Redis anyway)
+            # Mark job as finished so history is cleaned up after retention period
+            self._finished_at[job_id] = time.monotonic()
+
+    def _cleanup_stale_history(self) -> None:
+        """Remove history entries whose jobs finished more than retention seconds ago.
+
+        Must be called while self._lock is held.
+        """
+        now = time.monotonic()
+        stale_job_ids = [
+            job_id
+            for job_id, finished_ts in self._finished_at.items()
+            if (now - finished_ts) >= self._HISTORY_RETENTION_SECONDS
+        ]
+        for job_id in stale_job_ids:
+            self._history.pop(job_id, None)
+            del self._finished_at[job_id]
 
 
 # Global in-memory broadcaster

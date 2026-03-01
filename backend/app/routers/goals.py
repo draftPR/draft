@@ -2,11 +2,12 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.schemas.common import PaginatedResponse
 from app.schemas.goal import (
     AutonomySettings,
     AutonomyStatusResponse,
@@ -47,19 +48,44 @@ async def create_goal(
 
 @router.get(
     "",
-    response_model=GoalListResponse,
     summary="List all goals",
 )
 async def list_goals(
     board_id: str | None = None,
+    page: int | None = Query(
+        None, ge=1, description="Page number (1-based). Omit for all results."
+    ),
+    limit: int | None = Query(
+        None, ge=1, le=200, description="Items per page. Omit for all results."
+    ),
     db: AsyncSession = Depends(get_db),
-) -> GoalListResponse:
-    """Get all goals, optionally filtered by board_id."""
+) -> GoalListResponse | PaginatedResponse[GoalResponse]:
+    """Get all goals, optionally filtered by board_id.
+
+    **Pagination (optional):**
+    - If `page` and `limit` are provided, returns paginated response.
+    - If omitted, returns all goals (backward compatible).
+    """
     service = GoalService(db)
     goals = await service.get_goals(board_id=board_id)
+    all_responses = [GoalResponse.model_validate(g) for g in goals]
+
+    # If pagination params are provided, return paginated response
+    if page is not None and limit is not None:
+        total = len(all_responses)
+        offset = (page - 1) * limit
+        page_items = all_responses[offset : offset + limit]
+        return PaginatedResponse[GoalResponse](
+            items=page_items,
+            total=total,
+            page=page,
+            limit=limit,
+        )
+
+    # Backward compatible: return all
     return GoalListResponse(
-        goals=[GoalResponse.model_validate(g) for g in goals],
-        total=len(goals),
+        goals=all_responses,
+        total=len(all_responses),
     )
 
 
@@ -113,6 +139,26 @@ async def update_autonomy(
     return GoalResponse.model_validate(goal)
 
 
+@router.delete(
+    "/{goal_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a goal and all its tickets",
+)
+async def delete_goal(
+    goal_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a goal and cascade delete all associated tickets, jobs, evidence, etc."""
+    from sqlalchemy import delete as sql_delete
+
+    from app.models.goal import Goal
+
+    service = GoalService(db)
+    await service.get_goal_by_id(goal_id)  # Verify exists
+    await db.execute(sql_delete(Goal).where(Goal.id == goal_id))
+    await db.commit()
+
+
 @router.get(
     "/{goal_id}/autonomy/status",
     response_model=AutonomyStatusResponse,
@@ -126,12 +172,15 @@ async def get_autonomy_status(
     service = GoalService(db)
     goal = await service.get_goal_by_id(goal_id)
 
-    # Check budget remaining
+    # Check budget remaining using CostTrackingService
     budget_remaining = None
     if goal.budget:
         if goal.budget.total_budget is not None:
-            # Would need cost tracking service for actual spend, placeholder for now
-            budget_remaining = goal.budget.total_budget
+            from app.services.cost_tracking_service import CostTrackingService
+
+            cost_service = CostTrackingService(db)
+            spent = await cost_service.get_goal_cost(goal_id)
+            budget_remaining = max(0.0, goal.budget.total_budget - spent)
 
     return AutonomyStatusResponse(
         goal_id=goal.id,

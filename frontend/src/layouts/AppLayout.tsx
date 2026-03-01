@@ -5,7 +5,7 @@
  * and React Router Outlet for page content.
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { Outlet, useParams, useNavigate, useLocation } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { config } from "@/config";
@@ -23,6 +23,8 @@ import { WelcomeWalkthrough } from "@/components/WelcomeWalkthrough";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { CommandPalette } from "@/components/CommandPalette";
 import { BackendOfflineBanner } from "@/components/BackendOfflineBanner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useBackendStatus } from "@/hooks/useBackendStatus";
 import { useNotificationBridge } from "@/hooks/useNotificationBridge";
 import { Toaster } from "@/components/ui/sonner";
@@ -32,55 +34,21 @@ import {
   Target,
   Plus,
   Bug,
-  FlaskConical,
-  Loader2,
   Settings,
   Keyboard,
   FolderGit2,
+  Wifi,
+  WifiOff,
+  Loader2,
 } from "lucide-react";
-import { createGoal, createTicket } from "@/services/api";
-import { toast } from "sonner";
 import { useAppShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useUIStore } from "@/stores/uiStore";
+import { useTicketSelectionStore } from "@/stores/ticketStore";
 import { useBoard } from "@/contexts/BoardContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/queryKeys";
+import { useBoardViewQuery } from "@/hooks/useQueries";
 
-// Test data for quick generation
-const TEST_GOAL = {
-  title: "Generate Multiplication and Division",
-  description:
-    "Enable the calculator to perform accurate multiplication and division operations, allowing users to input numbers and receive correct results efficiently. The goal is to support basic arithmetic functionality with proper handling of decimals and edge cases such as division by zero.",
-};
-
-const TEST_TICKETS = [
-  {
-    title: "Implement multiply and divide functions in calculator module",
-    description:
-      "Create app/utils/calculator.py with multiply() and divide() functions that handle integer and floating point numbers. Include proper type hints and docstrings.",
-    priority: 90,
-  },
-  {
-    title:
-      "Add comprehensive test coverage for multiply and divide functions",
-    description:
-      "Create tests/test_calculator.py with unit tests covering normal cases, edge cases (zero, negative numbers), floating point precision, and error handling for division by zero.",
-    priority: 70,
-  },
-  {
-    title: "Create API endpoint for calculator operations",
-    description:
-      "Create app/routers/calculator.py with POST /calculate endpoint that accepts operation type and operands, returning the result. Support multiply and divide operations.",
-    priority: 70,
-  },
-  {
-    title:
-      "Enhance divide function with robust decimal precision handling",
-    description:
-      "Enhance the divide function in app/utils/calculator.py to use Python's Decimal module for precise decimal arithmetic. Add configurable precision and rounding modes.",
-    priority: 50,
-  },
-];
 
 export function AppLayout() {
   const backendStatus = useBackendStatus();
@@ -102,16 +70,44 @@ export function AppLayout() {
     }
   }, [boardId, currentBoard?.id, setCurrentBoard]);
 
-  // Notification bridge
-  useNotificationBridge(currentBoard?.id);
+  // Notification bridge + WS status
+  const { wsStatus } = useNotificationBridge(currentBoard?.id);
 
-  const [generatingTestData, setGeneratingTestData] = useState(false);
+  // Ticket selection for keyboard nav
+  const { selectTicket, selectedTicketId } = useTicketSelectionStore();
+
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const refreshBoard = useCallback(() => {
     setRefreshTrigger((prev) => prev + 1);
     queryClient.invalidateQueries({ queryKey: queryKeys.boards.all });
   }, [queryClient]);
+
+  // Board data for keyboard navigation (shares cache with KanbanBoard)
+  const { data: boardData } = useBoardViewQuery(currentBoard?.id, false);
+
+  // Build flat ticket list for j/k navigation
+  const allTicketIds = useMemo(
+    () => boardData?.columns?.flatMap((col) => col.tickets.map((t) => t.id)) ?? [],
+    [boardData?.columns],
+  );
+
+  const navigateTickets = useCallback(
+    (direction: "up" | "down") => {
+      if (allTicketIds.length === 0) return;
+      const currentIdx = selectedTicketId
+        ? allTicketIds.indexOf(selectedTicketId)
+        : -1;
+      let nextIdx: number;
+      if (direction === "down") {
+        nextIdx = currentIdx < allTicketIds.length - 1 ? currentIdx + 1 : 0;
+      } else {
+        nextIdx = currentIdx > 0 ? currentIdx - 1 : allTicketIds.length - 1;
+      }
+      selectTicket(allTicketIds[nextIdx]);
+    },
+    [allTicketIds, selectedTicketId, selectTicket],
+  );
 
   // Keyboard shortcuts
   useAppShortcuts({
@@ -122,34 +118,14 @@ export function AppLayout() {
       navigate("/");
     },
     onHelp: () => ui.setShortcutsHelpOpen(true),
-  });
-
-  const generateTestData = async () => {
-    setGeneratingTestData(true);
-    try {
-      const goal = await createGoal(TEST_GOAL);
-      for (const ticket of TEST_TICKETS) {
-        await createTicket({
-          goal_id: goal.id,
-          title: ticket.title,
-          description: ticket.description,
-          priority: ticket.priority,
-        });
+    onNavigateDown: () => navigateTickets("down"),
+    onNavigateUp: () => navigateTickets("up"),
+    onSelect: () => {
+      if (selectedTicketId && currentBoard?.id) {
+        navigate(`/boards/${currentBoard.id}/tickets/${selectedTicketId}`);
       }
-      toast.success(
-        `Created goal "${goal.title}" with ${TEST_TICKETS.length} tickets`,
-      );
-      refreshBoard();
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to generate test data";
-      toast.error(message);
-    } finally {
-      setGeneratingTestData(false);
-    }
-  };
+    },
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -178,36 +154,24 @@ export function AppLayout() {
                 <FolderGit2 className="h-4 w-4 mr-1.5" />
                 Add Projects
               </Button>
-              {currentBoard && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => ui.setBoardSettingsOpen(true)}
-                  className="h-8"
-                  title="Board Settings"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
-              )}
             </div>
             <nav className="flex items-center gap-2">
-              {import.meta.env.DEV && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={generateTestData}
-                  disabled={generatingTestData}
-                  className="h-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                  title="Generate test goal with multiplication/division tickets"
+              {/* WebSocket connection status */}
+              {currentBoard && (
+                <div
+                  className="flex items-center gap-1.5 px-2 h-8 text-xs text-muted-foreground"
+                  title={`WebSocket: ${wsStatus}`}
                 >
-                  {generatingTestData ? (
-                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  {wsStatus === "connected" ? (
+                    <Wifi className="h-3.5 w-3.5 text-emerald-500" />
+                  ) : wsStatus === "connecting" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
                   ) : (
-                    <FlaskConical className="h-4 w-4 mr-1.5" />
+                    <WifiOff className="h-3.5 w-3.5 text-destructive" />
                   )}
-                  Test Data
-                </Button>
+                </div>
               )}
+              <ThemeSwitcher variant="buttons" />
               <Button
                 variant={ui.debugPanelOpen ? "secondary" : "ghost"}
                 size="sm"
@@ -271,17 +235,19 @@ export function AppLayout() {
 
       {/* Main Content */}
       <main className="container mx-auto px-6 py-4">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
-          >
-            <Outlet context={{ refreshTrigger, refreshBoard, currentBoard }} />
-          </motion.div>
-        </AnimatePresence>
+        <ErrorBoundary>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={location.pathname}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
+            >
+              <Outlet context={{ refreshTrigger, refreshBoard, currentBoard }} />
+            </motion.div>
+          </AnimatePresence>
+        </ErrorBoundary>
       </main>
 
       {/* Dialogs */}

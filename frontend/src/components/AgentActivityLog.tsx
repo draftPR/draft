@@ -435,7 +435,9 @@ function LiveAgentLogsEmbed({
           containerRef.current.scrollTop = containerRef.current.scrollHeight;
         }
       },
-      () => {}
+      (err) => {
+        console.warn("Agent log SSE error:", err);
+      }
     );
     
     return () => eventSource.close();

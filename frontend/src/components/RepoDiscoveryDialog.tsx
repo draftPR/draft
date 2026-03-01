@@ -2,7 +2,7 @@
  * RepoDiscoveryDialog - Discover repositories and create boards for them
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useBoard } from '@/contexts/BoardContext';
 import {
   discoverRepos,
@@ -43,7 +43,7 @@ export function RepoDiscoveryDialog({
   const [error, setError] = useState<string | null>(null);
   const [hasAutoScanned, setHasAutoScanned] = useState(false);
 
-  async function handleDiscover() {
+  const handleDiscover = useCallback(async () => {
     if (!searchPath.trim()) {
       toast.error('Please enter a path to scan');
       return;
@@ -55,12 +55,10 @@ export function RepoDiscoveryDialog({
     setError(null);
 
     try {
-      console.log('Discovering repos at:', searchPath);
       const response = await discoverRepos({
         search_paths: [searchPath],
         max_depth: 3,
       });
-      console.log('Discovery response:', response);
 
       const validRepos = response.discovered.filter(r => r.is_valid);
       setDiscoveredRepos(validRepos);
@@ -82,7 +80,7 @@ export function RepoDiscoveryDialog({
     } finally {
       setDiscovering(false);
     }
-  }
+  }, [searchPath]);
 
   async function handleAddSelected() {
     if (selectedPaths.size === 0) return;
@@ -159,7 +157,7 @@ export function RepoDiscoveryDialog({
     if (!open) {
       setHasAutoScanned(false);
     }
-  }, [open, hasAutoScanned]);
+  }, [open, hasAutoScanned, handleDiscover]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

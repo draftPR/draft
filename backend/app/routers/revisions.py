@@ -3,7 +3,7 @@
 import logging
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from app.models.job import Job, JobKind, JobStatus
 from app.models.review_comment import AuthorType
 from app.models.review_summary import ReviewDecision
 from app.models.revision import RevisionStatus
+from app.schemas.common import PaginatedResponse
 from app.schemas.review import (
     FeedbackBundle,
     ReviewCommentCreate,
@@ -306,15 +307,30 @@ async def add_comment(
 
 @router.get(
     "/revisions/{revision_id}/comments",
-    response_model=ReviewCommentListResponse,
     summary="Get all comments for a revision",
 )
 async def get_revision_comments(
     revision_id: str,
     include_resolved: bool = True,
+    page: int | None = Query(
+        None,
+        ge=1,
+        description="Page number (1-based). Omit for all results.",
+    ),
+    limit: int | None = Query(
+        None,
+        ge=1,
+        le=200,
+        description="Items per page. Omit for all results.",
+    ),
     db: AsyncSession = Depends(get_db),
-) -> ReviewCommentListResponse:
-    """Get all comments for a revision."""
+) -> ReviewCommentListResponse | PaginatedResponse[ReviewCommentResponse]:
+    """Get all comments for a revision.
+
+    **Pagination (optional):**
+    - If `page` and `limit` are provided, returns paginated response.
+    - If omitted, returns all comments (backward compatible).
+    """
     service = ReviewService(db)
     try:
         comments = await service.get_comments_for_revision(
@@ -339,6 +355,19 @@ async def get_revision_comments(
         for c in comments
     ]
 
+    # If pagination params are provided, return paginated response
+    if page is not None and limit is not None:
+        total = len(comment_responses)
+        offset = (page - 1) * limit
+        page_items = comment_responses[offset : offset + limit]
+        return PaginatedResponse[ReviewCommentResponse](
+            items=page_items,
+            total=total,
+            page=page,
+            limit=limit,
+        )
+
+    # Backward compatible: return all
     return ReviewCommentListResponse(
         comments=comment_responses,
         total=len(comment_responses),
@@ -461,6 +490,7 @@ async def submit_review(
 
             # Detect target branch from board config or git
             target_branch = "main"  # fallback
+            board = None
             if ticket.board_id:
                 from sqlalchemy import select as sql_select_board
 
@@ -500,7 +530,7 @@ async def submit_review(
                         git_host = get_git_host_provider(repo_path)
                         await git_host.ensure_authenticated()
 
-                        head_branch = workspace.branch or f"ticket-{ticket.id[:8]}"
+                        head_branch = workspace.branch_name or f"ticket-{ticket.id[:8]}"
 
                         pr = await git_host.create_pr(
                             repo_path=repo_path,
@@ -515,12 +545,12 @@ async def submit_review(
                         )
 
                         # Update ticket with PR information
-                        from datetime import datetime
+                        from datetime import UTC, datetime
 
                         ticket.pr_number = pr.number
                         ticket.pr_url = pr.url
                         ticket.pr_state = pr.state
-                        ticket.pr_created_at = datetime.now()
+                        ticket.pr_created_at = datetime.now(UTC)
                         ticket.pr_head_branch = pr.head_branch
                         ticket.pr_base_branch = pr.base_branch
 

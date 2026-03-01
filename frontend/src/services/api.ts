@@ -64,6 +64,7 @@ import type {
   TicketCreate,
   TicketEventListResponse,
   TicketTransition,
+  TicketUpdate,
 } from "@/types/api";
 
 // Re-export types that were previously defined here, so existing imports don't break
@@ -185,6 +186,18 @@ export async function checkPlannerHealth(): Promise<PlannerHealthResponse> {
 const API_BASE = config.backendBaseUrl;
 
 /**
+ * Typed API error that preserves the HTTP status code.
+ */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/**
  * Generic fetch wrapper with error handling
  */
 async function apiFetch<T>(
@@ -206,7 +219,7 @@ async function apiFetch<T>(
       return {};
     });
     const message = errorData.detail || `HTTP error ${response.status}`;
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   // Handle 204 No Content (no body to parse)
@@ -312,11 +325,33 @@ export async function updateGoal(goalId: string, data: GoalUpdate): Promise<Goal
 }
 
 /**
+ * Delete a goal and all its associated tickets, jobs, and data (cascade delete)
+ */
+export async function deleteGoal(goalId: string): Promise<void> {
+  return apiFetch<void>(`/goals/${goalId}`, {
+    method: "DELETE",
+  });
+}
+
+/**
  * Create a new ticket
  */
 export async function createTicket(data: TicketCreate): Promise<Ticket> {
   return apiFetch<Ticket>("/tickets", {
     method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Update a ticket's title, description, or priority (partial update)
+ */
+export async function updateTicket(
+  ticketId: string,
+  data: TicketUpdate
+): Promise<Ticket> {
+  return apiFetch<Ticket>(`/tickets/${ticketId}`, {
+    method: "PATCH",
     body: JSON.stringify(data),
   });
 }

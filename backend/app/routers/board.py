@@ -3,7 +3,9 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.schemas.board import (
@@ -27,7 +29,7 @@ from app.services.board_service import BoardService
 from app.services.config_service import ConfigService
 from app.services.ticket_generation_service import TicketGenerationService
 from app.services.ticket_service import TicketService
-from app.templates import get_template, list_templates
+from app.templates import list_templates
 
 router = APIRouter(prefix="/boards", tags=["boards"])
 
@@ -398,6 +400,151 @@ async def get_board_kanban(
         columns=columns,
         total_tickets=total_tickets,
     )
+
+
+@router.get(
+    "/{board_id}/export",
+    summary="Export all board data as JSON",
+)
+async def export_board(
+    board_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Export the full board data including goals, tickets, jobs, and events.
+
+    Returns a JSON object containing:
+    - `board`: Board metadata
+    - `goals`: All goals for the board
+    - `tickets`: All tickets with their events
+    - `jobs`: All jobs for this board's tickets
+
+    **Use cases:**
+    - Backup/archive a board
+    - Transfer board data between instances
+    - Generate reports
+    """
+    from app.models.goal import Goal
+    from app.models.job import Job
+    from app.models.ticket import Ticket
+
+    # Verify board exists
+    board_service_inst = BoardService(db)
+    try:
+        board = await board_service_inst.get_board_by_id(board_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    # Get goals
+    goals_result = await db.execute(
+        select(Goal)
+        .where(Goal.board_id == board_id)
+        .order_by(Goal.created_at.asc())
+    )
+    goals = list(goals_result.scalars().all())
+
+    # Get tickets with events eager-loaded
+    tickets_result = await db.execute(
+        select(Ticket)
+        .where(Ticket.board_id == board_id)
+        .options(selectinload(Ticket.events))
+        .order_by(Ticket.created_at.asc())
+    )
+    tickets = list(tickets_result.scalars().all())
+
+    # Get jobs
+    jobs_result = await db.execute(
+        select(Job)
+        .where(Job.board_id == board_id)
+        .order_by(Job.created_at.asc())
+    )
+    jobs = list(jobs_result.scalars().all())
+
+    return {
+        "board": {
+            "id": board.id,
+            "name": board.name,
+            "description": board.description,
+            "repo_root": board.repo_root,
+            "default_branch": board.default_branch,
+            "config": board.config,
+            "created_at": board.created_at.isoformat()
+            if board.created_at
+            else None,
+            "updated_at": board.updated_at.isoformat()
+            if board.updated_at
+            else None,
+        },
+        "goals": [
+            {
+                "id": g.id,
+                "title": g.title,
+                "description": g.description,
+                "autonomy_enabled": g.autonomy_enabled,
+                "created_at": g.created_at.isoformat()
+                if g.created_at
+                else None,
+                "updated_at": g.updated_at.isoformat()
+                if g.updated_at
+                else None,
+            }
+            for g in goals
+        ],
+        "tickets": [
+            {
+                "id": t.id,
+                "goal_id": t.goal_id,
+                "title": t.title,
+                "description": t.description,
+                "state": t.state,
+                "priority": t.priority,
+                "sort_order": t.sort_order
+                if hasattr(t, "sort_order")
+                else None,
+                "blocked_by_ticket_id": t.blocked_by_ticket_id,
+                "created_at": t.created_at.isoformat()
+                if t.created_at
+                else None,
+                "updated_at": t.updated_at.isoformat()
+                if t.updated_at
+                else None,
+                "events": [
+                    {
+                        "id": e.id,
+                        "event_type": e.event_type,
+                        "from_state": e.from_state,
+                        "to_state": e.to_state,
+                        "actor_type": e.actor_type,
+                        "reason": e.reason,
+                        "created_at": e.created_at.isoformat()
+                        if e.created_at
+                        else None,
+                    }
+                    for e in (t.events or [])
+                ],
+            }
+            for t in tickets
+        ],
+        "jobs": [
+            {
+                "id": j.id,
+                "ticket_id": j.ticket_id,
+                "kind": j.kind,
+                "status": j.status,
+                "exit_code": j.exit_code,
+                "created_at": j.created_at.isoformat()
+                if j.created_at
+                else None,
+                "started_at": j.started_at.isoformat()
+                if j.started_at
+                else None,
+                "finished_at": j.finished_at.isoformat()
+                if j.finished_at
+                else None,
+            }
+            for j in jobs
+        ],
+    }
 
 
 # ============================================================================

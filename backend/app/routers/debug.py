@@ -2,14 +2,13 @@
 
 import asyncio
 import logging
-from collections import deque
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,26 +17,11 @@ from app.models.evidence import Evidence
 from app.models.job import Job, JobStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
-from app.state_machine import TicketState
+from app.services.orchestrator_log import _orchestrator_logs
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/debug", tags=["debug"])
-
-# In-memory log buffer for orchestrator events (circular buffer)
-MAX_LOG_ENTRIES = 500
-_orchestrator_logs: deque[dict] = deque(maxlen=MAX_LOG_ENTRIES)
-
-
-def add_orchestrator_log(level: str, message: str, data: dict | None = None) -> None:
-    """Add a log entry to the orchestrator log buffer."""
-    entry = {
-        "timestamp": datetime.now(UTC).isoformat(),
-        "level": level,
-        "message": message,
-        "data": data or {},
-    }
-    _orchestrator_logs.append(entry)
 
 
 class OrchestratorLogEntry(BaseModel):
@@ -374,13 +358,14 @@ async def get_system_status(
     )
     queued_count = len(queued_result.scalars().all())
 
-    # Count tickets by state
+    # Count tickets by state (single GROUP BY query instead of N+1)
     tickets_by_state = {}
-    for state in TicketState:
-        result = await db.execute(select(Ticket).where(Ticket.state == state.value))
-        count = len(result.scalars().all())
+    state_counts_result = await db.execute(
+        select(Ticket.state, func.count(Ticket.id)).group_by(Ticket.state)
+    )
+    for state_value, count in state_counts_result.all():
         if count > 0:
-            tickets_by_state[state.value] = count
+            tickets_by_state[state_value] = count
 
     # Count recent events (last hour)
     from datetime import timedelta

@@ -28,6 +28,9 @@ class SQLiteWorker:
         self.poll_interval = poll_interval
         self.max_workers = max_workers
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._periodic_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="sk-periodic"
+        )
         self._tasks: dict[str, Callable] = {}
         self._periodic_tasks: list[tuple[str, float, Callable]] = []
         self._running = False
@@ -85,6 +88,7 @@ class SQLiteWorker:
             self._scheduler_thread.join(timeout=5)
 
         self._executor.shutdown(wait=True, cancel_futures=False)
+        self._periodic_executor.shutdown(wait=True, cancel_futures=False)
         logger.info("SQLite worker stopped")
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -193,7 +197,11 @@ class SQLiteWorker:
             conn.close()
 
     def _scheduler_loop(self) -> None:
-        """Run periodic tasks at their specified intervals."""
+        """Run periodic tasks at their specified intervals.
+
+        Periodic tasks run on a separate single-thread executor so they are
+        never starved by long-running job tasks on the main executor.
+        """
         last_run: dict[str, float] = {}
 
         while self._running and not self._stop_event.is_set():
@@ -204,7 +212,9 @@ class SQLiteWorker:
                 if now - last >= interval:
                     last_run[name] = now
                     try:
-                        self._executor.submit(self._run_periodic, name, func)
+                        self._periodic_executor.submit(
+                            self._run_periodic, name, func
+                        )
                     except Exception as e:
                         logger.error(f"Failed to schedule periodic task {name}: {e}")
 

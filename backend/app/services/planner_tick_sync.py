@@ -84,7 +84,7 @@ def run_planner_tick_sync() -> dict:
                     jobs_to_enqueue.append(queued_job_id)
                     queued_executed = 1
 
-            from app.routers.debug import add_orchestrator_log
+            from app.services.orchestrator_log import add_orchestrator_log
 
             # 1. Unblock tickets whose blockers are now done
             unblocked = _unblock_ready_tickets_sync(db)
@@ -503,16 +503,26 @@ def _execute_queued_message_sync(db) -> str | None:
             queued_message_service.queue_message(ticket.id, queued.message)
             continue
 
-        # Transition ticket to PLANNED (ready for execution)
+        # Determine valid target state per state machine:
+        # DONE → EXECUTING (the only valid exit from DONE)
+        # NEEDS_HUMAN → EXECUTING (human resolved, back to executing)
+        # BLOCKED → EXECUTING (retry execution)
         old_state = ticket.state
-        ticket.state = TicketState.PLANNED.value
+        old_state_enum = TicketState(old_state)
+        target_state = {
+            TicketState.DONE: TicketState.EXECUTING,
+            TicketState.NEEDS_HUMAN: TicketState.EXECUTING,
+            TicketState.BLOCKED: TicketState.EXECUTING,
+        }.get(old_state_enum, TicketState.EXECUTING)
+
+        ticket.state = target_state.value
 
         # Create event for the queued message execution
         event = TicketEvent(
             ticket_id=ticket.id,
             event_type=EventType.TRANSITIONED.value,
             from_state=old_state,
-            to_state=TicketState.PLANNED.value,
+            to_state=target_state.value,
             actor_type=ActorType.PLANNER.value,
             actor_id="planner",
             reason=f"Executing queued follow-up: {queued.message[:100]}...",
@@ -721,7 +731,7 @@ def _handle_blocked_tickets_sync(db, config: PlannerConfig) -> int:
         )
 
         try:
-            from app.routers.debug import add_orchestrator_log
+            from app.services.orchestrator_log import add_orchestrator_log
 
             add_orchestrator_log(
                 "INFO",

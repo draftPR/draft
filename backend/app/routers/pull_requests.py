@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.exceptions import ConfigurationError
 from app.models.ticket import Ticket
+from app.models.ticket_event import TicketEvent
 from app.models.workspace import Workspace
 from app.services.git_host import get_git_host_provider
-from app.state_machine import TicketState
+from app.state_machine import ActorType, EventType, TicketState, validate_transition
 
 router = APIRouter(prefix="/pull-requests", tags=["pull-requests"])
 
@@ -117,7 +118,7 @@ async def create_pull_request(
         )
 
     # Determine branch name
-    head_branch = workspace.branch or f"ticket-{ticket.id[:8]}"
+    head_branch = workspace.branch_name or f"ticket-{ticket.id[:8]}"
 
     # Use provided title/body or generate defaults
     pr_title = request.title or ticket.title
@@ -246,8 +247,20 @@ async def refresh_pr_status(
 
         # Auto-transition ticket if PR was merged
         if pr_details.get("merged") and old_state != "MERGED":
-            ticket.state = TicketState.DONE.value
             ticket.pr_state = "MERGED"
+            current_state = TicketState(ticket.state)
+            if validate_transition(current_state, TicketState.DONE):
+                ticket.state = TicketState.DONE.value
+                event = TicketEvent(
+                    ticket_id=ticket.id,
+                    event_type=EventType.TRANSITIONED.value,
+                    from_state=current_state.value,
+                    to_state=TicketState.DONE.value,
+                    actor_type=ActorType.SYSTEM.value,
+                    actor_id="pr_refresh",
+                    reason="PR merged on remote",
+                )
+                db.add(event)
 
         await db.commit()
         await db.refresh(ticket)
@@ -349,7 +362,19 @@ async def merge_pr_endpoint(
         # Update ticket state on successful merge
         ticket.pr_state = "MERGED"
         ticket.pr_merged_at = datetime.now()
-        ticket.state = TicketState.DONE.value
+        current_state = TicketState(ticket.state)
+        if validate_transition(current_state, TicketState.DONE):
+            ticket.state = TicketState.DONE.value
+            event = TicketEvent(
+                ticket_id=ticket.id,
+                event_type=EventType.TRANSITIONED.value,
+                from_state=current_state.value,
+                to_state=TicketState.DONE.value,
+                actor_type=ActorType.SYSTEM.value,
+                actor_id="pr_merge",
+                reason="PR merged",
+            )
+            db.add(event)
         await db.commit()
 
         return result

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import type { Ticket } from "@/types/api";
 import { TicketState } from "@/types/api";
@@ -7,6 +7,16 @@ import { Play, Loader2, X, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { deleteTicket } from "@/services/api";
 import { BlockingIndicator } from "@/components/BlockingIndicator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface TicketCardProps {
   ticket: Ticket;
@@ -17,9 +27,10 @@ interface TicketCardProps {
   onNavigateToBlocker?: (ticketId: string) => void;
 }
 
-export function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavigateToBlocker }: TicketCardProps) {
+export const TicketCard = memo(function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavigateToBlocker }: TicketCardProps) {
   const [executing, setExecuting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const isBlocked = ticket.blocked_by_ticket_id !== null;
 
@@ -49,14 +60,13 @@ export function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavi
     }
   };
 
-  const handleDelete = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Don't open the drawer
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (deleting) return;
+    setShowDeleteConfirm(true);
+  };
 
-    if (!confirm(`Delete ticket "${ticket.title}"?\n\nThis action cannot be undone.`)) {
-      return;
-    }
-
+  const handleDeleteConfirm = async () => {
     setDeleting(true);
     try {
       await deleteTicket(ticket.id);
@@ -67,10 +77,12 @@ export function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavi
       toast.error(message);
     } finally {
       setDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
   return (
+    <>
     <Draggable draggableId={ticket.id} index={index}>
       {(provided, snapshot) => (
         <div
@@ -130,7 +142,7 @@ export function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavi
                   </button>
                 )}
                 <button
-                  onClick={handleDelete}
+                  onClick={handleDeleteClick}
                   disabled={deleting}
                   className={cn(
                     "p-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-ring",
@@ -157,6 +169,36 @@ export function TicketCard({ ticket, index, onClick, onExecute, onDelete, onNavi
         </div>
       )}
     </Draggable>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete ticket</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete &quot;{ticket.title}&quot;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
-}
+}, (prev, next) =>
+  prev.ticket.id === next.ticket.id &&
+  prev.ticket.title === next.ticket.title &&
+  prev.ticket.description === next.ticket.description &&
+  prev.ticket.state === next.ticket.state &&
+  prev.ticket.priority === next.ticket.priority &&
+  prev.ticket.blocked_by_ticket_id === next.ticket.blocked_by_ticket_id &&
+  prev.index === next.index
+);
 

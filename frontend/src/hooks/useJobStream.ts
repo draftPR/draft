@@ -120,7 +120,7 @@ export function useJobStream(jobId: string | null | undefined): UseJobStreamResu
           reconnectAttempts++;
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
-          }, reconnectDelay * reconnectAttempts); // Exponential backoff
+          }, Math.min(reconnectDelay * 2 ** reconnectAttempts, 30000)); // Exponential backoff
         }
       };
 

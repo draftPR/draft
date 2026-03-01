@@ -191,7 +191,9 @@ class TicketService:
         await self.db.flush()
         await self.db.refresh(ticket)
 
-        # Trigger workspace cleanup for terminal states
+        # Trigger workspace cleanup for terminal states.
+        # Note: DONE can transition back to EXECUTING (human requests changes),
+        # in which case WorkspaceService.ensure_workspace() will recreate it.
         if is_terminal_state(to_state) and not skip_cleanup:
             await self._cleanup_workspace_async(ticket_id)
 
@@ -310,7 +312,8 @@ class TicketService:
     async def get_board(self, board_id: str | None = None) -> list[TicketsByState]:
         """
         Get tickets grouped by state for the board view.
-        Tickets are ordered by priority (descending, nulls last) within each state.
+        Tickets are ordered by sort_order first (if set), then priority
+        (descending, nulls last) within each state.
 
         Args:
             board_id: Optional board ID to filter tickets. If None, returns all tickets.
@@ -323,6 +326,7 @@ class TicketService:
             .options(selectinload(Ticket.goal))  # Eagerly load goal to avoid N+1
             .options(selectinload(Ticket.blocked_by))  # Eagerly load blocker ticket
             .order_by(
+                Ticket.sort_order.asc().nulls_last(),
                 Ticket.priority.desc().nulls_last(),
                 Ticket.created_at.desc(),
             )

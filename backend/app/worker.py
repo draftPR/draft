@@ -126,24 +126,24 @@ def set_current_job(job_id: str | None) -> None:
 
 def is_retryable_error(exit_code: int, stderr: str) -> bool:
     """Check if an executor error is retryable (transient failure).
-    
+
     Args:
         exit_code: The process exit code
         stderr: The stderr output from the process
-        
+
     Returns:
         True if the error is likely transient and worth retrying
     """
     # Check exit code
     if exit_code in RETRYABLE_EXIT_CODES:
         return True
-    
+
     # Check stderr for known transient error patterns
     stderr_lower = stderr.lower()
     for pattern in RETRYABLE_ERROR_PATTERNS:
         if pattern in stderr_lower:
             return True
-            
+
     return False
 
 
@@ -750,6 +750,7 @@ def transition_ticket_sync(
             return
 
         ticket.state = to_state.value
+        board_id = ticket.board_id
 
         # Create transition event
         event = TicketEvent(
@@ -764,6 +765,15 @@ def transition_ticket_sync(
         )
         db.add(event)
         db.commit()
+
+    # Broadcast board invalidation via WebSocket
+    if board_id:
+        from app.websocket.manager import broadcast_sync
+
+        broadcast_sync(
+            f"board:{board_id}",
+            {"type": "invalidate", "reason": "ticket_transition"},
+        )
 
     # Auto-trigger verification when entering verifying state
     if auto_verify and to_state == TicketState.VERIFYING:
@@ -1062,13 +1072,13 @@ def run_executor_cli(
             threads_stuck = True
             # Thread will be GC'd because daemon=True, but we lost some output
             # This is acceptable - better than blocking indefinitely
-            
+
         if stderr_thread.is_alive():
             logger.error(
                 f"stderr thread for job {job_id[:8] if job_id else 'unknown'} did not stop after 10s - forcing cleanup"
             )
             threads_stuck = True
-        
+
         if threads_stuck:
             # Add warning to output that some logs may be incomplete
             stdout_lines.append("\n[WARNING] Output streaming threads did not terminate cleanly - some logs may be incomplete")
@@ -1105,7 +1115,7 @@ def run_executor_cli(
         stdout_path.write_text("")
         stderr_path.write_text(f"Error running executor CLI: {str(e)}")
         stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stdout_path.relative_to(repo_root))
+        stderr_rel = str(stderr_path.relative_to(repo_root))
         return -1, stdout_rel, stderr_rel
 
 
@@ -1123,21 +1133,22 @@ def run_executor_cli_with_retry(
 ) -> tuple[int, str, str]:
     """
     Wrapper for run_executor_cli with retry logic for transient failures.
-    
+
     Retries up to EXECUTOR_MAX_RETRIES times with exponential backoff when:
     - Exit code is in RETRYABLE_EXIT_CODES (timeout, kill, term)
     - Stderr contains known transient error patterns (network, rate limit, etc.)
-    
+
     Args:
         Same as run_executor_cli, plus:
         log_path: Optional path to write retry messages
-        
+
     Returns:
         Same as run_executor_cli: (exit_code, stdout_relpath, stderr_relpath)
     """
     last_exit_code = -1
+    last_stdout_path = ""
     last_stderr_path = ""
-    
+
     for attempt in range(EXECUTOR_MAX_RETRIES + 1):  # 0, 1, 2 = 3 total attempts
         if attempt > 0:
             # This is a retry - calculate backoff delay
@@ -1147,7 +1158,7 @@ def run_executor_cli_with_retry(
             if log_path:
                 write_log(log_path, retry_msg, job_id)
             time.sleep(delay)
-            
+
         # Run the executor
         exit_code, stdout_rel, stderr_rel = run_executor_cli(
             command=command,
@@ -1160,10 +1171,11 @@ def run_executor_cli_with_retry(
             normalize_logs=normalize_logs,
             stdin_content=stdin_content,
         )
-        
+
         last_exit_code = exit_code
+        last_stdout_path = stdout_rel
         last_stderr_path = stderr_rel
-        
+
         # Success - return immediately
         if exit_code == 0:
             if attempt > 0:
@@ -1172,17 +1184,17 @@ def run_executor_cli_with_retry(
                 if log_path:
                     write_log(log_path, success_msg, job_id)
             return exit_code, stdout_rel, stderr_rel
-        
+
         # Check if this is the last attempt
         if attempt >= EXECUTOR_MAX_RETRIES:
             break
-            
+
         # Check if error is retryable
         try:
             stderr_content = (repo_root / stderr_rel).read_text()
         except Exception:
             stderr_content = ""
-            
+
         if is_retryable_error(exit_code, stderr_content):
             retry_reason = f"Executor failed with retryable error (exit_code={exit_code})"
             logger.warning(retry_reason)
@@ -1196,15 +1208,15 @@ def run_executor_cli_with_retry(
             if log_path:
                 write_log(log_path, non_retry_msg, job_id)
             break
-    
+
     # All retries exhausted or non-retryable error
     if attempt > 0:
         exhausted_msg = f"Executor failed after {attempt + 1} attempts (final exit_code={last_exit_code})"
         logger.error(exhausted_msg)
         if log_path:
             write_log(log_path, exhausted_msg, job_id)
-    
-    return last_exit_code, stdout_rel, last_stderr_path
+
+    return last_exit_code, last_stdout_path, last_stderr_path
 
 
 def capture_git_diff(
@@ -1242,9 +1254,9 @@ def capture_git_diff(
     untracked_files: list[str] = []
 
     try:
-        # First get the diff stat for tracked file changes
+        # First get the diff stat for tracked file changes (both staged and unstaged)
         stat_result = subprocess.run(
-            ["git", "diff", "--stat"],
+            ["git", "diff", "HEAD", "--stat"],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -1252,9 +1264,9 @@ def capture_git_diff(
         )
         diff_stat = stat_result.stdout.strip() if stat_result.stdout else ""
 
-        # Then get the full patch for tracked files
+        # Then get the full patch for tracked files (both staged and unstaged)
         patch_result = subprocess.run(
-            ["git", "diff"],
+            ["git", "diff", "HEAD"],
             cwd=cwd,
             capture_output=True,
             text=True,

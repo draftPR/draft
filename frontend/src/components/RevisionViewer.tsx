@@ -64,14 +64,14 @@ export function RevisionViewer({
         fetchRevisionDiff(revisionId),
         fetchRevisionComments(revisionId),
       ]);
-      
+
       setRevisionDetail(detail);
       setDiffFiles(diff.files);
       setComments(commentList.comments);
-      
-      // Select first file by default
-      if (diff.files.length > 0 && !selectedFile) {
-        setSelectedFile(diff.files[0].path);
+
+      // Select first file by default (only when no file is currently selected)
+      if (diff.files.length > 0) {
+        setSelectedFile((prev) => prev || diff.files[0].path);
       }
     } catch (error) {
       console.error("Failed to load revision details:", error);
@@ -79,7 +79,7 @@ export function RevisionViewer({
     } finally {
       setIsLoading(false);
     }
-  }, [selectedFile]);
+  }, []);
   
   useEffect(() => {
     if (selectedRevisionId) {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import type { ReviewComment } from "@/types/api";
 import { CommentThread } from "./CommentThread";
@@ -105,7 +105,7 @@ function AddCommentBox({ onSubmit, onCancel, isSubmitting, lineNumber }: AddComm
           Comment on line {lineNumber}
         </span>
         <span className="text-xs text-slate-500">
-          Ctrl+Enter to submit
+          {navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to submit
         </span>
       </div>
       
@@ -167,9 +167,9 @@ function FileDiff({
   const [commentBoxTop, setCommentBoxTop] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [commentPositions, setCommentPositions] = useState<Record<number, number>>({});
-  const diffContainerRef = { current: null as HTMLDivElement | null };
+  const diffContainerRef = useRef<HTMLDivElement | null>(null);
   // Track if the library's click handler was called (for fallback detection)
-  const libraryHandlerCalledRef = { current: false };
+  const libraryHandlerCalledRef = useRef(false);
 
   // Group comments by line number
   const commentsByLine = comments.reduce((acc, comment) => {
@@ -208,7 +208,6 @@ function FileDiff({
     }
 
     setCommentPositions(newPositions);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commentsByLine, file]);
   
   const handleAddComment = async (body: string) => {
@@ -435,7 +434,12 @@ function FileDiff({
           <div
             className="absolute left-0 right-0 z-50 px-2"
             style={{ top: `${commentBoxTop}px` }}
-            ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
+            ref={(el) => {
+              if (el && !el.dataset.scrolled) {
+                el.dataset.scrolled = "true";
+                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              }
+            }}
           >
             <AddCommentBox
               onSubmit={handleAddComment}

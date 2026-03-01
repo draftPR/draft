@@ -1,17 +1,20 @@
 """API router for Job endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db
 from app.exceptions import ResourceNotFoundError
-from app.models.job import JobKind
+from app.models.job import Job, JobKind
+from app.schemas.common import PaginatedResponse
 from app.schemas.job import (
     CancelJobResponse,
     JobCreateResponse,
     JobDetailResponse,
+    JobResponse,
     JobStatus,
     QueueStatusResponse,
 )
@@ -20,6 +23,88 @@ from app.services.log_normalizer import LogNormalizerService
 from app.services.log_stream_service import LogLevel, log_stream_service
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+@router.get(
+    "",
+    response_model=PaginatedResponse[JobResponse],
+    summary="List historical jobs with filters",
+)
+async def list_jobs(
+    ticket_id: str | None = Query(None, description="Filter by ticket ID"),
+    job_status: JobStatus | None = Query(
+        None, alias="status", description="Filter by job status"
+    ),
+    kind: str | None = Query(None, description="Filter by job kind"),
+    board_id: str | None = Query(None, description="Filter by board ID"),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    db: AsyncSession = Depends(get_db),
+) -> PaginatedResponse[JobResponse]:
+    """
+    List historical jobs with optional filters and pagination.
+
+    **Filters:**
+    - `ticket_id`: Filter by ticket
+    - `status`: Filter by status (queued, running, succeeded, failed, canceled)
+    - `kind`: Filter by kind (execute, verify, resume)
+    - `board_id`: Filter by board
+
+    **Pagination:**
+    - `page`: Page number (1-based, default 1)
+    - `limit`: Items per page (default 50, max 200)
+
+    Results are ordered by creation time descending (newest first).
+    """
+    query = select(Job)
+    count_query = select(func.count(Job.id))
+
+    # Apply filters
+    if ticket_id is not None:
+        query = query.where(Job.ticket_id == ticket_id)
+        count_query = count_query.where(Job.ticket_id == ticket_id)
+    if job_status is not None:
+        query = query.where(Job.status == job_status.value)
+        count_query = count_query.where(Job.status == job_status.value)
+    if kind is not None:
+        query = query.where(Job.kind == kind)
+        count_query = count_query.where(Job.kind == kind)
+    if board_id is not None:
+        query = query.where(Job.board_id == board_id)
+        count_query = count_query.where(Job.board_id == board_id)
+
+    # Get total count
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    # Apply ordering and pagination
+    offset = (page - 1) * limit
+    query = query.order_by(Job.created_at.desc()).offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    jobs = result.scalars().all()
+
+    items = [
+        JobResponse(
+            id=job.id,
+            ticket_id=job.ticket_id,
+            kind=job.kind_enum,
+            status=job.status_enum,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            finished_at=job.finished_at,
+            exit_code=job.exit_code,
+            log_path=job.log_path,
+        )
+        for job in jobs
+    ]
+
+    return PaginatedResponse[JobResponse](
+        items=items,
+        total=total,
+        page=page,
+        limit=limit,
+    )
 
 
 @router.get(

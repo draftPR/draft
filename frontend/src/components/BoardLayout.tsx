@@ -3,14 +3,35 @@
  *
  * When a ticket is selected, the detail panel appears on the right
  * and the board shrinks to make room.
+ *
+ * Supports deep-linking: /boards/:boardId/tickets/:ticketId will
+ * auto-open the ticket detail panel on mount.
  */
 
+import { useEffect } from "react";
+import { useParams } from "react-router";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { TicketDetailPanel } from "@/components/TicketDetailPanel";
 import { useTicketSelectionStore } from "@/stores/ticketStore";
+import { useBoardStore } from "@/stores/boardStore";
 
 export function BoardLayout() {
-  const { selectedTicketId, detailDrawerOpen } = useTicketSelectionStore();
+  const { selectedTicketId, detailDrawerOpen, selectTicket } = useTicketSelectionStore();
+  const { boardId: urlBoardId, ticketId: urlTicketId } = useParams();
+  const { setCurrentBoardId } = useBoardStore();
+
+  // Sync URL params to stores on mount for deep-linking
+  useEffect(() => {
+    if (urlBoardId) {
+      setCurrentBoardId(urlBoardId);
+    }
+  }, [urlBoardId, setCurrentBoardId]);
+
+  useEffect(() => {
+    if (urlTicketId && !selectedTicketId) {
+      selectTicket(urlTicketId);
+    }
+  }, [urlTicketId, selectedTicketId, selectTicket]);
   const isOpen = detailDrawerOpen && !!selectedTicketId;
 
   if (!isOpen) {

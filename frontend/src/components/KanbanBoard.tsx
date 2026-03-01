@@ -8,11 +8,11 @@ import {
 import { TicketCard } from "@/components/TicketCard";
 import { runPlannerStart, fetchPlannerStatus } from "@/services/api";
 import { useTransitionTicket, useExecuteTicket } from "@/hooks/useMutations";
+import { usePlannerStatusQuery } from "@/hooks/useQueries";
 import { useTicketSelectionStore } from "@/stores/ticketStore";
 import {
   type Ticket,
   type PlannerStartResponse,
-  type PlannerStatusResponse,
   TicketState,
   ActorType,
   COLUMN_ORDER,
@@ -25,7 +25,8 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { KanbanBoardSkeleton } from "@/components/skeletons/KanbanBoardSkeleton";
 import { EmptyState } from "@/components/EmptyState";
-import { Loader2, AlertCircle, RefreshCw, Zap, Check, X, Info, Target, Lock, Inbox, Search, ChevronRight } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, Zap, Check, X, Info, Target, Lock, Inbox, Search, ChevronRight, Settings } from "lucide-react";
+import { useUIStore } from "@/stores/uiStore";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -36,12 +37,13 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
   const { currentBoard } = useBoard();
+  const ui = useUIStore();
   const queryClient = useQueryClient();
   const transitionMutation = useTransitionTicket(currentBoard?.id);
   const executeMutation = useExecuteTicket(currentBoard?.id);
   const { selectTicket } = useTicketSelectionStore();
   const [autopilotLoading, setAutopilotLoading] = useState(false);
-  const [plannerStatus, setPlannerStatus] = useState<PlannerStatusResponse | null>(null);
+  const { data: plannerStatus, refetch: refetchPlannerStatus } = usePlannerStatusQuery();
   const [showStatusPanel, setShowStatusPanel] = useState(false);
   const [healthCheckLoading, setHealthCheckLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -66,15 +68,6 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
       refetch();
     }
   }, [refreshTrigger, refetch]);
-
-  // Load planner status on mount
-  useEffect(() => {
-    fetchPlannerStatus()
-      .then(setPlannerStatus)
-      .catch((err) => {
-        console.error("Failed to load planner status:", err);
-      });
-  }, []);
 
   const loadBoard = useCallback(async () => {
     await refetch();
@@ -123,9 +116,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
       
       // Refresh the board and planner status to show changes
       await loadBoard();
-      fetchPlannerStatus()
-        .then(setPlannerStatus)
-        .catch(console.error);
+      refetchPlannerStatus();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Autopilot failed";
       toast.error("Autopilot failed", {
@@ -134,7 +125,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
     } finally {
       setAutopilotLoading(false);
     }
-  }, [loadBoard]);
+  }, [loadBoard, refetchPlannerStatus]);
 
   const handleTicketClick = (ticket: Ticket) => {
     selectTicket(ticket.id);
@@ -376,6 +367,14 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
             Refresh
           </Button>
+          <Button
+            onClick={() => ui.setBoardSettingsOpen(true)}
+            size="sm"
+            variant="ghost"
+            title="Board Settings"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
@@ -432,7 +431,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
                     setHealthCheckLoading(true);
                     try {
                       const status = await fetchPlannerStatus(true);
-                      setPlannerStatus(status);
+                      refetchPlannerStatus();
                       if (status.llm_health?.healthy) {
                         toast.success(`LLM healthy (${status.llm_health.latency_ms}ms)`);
                       } else {

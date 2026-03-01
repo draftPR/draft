@@ -1,4 +1,4 @@
-.PHONY: setup setup-backend setup-frontend run dev-backend dev-frontend db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean generate-types
+.PHONY: setup setup-backend setup-frontend run dev-backend dev-frontend db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean generate-types test test-backend test-frontend
 
 # Default target
 help:
@@ -19,6 +19,11 @@ help:
 	@echo ""
 	@echo "Database:"
 	@echo "  make db-migrate     - Run Alembic database migrations"
+	@echo ""
+	@echo "Testing:"
+	@echo "  make test           - Run all tests (backend + frontend)"
+	@echo "  make test-backend   - Run backend pytest tests"
+	@echo "  make test-frontend  - Run frontend vitest tests"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  make lint           - Run linters for both frontend and backend"
@@ -83,6 +88,15 @@ format-backend:
 
 format-frontend:
 	cd frontend && npm run format
+
+# Test targets
+test: test-backend test-frontend
+
+test-backend:
+	cd backend && . venv/bin/activate && pytest tests -v
+
+test-frontend:
+	cd frontend && npx vitest run
 
 # Type generation
 generate-types:

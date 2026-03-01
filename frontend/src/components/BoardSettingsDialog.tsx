@@ -7,7 +7,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -49,10 +60,14 @@ export function BoardSettingsDialog({
   const [deletingBoard, setDeletingBoard] = useState(false);
   const [hasOverrides, setHasOverrides] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showDeleteTicketsConfirm, setShowDeleteTicketsConfirm] = useState(false);
+  const [showDeleteBoardConfirm, setShowDeleteBoardConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   // Form state
   const [executorModel, setExecutorModel] = useState<string | null>("auto");
-  const [timeout, setTimeout] = useState(300);
+  const [timeoutSecs, setTimeoutSecs] = useState(300);
   const [preferredExecutor, setPreferredExecutor] = useState("cursor-agent");
   const [modelOptions, setModelOptions] = useState<ExecutorModel[]>([]);
 
@@ -105,7 +120,7 @@ export function BoardSettingsDialog({
           setExecutorModel(execConfig.executor_model);
         }
         if (execConfig.timeout !== undefined) {
-          setTimeout(execConfig.timeout);
+          setTimeoutSecs(execConfig.timeout);
         }
         if (execConfig.preferred_executor !== undefined) {
           setPreferredExecutor(execConfig.preferred_executor);
@@ -126,7 +141,7 @@ export function BoardSettingsDialog({
       await updateBoardConfig(boardId, {
         execute_config: {
           executor_model: executorModel,
-          timeout,
+          timeout: timeoutSecs,
           preferred_executor: preferredExecutor,
         },
       });
@@ -142,20 +157,12 @@ export function BoardSettingsDialog({
   };
 
   const handleReset = async () => {
-    if (
-      !confirm(
-        "Reset all board-level overrides? Settings will revert to smartkanban.yaml defaults."
-      )
-    ) {
-      return;
-    }
-
     setSaving(true);
     try {
       await clearBoardConfig(boardId);
       toast.success("Board settings reset to YAML defaults");
       setExecutorModel("auto");
-      setTimeout(300);
+      setTimeoutSecs(300);
       setPreferredExecutor("cursor-agent");
       setHasOverrides(false);
       onOpenChange(false);
@@ -165,6 +172,7 @@ export function BoardSettingsDialog({
       toast.error(message);
     } finally {
       setSaving(false);
+      setShowResetConfirm(false);
     }
   };
 
@@ -173,21 +181,8 @@ export function BoardSettingsDialog({
   };
 
   const handleDeleteAllTickets = async () => {
-    const confirmMsg = "⚠️ DELETE ALL TICKETS?\n\n" +
-      "This will permanently delete:\n" +
-      "• All tickets\n" +
-      "• All jobs\n" +
-      "• All revisions\n" +
-      "• All workspaces\n" +
-      "• All evidence files\n\n" +
-      "This action CANNOT be undone!\n\n" +
-      "Type 'DELETE' to confirm:";
-
-    const userInput = prompt(confirmMsg);
-    if (userInput !== "DELETE") {
-      if (userInput !== null) {
-        toast.error("Deletion cancelled - you must type 'DELETE' exactly");
-      }
+    if (deleteConfirmText !== "DELETE") {
+      toast.error("You must type 'DELETE' exactly to confirm");
       return;
     }
 
@@ -203,18 +198,12 @@ export function BoardSettingsDialog({
       toast.error(message);
     } finally {
       setDeleting(false);
+      setShowDeleteTicketsConfirm(false);
+      setDeleteConfirmText("");
     }
   };
 
   const handleDeleteBoard = async () => {
-    if (
-      !confirm(
-        "Are you sure? This will delete the board and all its tickets. This action cannot be undone."
-      )
-    ) {
-      return;
-    }
-
     setDeletingBoard(true);
     try {
       await deleteBoard(boardId);
@@ -227,6 +216,7 @@ export function BoardSettingsDialog({
       toast.error(message);
     } finally {
       setDeletingBoard(false);
+      setShowDeleteBoardConfirm(false);
     }
   };
 
@@ -243,6 +233,7 @@ export function BoardSettingsDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[550px]">
         <DialogHeader>
@@ -303,15 +294,15 @@ export function BoardSettingsDialog({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label htmlFor="timeout">Execution Timeout</Label>
-              <span className="text-sm text-muted-foreground">{timeout}s</span>
+              <span className="text-sm text-muted-foreground">{timeoutSecs}s</span>
             </div>
             <Slider
               id="timeout"
               min={60}
               max={900}
               step={30}
-              value={[timeout]}
-              onValueChange={(value) => setTimeout(value[0])}
+              value={[timeoutSecs]}
+              onValueChange={(value) => setTimeoutSecs(value[0])}
               className="w-full"
             />
             <p className="text-xs text-muted-foreground">
@@ -363,7 +354,7 @@ export function BoardSettingsDialog({
               <Button
                 type="button"
                 variant="destructive"
-                onClick={handleDeleteAllTickets}
+                onClick={() => setShowDeleteTicketsConfirm(true)}
                 disabled={deleting || deletingBoard || saving}
                 className="w-full gap-2"
               >
@@ -382,7 +373,7 @@ export function BoardSettingsDialog({
               <Button
                 type="button"
                 variant="destructive"
-                onClick={handleDeleteBoard}
+                onClick={() => setShowDeleteBoardConfirm(true)}
                 disabled={deleting || deletingBoard || saving}
                 className="w-full gap-2"
               >
@@ -406,7 +397,7 @@ export function BoardSettingsDialog({
           <Button
             type="button"
             variant="outline"
-            onClick={handleReset}
+            onClick={() => setShowResetConfirm(true)}
             disabled={!hasOverrides || saving}
             className="gap-2"
           >
@@ -436,5 +427,78 @@ export function BoardSettingsDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Reset Confirm */}
+    <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Reset Board Settings?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will reset all board-level overrides. Settings will revert to smartkanban.yaml defaults.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={handleReset}>Reset</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/* Delete All Tickets Confirm */}
+    <AlertDialog open={showDeleteTicketsConfirm} onOpenChange={(open) => {
+      setShowDeleteTicketsConfirm(open);
+      if (!open) setDeleteConfirmText("");
+    }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete All Tickets?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently delete all tickets, jobs, revisions, workspaces, and evidence files. This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="py-2">
+          <Label htmlFor="delete-confirm">Type DELETE to confirm:</Label>
+          <Input
+            id="delete-confirm"
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder="DELETE"
+            className="mt-2"
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleDeleteAllTickets}
+            disabled={deleteConfirmText !== "DELETE"}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            Delete All
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/* Delete Board Confirm */}
+    <AlertDialog open={showDeleteBoardConfirm} onOpenChange={setShowDeleteBoardConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Board?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will delete the board and all its tickets. This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleDeleteBoard}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            Delete Board
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

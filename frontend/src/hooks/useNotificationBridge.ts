@@ -5,9 +5,11 @@ import { useNotificationStore } from "@/stores/notificationStore";
 /**
  * Bridges WebSocket board updates to the notification store.
  * Call this in AppLayout to capture real-time events.
+ *
+ * Also returns the WebSocket connection status for use in the UI.
  */
 export function useNotificationBridge(boardId: string | null | undefined) {
-  const { subscribe } = useBoardUpdates(boardId);
+  const { subscribe, status: wsStatus, isConnected: wsConnected } = useBoardUpdates(boardId);
   const addNotification = useNotificationStore((s) => s.addNotification);
 
   useEffect(() => {
@@ -28,21 +30,21 @@ export function useNotificationBridge(boardId: string | null | undefined) {
 
       if (message.type === "ticket_update" && message.data) {
         const state = message.data.state as string | undefined;
-        if (state === "NEEDS_HUMAN") {
+        if (state === "needs_human") {
           addNotification({
             type: "warning",
             title: "Ticket needs review",
             description: (message.data.title as string) || `Ticket ${message.ticket_id?.slice(0, 8)}...`,
             ticketId: message.ticket_id,
           });
-        } else if (state === "BLOCKED") {
+        } else if (state === "blocked") {
           addNotification({
             type: "error",
             title: "Ticket blocked",
             description: (message.data.title as string) || `Ticket ${message.ticket_id?.slice(0, 8)}...`,
             ticketId: message.ticket_id,
           });
-        } else if (state === "DONE") {
+        } else if (state === "done") {
           addNotification({
             type: "success",
             title: "Ticket completed",
@@ -55,4 +57,6 @@ export function useNotificationBridge(boardId: string | null | undefined) {
 
     return unsubscribe;
   }, [boardId, subscribe, addNotification]);
+
+  return { wsStatus, wsConnected };
 }

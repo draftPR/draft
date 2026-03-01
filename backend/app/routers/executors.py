@@ -18,15 +18,13 @@ async def list_available_executors():
         List of executor metadata with availability status
     """
     try:
-        # Get all registered executors
+        # Get all registered executors via public API
         all_executors = []
 
-        for _name, adapter_class in ExecutorRegistry._adapters.items():
-            adapter = adapter_class()
-            metadata = adapter.get_metadata()
+        for metadata in ExecutorRegistry.list_all():
+            adapter = ExecutorRegistry.get(metadata.name)
             is_available = await adapter.is_available()
 
-            # Convert to dict for JSON serialization
             executor_dict = {
                 "name": metadata.name,
                 "display_name": metadata.display_name,
@@ -80,6 +78,36 @@ async def get_executor_metadata(executor_name: str):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get metadata: {str(e)}")
+
+
+@router.get("/{executor_name}/models", response_model=list[dict[str, str]])
+async def list_executor_models(executor_name: str):
+    """List available models for a given executor type.
+
+    Returns a list of model options that can be used with this executor.
+    """
+    # Model options per executor type
+    models_by_executor: dict[str, list[dict[str, str]]] = {
+        "claude": [
+            {"id": "auto", "name": "Auto (recommended)", "description": "Automatically select the best model"},
+            {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4", "description": "Fast and capable"},
+            {"id": "claude-opus-4-20250514", "name": "Claude Opus 4", "description": "Most capable model"},
+        ],
+        "cursor-agent": [
+            {"id": "auto", "name": "Auto (recommended)", "description": "Automatically select the best model"},
+        ],
+        "cursor": [
+            {"id": "auto", "name": "Auto (recommended)", "description": "Uses Cursor IDE model selection"},
+        ],
+    }
+
+    models = models_by_executor.get(executor_name)
+    if models is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown executor: {executor_name}",
+        )
+    return models
 
 
 @router.get("/{executor_name}/available")

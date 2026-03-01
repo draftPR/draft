@@ -66,7 +66,9 @@ export function useTransitionTicket(boardId: string | undefined) {
     },
 
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.boards.all });
+      if (boardId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.boards.view(boardId) });
+      }
     },
   });
 }
@@ -120,7 +122,9 @@ export function useExecuteTicket(boardId: string | undefined) {
     },
 
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.boards.all });
+      if (boardId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.boards.view(boardId) });
+      }
     },
   });
 }

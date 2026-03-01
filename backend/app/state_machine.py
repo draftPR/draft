@@ -74,7 +74,9 @@ ALLOWED_TRANSITIONS: dict[TicketState, list[TicketState]] = {
     TicketState.DONE: [
         TicketState.EXECUTING,  # Human requested changes on revision
     ],
-    TicketState.ABANDONED: [],  # Terminal state
+    TicketState.ABANDONED: [
+        TicketState.PLANNED,  # Reactivate accidentally abandoned tickets
+    ],
 }
 
 

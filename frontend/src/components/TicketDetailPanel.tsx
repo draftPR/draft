@@ -5,8 +5,10 @@
  * but without the Sheet wrapper.
  */
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { EvidenceList } from "@/components/EvidenceList";
 import { EmptyState } from "@/components/EmptyState";
 import { TicketDetailSkeleton } from "@/components/skeletons/TicketDetailSkeleton";
@@ -25,6 +27,7 @@ import {
   fetchTicket,
   executeTicket,
   transitionTicket,
+  updateTicket,
   queueFollowupMessage,
   getQueuedMessage,
   cancelQueuedMessage,
@@ -44,11 +47,22 @@ import type {
 } from "@/types/api";
 import {
   STATE_DISPLAY_NAMES,
+  ActorType,
   EventType,
   TicketState,
   MergeStrategy,
   JobStatus,
+  PriorityBucket,
+  PRIORITY_BUCKET_LABELS,
+  PRIORITY_BUCKET_VALUES,
 } from "@/types/api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -69,9 +83,22 @@ import {
   MessageSquarePlus,
   Send,
   ChevronDown,
+  Ban,
+  Pencil,
 } from "lucide-react";
 import { CreatePRButton } from "@/components/PullRequest/CreatePRButton";
 import { PRStatusBadge } from "@/components/PullRequest/PRStatusBadge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useTicketSelectionStore } from "@/stores/ticketStore";
 import { useBoard } from "@/contexts/BoardContext";
 import { useBoardViewQuery } from "@/hooks/useQueries";
@@ -94,6 +121,14 @@ function getPriorityDisplay(priority: number | null): { label: string; color: st
   return { label: `${priority} (Lowest)`, color: "text-emerald-500" };
 }
 
+function priorityToBucket(priority: number | null): PriorityBucket | "" {
+  if (priority === null) return "";
+  if (priority >= 80) return PriorityBucket.P0;
+  if (priority >= 60) return PriorityBucket.P1;
+  if (priority >= 40) return PriorityBucket.P2;
+  return PriorityBucket.P3;
+}
+
 export function TicketDetailPanel() {
   const { selectedTicketId, clearSelection, selectTicket } = useTicketSelectionStore();
   const [ticket, setTicket] = useState<Ticket | null>(null);
@@ -104,7 +139,7 @@ export function TicketDetailPanel() {
   const [dependents, setDependents] = useState<Ticket[]>([]);
   const [mergeStatus, setMergeStatus] = useState<MergeStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [evidenceLoading] = useState(false);
+  // Evidence loads as part of loadAll; the outer `loading` flag covers it
   const [mergeLoading, setMergeLoading] = useState(false);
   const [showRevisionViewer, setShowRevisionViewer] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +157,16 @@ export function TicketDetailPanel() {
 
   // Conflict state
   const [conflictStatus, setConflictStatus] = useState<ConflictStatusResponse | null>(null);
+
+  // Inline editing state
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState("");
+  const [editDescriptionValue, setEditDescriptionValue] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [savingDescription, setSavingDescription] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load executor profiles once
   useEffect(() => {
@@ -258,7 +303,7 @@ export function TicketDetailPanel() {
   const handleAccept = useCallback(async () => {
     if (!ticket) return;
     try {
-      await transitionTicket(ticket.id, { to_state: TicketState.PLANNED });
+      await transitionTicket(ticket.id, { to_state: TicketState.PLANNED, actor_type: ActorType.HUMAN });
       toast.success("Ticket accepted");
       loadAll(ticket.id);
     } catch (err) {
@@ -271,7 +316,7 @@ export function TicketDetailPanel() {
   const handleUnblock = useCallback(async () => {
     if (!ticket) return;
     try {
-      await transitionTicket(ticket.id, { to_state: TicketState.PLANNED });
+      await transitionTicket(ticket.id, { to_state: TicketState.PLANNED, actor_type: ActorType.HUMAN });
       toast.success("Ticket unblocked");
       loadAll(ticket.id);
     } catch (err) {
@@ -327,6 +372,23 @@ export function TicketDetailPanel() {
     }
   }, [ticket]);
 
+  const handleAbandon = useCallback(async () => {
+    if (!ticket) return;
+    try {
+      await transitionTicket(ticket.id, {
+        to_state: TicketState.ABANDONED,
+        actor_type: ActorType.HUMAN,
+        reason: "Abandoned by user",
+      });
+      toast.success("Ticket abandoned");
+      loadAll(ticket.id);
+    } catch (err) {
+      toast.error("Failed to abandon ticket", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }, [ticket, loadAll]);
+
   const handleMerge = useCallback(async () => {
     if (!ticket) return;
     setMergeLoading(true);
@@ -360,6 +422,99 @@ export function TicketDetailPanel() {
       loadAll(ticket.id);
     }
   }, [ticket, loadAll]);
+
+  // --- Inline editing handlers ---
+
+  const startEditingTitle = useCallback(() => {
+    if (!ticket) return;
+    setEditTitleValue(ticket.title);
+    setEditingTitle(true);
+    // Focus the input after render
+    setTimeout(() => titleInputRef.current?.focus(), 0);
+  }, [ticket]);
+
+  const cancelEditingTitle = useCallback(() => {
+    setEditingTitle(false);
+    setEditTitleValue("");
+  }, []);
+
+  const saveTitle = useCallback(async () => {
+    if (!ticket || !editTitleValue.trim()) return;
+    if (editTitleValue.trim() === ticket.title) {
+      cancelEditingTitle();
+      return;
+    }
+    setSavingTitle(true);
+    try {
+      await updateTicket(ticket.id, { title: editTitleValue.trim() });
+      toast.success("Title updated");
+      setEditingTitle(false);
+      loadAll(ticket.id);
+    } catch (err) {
+      toast.error("Failed to update title", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setSavingTitle(false);
+    }
+  }, [ticket, editTitleValue, cancelEditingTitle, loadAll]);
+
+  const startEditingDescription = useCallback(() => {
+    if (!ticket) return;
+    setEditDescriptionValue(ticket.description || "");
+    setEditingDescription(true);
+    setTimeout(() => descriptionTextareaRef.current?.focus(), 0);
+  }, [ticket]);
+
+  const cancelEditingDescription = useCallback(() => {
+    setEditingDescription(false);
+    setEditDescriptionValue("");
+  }, []);
+
+  const saveDescription = useCallback(async () => {
+    if (!ticket) return;
+    const newDesc = editDescriptionValue.trim() || null;
+    if (newDesc === (ticket.description || null)) {
+      cancelEditingDescription();
+      return;
+    }
+    setSavingDescription(true);
+    try {
+      await updateTicket(ticket.id, { description: newDesc });
+      toast.success("Description updated");
+      setEditingDescription(false);
+      loadAll(ticket.id);
+    } catch (err) {
+      toast.error("Failed to update description", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setSavingDescription(false);
+    }
+  }, [ticket, editDescriptionValue, cancelEditingDescription, loadAll]);
+
+  const handlePriorityChange = useCallback(async (bucket: string) => {
+    if (!ticket) return;
+    const newPriority = bucket ? PRIORITY_BUCKET_VALUES[bucket as PriorityBucket] : null;
+    if (newPriority === ticket.priority) return;
+    try {
+      await updateTicket(ticket.id, { priority: newPriority });
+      toast.success("Priority updated", {
+        description: bucket ? PRIORITY_BUCKET_LABELS[bucket as PriorityBucket] : "Priority cleared",
+      });
+      loadAll(ticket.id);
+    } catch (err) {
+      toast.error("Failed to update priority", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }, [ticket, loadAll]);
+
+  // Reset editing state when switching tickets
+  useEffect(() => {
+    setEditingTitle(false);
+    setEditingDescription(false);
+  }, [selectedTicketId]);
 
   if (!selectedTicketId) return null;
 
@@ -397,6 +552,13 @@ export function TicketDetailPanel() {
     TicketState.BLOCKED,
   ] as string[]).includes(ticket.state);
 
+  const canAbandon = ([
+    TicketState.PROPOSED,
+    TicketState.PLANNED,
+    TicketState.NEEDS_HUMAN,
+    TicketState.BLOCKED,
+  ] as string[]).includes(ticket.state);
+
   return (
     <>
     {/* Full-screen revision viewer overlay */}
@@ -416,9 +578,61 @@ export function TicketDetailPanel() {
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background border-b border-border/40 px-6 py-4">
         <div className="flex items-start justify-between gap-2">
-          <h2 className="text-[15px] leading-relaxed font-semibold text-foreground pr-4">
-            {ticket.title}
-          </h2>
+          {editingTitle ? (
+            <div className="flex-1 pr-4 space-y-2">
+              <Input
+                ref={titleInputRef}
+                value={editTitleValue}
+                onChange={(e) => setEditTitleValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    saveTitle();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelEditingTitle();
+                  }
+                }}
+                disabled={savingTitle}
+                className="text-[15px] font-semibold"
+                placeholder="Ticket title"
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={saveTitle}
+                  disabled={savingTitle || !editTitleValue.trim()}
+                  className="h-7 px-2 text-[12px]"
+                >
+                  {savingTitle ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Check className="h-3 w-3 mr-1" />}
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={cancelEditingTitle}
+                  disabled={savingTitle}
+                  className="h-7 px-2 text-[12px]"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-1.5 group pr-4">
+              <h2 className="text-[15px] leading-relaxed font-semibold text-foreground">
+                {ticket.title}
+              </h2>
+              <button
+                onClick={startEditingTitle}
+                className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                title="Edit title"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 flex-shrink-0" onClick={clearSelection}>
             <XIcon className="h-4 w-4" />
           </Button>
@@ -433,12 +647,74 @@ export function TicketDetailPanel() {
       <div className="px-6 py-6 space-y-10">
         {/* Description */}
         <div className="space-y-3">
-          <h3 className="section-label">Description</h3>
-          <p className="text-[13px] leading-relaxed text-foreground">
-            {ticket.description || (
-              <span className="text-muted-foreground italic">No description provided</span>
+          <div className="flex items-center gap-1.5 group">
+            <h3 className="section-label">Description</h3>
+            {!editingDescription && (
+              <button
+                onClick={startEditingDescription}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                title="Edit description"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
             )}
-          </p>
+          </div>
+          {editingDescription ? (
+            <div className="space-y-2">
+              <Textarea
+                ref={descriptionTextareaRef}
+                value={editDescriptionValue}
+                onChange={(e) => setEditDescriptionValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelEditingDescription();
+                  }
+                  // Ctrl/Cmd+Enter to save
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    saveDescription();
+                  }
+                }}
+                disabled={savingDescription}
+                className="text-[13px] leading-relaxed min-h-[80px]"
+                placeholder="Add a description..."
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={saveDescription}
+                  disabled={savingDescription}
+                  className="h-7 px-2 text-[12px]"
+                >
+                  {savingDescription ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Check className="h-3 w-3 mr-1" />}
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={cancelEditingDescription}
+                  disabled={savingDescription}
+                  className="h-7 px-2 text-[12px]"
+                >
+                  Cancel
+                </Button>
+                <span className="text-[11px] text-muted-foreground ml-auto">
+                  Ctrl+Enter to save
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p
+              className="text-[13px] leading-relaxed text-foreground cursor-pointer hover:bg-muted/50 rounded-md px-2 py-1 -mx-2 -my-1 transition-colors"
+              onClick={startEditingDescription}
+            >
+              {ticket.description || (
+                <span className="text-muted-foreground italic">No description provided -- click to add</span>
+              )}
+            </p>
+          )}
         </div>
 
         {/* State & Priority */}
@@ -449,7 +725,35 @@ export function TicketDetailPanel() {
           </div>
           <div className="space-y-3">
             <h3 className="section-label">Priority</h3>
-            <p className={cn("text-[13px] font-medium", priority.color)}>{priority.label}</p>
+            <Select
+              value={priorityToBucket(ticket.priority) || "none"}
+              onValueChange={(val) => handlePriorityChange(val === "none" ? "" : val)}
+            >
+              <SelectTrigger size="sm" className="h-8 text-[13px] w-full">
+                <SelectValue>
+                  <span className={cn("font-medium", priority.color)}>
+                    {priority.label}
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">
+                  <span className="text-muted-foreground">Not set</span>
+                </SelectItem>
+                <SelectItem value={PriorityBucket.P0}>
+                  <span className="text-red-500 font-medium">P0 - Critical (90)</span>
+                </SelectItem>
+                <SelectItem value={PriorityBucket.P1}>
+                  <span className="text-orange-500 font-medium">P1 - High (70)</span>
+                </SelectItem>
+                <SelectItem value={PriorityBucket.P2}>
+                  <span className="text-blue-500 font-medium">P2 - Medium (50)</span>
+                </SelectItem>
+                <SelectItem value={PriorityBucket.P3}>
+                  <span className="text-slate-500 font-medium">P3 - Low (30)</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -712,6 +1016,37 @@ export function TicketDetailPanel() {
           </div>
         )}
 
+        {/* Abandon Ticket */}
+        {canAbandon && (
+          <div className="space-y-3">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" className="w-full" size="sm">
+                  <Ban className="h-4 w-4 mr-2" />
+                  Abandon Ticket
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Abandon this ticket?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will mark the ticket as abandoned. Any associated worktree will be cleaned up. This action cannot be easily undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleAbandon}
+                    className={buttonVariants({ variant: "destructive" })}
+                  >
+                    Abandon
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        )}
+
         {/* Agent Activity */}
         <div className="space-y-4">
           <h3 className="section-label flex items-center gap-2">
@@ -736,11 +1071,7 @@ export function TicketDetailPanel() {
             <FlaskConical className="h-3.5 w-3.5" />
             Verification Evidence
           </h3>
-          {evidenceLoading ? (
-            <TicketDetailSkeleton />
-          ) : (
-            <EvidenceList evidence={evidence} />
-          )}
+          <EvidenceList evidence={evidence} />
         </div>
 
         {/* Activity Timeline */}

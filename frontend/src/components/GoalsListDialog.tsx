@@ -83,6 +83,13 @@ export function GoalsListDialog({
     // onOpenChange(false);
   };
 
+  const handleGoalDeleted = () => {
+    setDetailOpen(false);
+    setSelectedGoalId(null);
+    loadGoals();
+    onBoardRefresh?.();
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -175,6 +182,7 @@ export function GoalsListDialog({
         open={detailOpen}
         onOpenChange={setDetailOpen}
         onTicketsAccepted={handleTicketsAccepted}
+        onGoalDeleted={handleGoalDeleted}
       />
     </>
   );

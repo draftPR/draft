@@ -8,6 +8,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -68,6 +69,19 @@ class ProcessManager:
                 universal_newlines=True,
                 bufsize=1,
             )
+
+            # Drain stdout in a background thread to prevent pipe buffer
+            # from filling up and blocking the subprocess.
+            prefix = f"{color}{Colors.BOLD}[{name}]{Colors.ENDC} "
+            def _drain(proc: subprocess.Popen, pfx: str):
+                try:
+                    for line in proc.stdout:
+                        print(f"{pfx}{line}", end="", flush=True)
+                except (ValueError, OSError):
+                    pass  # pipe closed during shutdown
+
+            t = threading.Thread(target=_drain, args=(process, prefix), daemon=True)
+            t.start()
 
             self.processes.append(process)
             print(f"{color}{Colors.BOLD}[{name}]{Colors.ENDC} Started (PID: {process.pid})")

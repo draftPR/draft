@@ -219,34 +219,47 @@ async def get_sprint_metrics(
 async def get_agent_metrics(
     db: AsyncSession, goal_id: str | None = None
 ) -> AgentMetrics:
-    """Calculate AI agent usage metrics."""
-    base_query = select(AgentSession)
+    """Calculate AI agent usage metrics using SQL aggregation."""
+    # Build base filter condition
+    filters = []
     if goal_id:
-        base_query = base_query.join(Ticket).where(Ticket.goal_id == goal_id)
+        filters.append(Ticket.goal_id == goal_id)
 
-    result = await db.execute(base_query)
-    sessions = result.scalars().all()
+    # Aggregate totals in a single query
+    totals_query = select(
+        func.count(AgentSession.id).label("total"),
+        func.count(AgentSession.ended_at)
+        .filter(AgentSession.turn_count > 0)
+        .label("successful"),
+        func.coalesce(func.avg(AgentSession.turn_count), 0).label("avg_turns"),
+        func.coalesce(func.sum(AgentSession.estimated_cost_usd), 0).label(
+            "total_cost"
+        ),
+    )
+    if goal_id:
+        totals_query = totals_query.join(Ticket).where(Ticket.goal_id == goal_id)
 
-    if not sessions:
+    totals_result = await db.execute(totals_query)
+    row = totals_result.one()
+    total = row.total
+    successful = row.successful
+    avg_turns = float(row.avg_turns)
+    total_cost = float(row.total_cost)
+
+    if total == 0:
         return AgentMetrics()
 
-    total = len(sessions)
+    # Most used agent via GROUP BY
+    agent_query = select(
+        AgentSession.agent_type, func.count(AgentSession.id).label("cnt")
+    ).group_by(AgentSession.agent_type)
+    if goal_id:
+        agent_query = agent_query.join(Ticket).where(Ticket.goal_id == goal_id)
+    agent_query = agent_query.order_by(func.count(AgentSession.id).desc()).limit(1)
 
-    # Count successful sessions (sessions where a job completed successfully)
-    # For now, consider ended sessions with >0 turns as successful
-    successful = sum(1 for s in sessions if s.ended_at and s.turn_count > 0)
-
-    # Average turns
-    avg_turns = sum(s.turn_count for s in sessions) / total if total > 0 else 0
-
-    # Most used agent
-    agent_counts: dict[str, int] = {}
-    for s in sessions:
-        agent_counts[s.agent_type] = agent_counts.get(s.agent_type, 0) + 1
-    most_used = max(agent_counts, key=agent_counts.get) if agent_counts else "claude"
-
-    # Total cost
-    total_cost = sum(s.estimated_cost_usd for s in sessions)
+    agent_result = await db.execute(agent_query)
+    agent_row = agent_result.first()
+    most_used = agent_row[0] if agent_row else "claude"
 
     return AgentMetrics(
         total_sessions=total,

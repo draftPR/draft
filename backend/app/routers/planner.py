@@ -490,3 +490,48 @@ async def planner_start(
 
         # Wait before next poll
         await asyncio.sleep(request.poll_interval_seconds)
+
+
+class ReleaseLockResponse(BaseModel):
+    """Response from planner lock release."""
+
+    released: bool
+    message: str
+
+
+@router.post(
+    "/release-lock",
+    response_model=ReleaseLockResponse,
+    summary="Force-release the planner lock (emergency admin action)",
+)
+async def release_planner_lock(
+    db: AsyncSession = Depends(get_db),
+) -> ReleaseLockResponse:
+    """
+    Force-release the planner lock.
+
+    **WARNING:** This is an emergency admin action for when the planner gets stuck.
+    Only use this if the planner tick is hung and no tick is actually running.
+
+    Deletes the planner_tick lock row from the planner_locks table.
+    """
+    from sqlalchemy import delete as sql_delete
+
+    from app.models.planner_lock import PlannerLock
+
+    result = await db.execute(
+        sql_delete(PlannerLock).where(PlannerLock.lock_key == "planner_tick")
+    )
+    await db.commit()
+
+    if result.rowcount > 0:
+        logger.warning("Planner lock force-released by admin action")
+        return ReleaseLockResponse(
+            released=True,
+            message="Planner lock released successfully",
+        )
+    else:
+        return ReleaseLockResponse(
+            released=False,
+            message="No planner lock was held",
+        )

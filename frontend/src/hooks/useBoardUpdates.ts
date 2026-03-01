@@ -142,7 +142,7 @@ export function useBoardUpdates(boardId: string | null | undefined): UseBoardUpd
           reconnectAttempts++;
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
-          }, reconnectDelay * reconnectAttempts);
+          }, Math.min(reconnectDelay * 2 ** reconnectAttempts, 30000));
         }
       };
 
@@ -163,7 +163,10 @@ export function useBoardUpdates(boardId: string | null | undefined): UseBoardUpd
           // Update state
           setLastUpdate(message);
           if (message.type !== 'subscribed') {
-            setUpdates((prev) => [...prev, message]);
+            setUpdates((prev) => {
+              const next = [...prev, message];
+              return next.length > 100 ? next.slice(-100) : next;
+            });
           }
 
           // Handle JSON Patch protocol messages
@@ -242,7 +245,8 @@ export function useBoardUpdates(boardId: string | null | undefined): UseBoardUpd
         wsRef.current.close(1000, 'Component unmounted');
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Only reconnect when boardId changes. Other deps (queryClient, refs) are stable singletons.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- stable refs: queryClient, queryKeys, wsRef, listenersRef, lastSeqRef, pingIntervalRef
   }, [boardId]);
 
   return {

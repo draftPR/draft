@@ -26,6 +26,9 @@ export function useBoardsQuery() {
   });
 }
 
+/** Active ticket states that warrant fast polling */
+const ACTIVE_STATES = new Set(['executing', 'verifying']);
+
 /** Fetch board view (columns + tickets) with optional auto-refetch */
 export function useBoardViewQuery(boardId: string | null | undefined, autoRefresh = true) {
   return useQuery<BoardResponse>({
@@ -37,7 +40,15 @@ export function useBoardViewQuery(boardId: string | null | undefined, autoRefres
       ? (query) => {
           // Back off when the last fetch failed (backend likely down)
           if (query.state.fetchStatus === 'idle' && query.state.status === 'error') {
-            return 30_000; // slow poll when erroring
+            return 30_000;
+          }
+          // Back off when no tickets are actively executing
+          const data = query.state.data as BoardResponse | undefined;
+          if (data?.columns) {
+            const hasActive = data.columns.some((col) =>
+              ACTIVE_STATES.has(col.state),
+            );
+            if (!hasActive) return 15_000;
           }
           return 3000;
         }

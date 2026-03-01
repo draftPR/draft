@@ -23,7 +23,8 @@ export function useAvailableExecutors() {
         setLoading(true);
         setError(null);
 
-        const response = await fetch('http://localhost:8000/executors/available');
+        const baseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+        const response = await fetch(`${baseUrl}/executors/available`);
 
         if (!response.ok) {
           throw new Error(`Failed to fetch executors: ${response.statusText}`);

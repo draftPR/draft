@@ -11,6 +11,7 @@ class JobKind(StrEnum):
 
     EXECUTE = "execute"
     VERIFY = "verify"
+    RESUME = "resume"
 
 
 class JobStatus(StrEnum):
