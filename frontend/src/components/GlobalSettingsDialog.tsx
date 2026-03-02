@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { getGlobalSettings, updateGlobalSettings, getExecutorModels, type ExecutorModel } from "@/services/api";
+import { getGlobalSettings, updateGlobalSettings } from "@/services/api";
 import { toast } from "sonner";
 import { Info, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -39,43 +39,12 @@ export function GlobalSettingsDialog({
 }: GlobalSettingsDialogProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [_loadingModels, setLoadingModels] = useState(false);
 
   // Form state
   const [executorModel, setExecutorModel] = useState<string>("auto");
   const [timeoutValue, setTimeoutValue] = useState(600);
   const [preferredExecutor, setPreferredExecutor] = useState("cursor-agent");
-  const [modelOptions, setModelOptions] = useState<ExecutorModel[]>([]);
   const [configPath, setConfigPath] = useState("");
-
-  // Fetch models when executor changes
-  useEffect(() => {
-    const fetchModels = async () => {
-      setLoadingModels(true);
-      try {
-        const models = await getExecutorModels(preferredExecutor);
-        setModelOptions(models);
-
-        // If current model is not valid for new executor, reset to auto
-        if (executorModel && executorModel !== "auto") {
-          const isValidModel = models.some((opt: ExecutorModel) => opt.id === executorModel);
-          if (!isValidModel) {
-            setExecutorModel("auto");
-          }
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to load models";
-        toast.error(message);
-        setModelOptions([]);
-      } finally {
-        setLoadingModels(false);
-      }
-    };
-
-    if (preferredExecutor) {
-      fetchModels();
-    }
-  }, [preferredExecutor]);
 
   // Load current config
   useEffect(() => {
@@ -119,7 +88,7 @@ export function GlobalSettingsDialog({
           preferred_executor: preferredExecutor,
         },
       });
-      toast.success("Settings saved to smartkanban.yaml");
+      toast.success("Settings saved");
       onOpenChange(false);
     } catch (err) {
       const message =
@@ -153,7 +122,7 @@ export function GlobalSettingsDialog({
           <DialogTitle>AI Agent Configuration</DialogTitle>
           <DialogDescription>
             Configure which AI agent and model to use for automated coding.
-            Changes are saved to smartkanban.yaml for the entire project.
+            Changes are saved to the board configuration.
           </DialogDescription>
         </DialogHeader>
 
@@ -189,30 +158,12 @@ export function GlobalSettingsDialog({
 
           {/* Model Selection */}
           <div className="space-y-2">
-            <Label htmlFor="model">AI Model</Label>
-            <Select
-              value={executorModel || "auto"}
-              onValueChange={(value) => setExecutorModel(value)}
-              disabled={true}
-            >
-              <SelectTrigger id="model" disabled={true}>
-                <SelectValue placeholder="Select model" />
-              </SelectTrigger>
-              <SelectContent>
-                {modelOptions.map((model) => (
-                  <SelectItem key={model.id} value={model.id}>
-                    <div className="flex flex-col">
-                      <span>{model.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {model.description}
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>AI Model</Label>
+            <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
+              Auto (intelligently selects the best model for each task)
+            </div>
             <p className="text-xs text-muted-foreground">
-              Model selection coming soon. Currently using "Auto" (intelligently selects the best model for each task)
+              Per-model selection can be configured in board settings or executor profiles.
             </p>
           </div>
 
@@ -254,7 +205,7 @@ export function GlobalSettingsDialog({
                   Saving...
                 </>
               ) : (
-                "Save to YAML"
+                "Save"
               )}
             </Button>
           </div>

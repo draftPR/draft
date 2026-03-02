@@ -30,8 +30,9 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { clearBoardConfig, getBoardConfig, updateBoardConfig, getExecutorModels, deleteAllTickets, deleteBoard, type ExecutorModel } from "@/services/api";
 import { toast } from "sonner";
-import { AlertCircle, Info, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { AlertCircle, ExternalLink, Info, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useNavigate } from "react-router";
 
 interface BoardSettingsDialogProps {
   open: boolean;
@@ -54,6 +55,7 @@ export function BoardSettingsDialog({
   onTicketsDeleted,
   onBoardDeleted,
 }: BoardSettingsDialogProps) {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -160,7 +162,7 @@ export function BoardSettingsDialog({
     setSaving(true);
     try {
       await clearBoardConfig(boardId);
-      toast.success("Board settings reset to YAML defaults");
+      toast.success("Board settings reset to defaults");
       setExecutorModel("auto");
       setTimeoutSecs(300);
       setPreferredExecutor("cursor-agent");
@@ -239,8 +241,7 @@ export function BoardSettingsDialog({
         <DialogHeader>
           <DialogTitle>Board Settings</DialogTitle>
           <DialogDescription>
-            Configure board-level overrides for execution settings.
-            These override smartkanban.yaml configuration.
+            Configure execution settings for this board.
           </DialogDescription>
         </DialogHeader>
 
@@ -249,7 +250,7 @@ export function BoardSettingsDialog({
             <Alert>
               <Info className="h-4 w-4" />
               <AlertDescription>
-                This board has custom settings that override the repository's smartkanban.yaml
+                This board has custom execution settings configured.
               </AlertDescription>
             </Alert>
           )}
@@ -334,8 +335,19 @@ export function BoardSettingsDialog({
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription className="text-xs">
-              Additional settings (YOLO mode, verify commands, etc.) can be configured
-              in smartkanban.yaml in your repository.
+              Additional settings (YOLO mode, verify commands, planner, etc.) can be
+              configured in the{" "}
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground transition-colors"
+                onClick={() => {
+                  onOpenChange(false);
+                  navigate("/settings?tab=executors");
+                }}
+              >
+                Settings page
+                <ExternalLink className="h-3 w-3" />
+              </button>
             </AlertDescription>
           </Alert>
 
@@ -402,7 +414,7 @@ export function BoardSettingsDialog({
             className="gap-2"
           >
             <RotateCcw className="h-4 w-4" />
-            Reset to YAML
+            Reset to Defaults
           </Button>
           <div className="flex gap-2">
             <Button
@@ -434,7 +446,7 @@ export function BoardSettingsDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Reset Board Settings?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will reset all board-level overrides. Settings will revert to smartkanban.yaml defaults.
+            This will reset all board settings to defaults.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

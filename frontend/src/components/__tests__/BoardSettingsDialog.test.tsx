@@ -98,18 +98,18 @@ describe("BoardSettingsDialog", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows Reset to YAML button (disabled when no overrides)", async () => {
+  it("shows Reset to Defaults button (disabled when no overrides)", async () => {
     render(<BoardSettingsDialog {...defaultProps} />);
 
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: /Reset to YAML/ }),
+        screen.getByRole("button", { name: /Reset to Defaults/ }),
       ).toBeInTheDocument();
     });
 
     // has_overrides is false, so the reset button should be disabled
     expect(
-      screen.getByRole("button", { name: /Reset to YAML/ }),
+      screen.getByRole("button", { name: /Reset to Defaults/ }),
     ).toBeDisabled();
   });
 

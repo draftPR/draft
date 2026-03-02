@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 import { Settings, Save, Wrench, Loader2, Trash2, FolderGit, HardDrive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,6 +19,8 @@ import {
   KeyboardShortcutsCard,
   WelcomeTutorialCard,
   PlannerSettingsCard,
+  ExecutorProfilesCard,
+  VerificationCommandsCard,
   type BudgetSettings,
   loadBudgetSettings,
   saveBudgetSettings,
@@ -33,6 +36,8 @@ import type { CleanupResponse } from "@/types/api";
 import { toast } from "sonner";
 
 export function SettingsPage() {
+  const [searchParams] = useSearchParams();
+  const defaultTab = searchParams.get("tab") || "general";
   const [editor, setEditor] = useState<EditorType>(getPreferredEditor());
   const [defaultAgent, setDefaultAgent] = useState(() =>
     localStorage.getItem("smartkanban_default_agent") ?? "claude"
@@ -116,7 +121,7 @@ export function SettingsPage() {
         )}
       </div>
 
-      <Tabs defaultValue="general">
+      <Tabs defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="executors">Executors</TabsTrigger>
@@ -135,6 +140,8 @@ export function SettingsPage() {
             defaultAgent={defaultAgent}
             onAgentChange={(v) => { setDefaultAgent(v); setHasChanges(true); }}
           />
+          <ExecutorProfilesCard />
+          <VerificationCommandsCard />
           <PlannerSettingsCard onDirty={() => setHasChanges(true)} />
         </TabsContent>
 
