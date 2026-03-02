@@ -48,6 +48,7 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.executors import router as executors_router
 from app.routers.pull_requests import router as pull_requests_router
 from app.routers.settings import router as settings_router
+from app.routers.webhooks import router as webhooks_router
 from app.routers.websocket import router as websocket_router
 
 load_dotenv()
@@ -455,6 +456,7 @@ app.include_router(executors_router)  # Executor plugin management
 app.include_router(settings_router)  # Global settings (smartkanban.yaml)
 app.include_router(websocket_router)  # WebSocket real-time updates
 app.include_router(pull_requests_router)  # GitHub PR integration
+app.include_router(webhooks_router)  # Webhook notifications for ticket changes
 
 
 @app.get("/version")

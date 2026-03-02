@@ -12,10 +12,12 @@ from sqlalchemy.orm import selectinload
 
 from app.database_sync import get_sync_db
 from app.exceptions import InvalidStateTransitionError, ResourceNotFoundError
+from app.models.board import Board
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.schemas.ticket import TicketCreate, TicketResponse, TicketsByState
 from app.services.workspace_service import WorkspaceService
+from app.services.webhook_service import fire_webhooks
 from app.state_machine import (
     ActorType,
     EventType,
@@ -201,7 +203,35 @@ class TicketService:
         if auto_verify and to_state == TicketState.VERIFYING:
             await self._enqueue_verify_job_async(ticket_id)
 
+        # Fire webhook notifications (best-effort, non-blocking)
+        try:
+            board = await self._get_board_for_ticket(ticket)
+            webhooks = (board.config or {}).get("webhooks", []) if board else []
+            if webhooks:
+                asyncio.ensure_future(
+                    fire_webhooks(
+                        webhooks,
+                        ticket_id=ticket.id,
+                        ticket_title=ticket.title,
+                        board_id=ticket.board_id,
+                        from_state=from_state.value,
+                        to_state=to_state.value,
+                        actor_type=actor_type.value,
+                        actor_id=actor_id,
+                        reason=reason,
+                    )
+                )
+        except Exception:
+            logger.warning("Failed to dispatch webhooks for ticket %s", ticket_id, exc_info=True)
+
         return ticket
+
+    async def _get_board_for_ticket(self, ticket: Ticket) -> Board | None:
+        """Load the board for a ticket (for webhook config)."""
+        result = await self.db.execute(
+            select(Board).where(Board.id == ticket.board_id)
+        )
+        return result.scalar_one_or_none()
 
     async def _enqueue_verify_job_async(self, ticket_id: str) -> str | None:
         """
@@ -355,6 +385,9 @@ class TicketService:
                 # Add blocker title if ticket is blocked
                 if ticket.blocked_by_ticket_id and ticket.blocked_by:
                     ticket_dict["blocked_by_ticket_title"] = ticket.blocked_by.title
+                # Add goal title if goal is loaded
+                if ticket.goal:
+                    ticket_dict["goal_title"] = ticket.goal.title
                 ticket_responses.append(ticket_dict)
 
             columns.append(
