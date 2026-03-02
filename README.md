@@ -1,12 +1,64 @@
 # Alma Kanban
 
-An AI-powered local-first kanban board that uses AI agents to automatically implement tickets. It creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the results, and manages the workflow through a state machine.
+**Stop context-switching between your kanban board and your terminal.**
+
+Alma Kanban is a local-first kanban board where AI agents implement tickets for you. You review diffs and approve changes. The agent handles the grunt work.
+
+## The Problem
+
+Traditional kanban boards (Linear, Jira, GitHub Projects) track work. But you still have to:
+- Leave your board to implement the ticket
+- Context-switch between planning and coding
+- Manually verify the work matches the ticket description
+- Remember to update ticket status after each commit
+
+Alma Kanban inverts this: the board doesn't track your work, it *does* the work.
+
+## How It Works
+
+1. **Analyze your codebase** - Alma reads your repo and understands the structure
+2. **Generate tickets** - Break down a feature into concrete implementation tasks
+3. **Agent executes** - Claude Code or Cursor Agent implements the ticket in an isolated git worktree
+4. **Verify** - Run your test suite and linters automatically
+5. **Review diff** - GitHub-style code review UI, inline comments
+6. **Approve & merge** - One click to merge the worktree into your main branch
+
+All local. No cloud. No external dependencies. Just SQLite + FastAPI + React.
+
+## Why Alma Kanban?
+
+| Feature | Linear / Jira | GitHub Projects | Alma Kanban |
+|---------|---------------|-----------------|-------------|
+| **AI execution** | ❌ Manual coding | ❌ Manual coding | ✅ Agent implements |
+| **Code review in board** | ❌ Separate PR flow | ❌ Separate PR flow | ✅ Built-in diff viewer |
+| **Workspace isolation** | ❌ N/A | ❌ N/A | ✅ Git worktrees per ticket |
+| **Automatic verification** | ❌ Manual testing | ⚠️ CI/CD only | ✅ Inline test runs |
+| **Local-first** | ❌ Cloud SaaS | ⚠️ Cloud + local | ✅ 100% local |
+| **Autopilot mode** | ❌ No | ❌ No | ✅ Batch execution |
+
+Alma isn't a "kanban board with AI chat". It's a workflow where agents are first-class executors.
 
 ## Demo
+
+Watch an agent implement a ticket, run tests, and present a diff for review, all without leaving the kanban view:
 
 <p align="center">
   <img src="docs/demo.gif" alt="Alma Kanban Demo" width="900" />
 </p>
+
+*The agent creates an isolated worktree, writes code using Claude CLI, runs pytest, and transitions the ticket to "needs review" automatically.*
+
+## Who Should Use Alma?
+
+**Best for:**
+- Solo developers who want to offload boilerplate/CRUD work to AI
+- Teams experimenting with agent-first workflows
+- Anyone tired of manually syncing ticket status with git branches
+
+**Not a fit if:**
+- You need real-time collaboration (Alma is local-first, not multi-user)
+- Your workflow is heavily manual/creative (agents work best on structured tasks)
+- You don't trust AI to write code (fair, but then why are you here?)
 
 ## Screenshots
 
@@ -31,7 +83,7 @@ Live agent activity log streaming during ticket execution.
 ![Agent Execution](docs/screenshots/agent-execution.png)
 
 ### Autopilot Running
-Board with autopilot active — tickets flowing through executing, verifying, and blocked states.
+Board with autopilot active, tickets flowing through executing, verifying, and blocked states.
 
 ![Autopilot Running](docs/screenshots/autopilot-running.png)
 
@@ -61,7 +113,7 @@ Line-level commenting on revision diffs.
 - **Node.js** 18+ (with npm)
 - **Python** 3.11+
 
-No external services (Redis, etc.) required — everything runs in-process.
+No external services (Redis, etc.) required, everything runs in-process.
 
 ## Project Structure
 
@@ -357,7 +409,18 @@ Variables:
 - **Formatter:** Prettier
 - Run: `make lint-frontend` / `make format-frontend`
 
+## Roadmap
+
+Early-stage, rapidly evolving. Current priorities:
+
+- [ ] **Web deployment mode** - Run Alma on a VPS, access from browser
+- [ ] **Plugin system** - Custom executors (aider, OpenHands, etc.)
+- [ ] **Multi-board support** - Separate boards for different repos/projects
+- [ ] **Agent memory** - Learn from past ticket executions
+- [ ] **Cost tracking** - Monitor LLM API spend per ticket
+
+Want to contribute? Open an issue or PR.
+
 ## License
 
 MIT
-
