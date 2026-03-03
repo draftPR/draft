@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.dependencies.auth import get_current_user
+from app.models.user import User
 from app.schemas.board import (
     BoardConfigResponse,
     BoardConfigUpdate,
@@ -69,16 +71,19 @@ async def get_templates():
 async def create_board(
     data: BoardCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
 ) -> BoardResponse:
     """Create a new board with a repository root.
 
     **Important:** The repo_root must be an absolute path to an existing
     git repository. This becomes the authoritative path for all file
     operations on this board.
+
+    When auth is enabled, the board is owned by the authenticated user.
     """
     service = BoardService(db)
     try:
-        board = await service.create_board(data)
+        board = await service.create_board(data, owner_id=current_user.id if current_user else None)
         return BoardResponse.model_validate(board)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -91,10 +96,16 @@ async def create_board(
 )
 async def list_boards(
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
 ) -> BoardListResponse:
-    """Get all boards."""
+    """Get all boards.
+
+    When auth is enabled, returns only boards owned by the authenticated user.
+    When auth is disabled, returns all boards (backward compatible).
+    """
     service = BoardService(db)
-    boards = await service.get_boards()
+    owner_id = current_user.id if current_user is not None else None
+    boards = await service.get_boards(owner_id=owner_id)
     return BoardListResponse(
         boards=[BoardResponse.model_validate(b) for b in boards],
         total=len(boards),
@@ -250,6 +261,66 @@ async def update_board_config(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/{board_id}/config/import-yaml",
+    response_model=BoardConfigResponse,
+    summary="Import configuration from smartkanban.yaml",
+)
+async def import_yaml_config(
+    board_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> BoardConfigResponse:
+    """
+    One-time import: reads smartkanban.yaml from the board's repo_root,
+    deep-merges it with the existing board config, and saves to DB.
+
+    After this, the board's DB config is the single source of truth.
+    """
+    service = BoardService(db)
+    try:
+        board = await service.get_board_by_id(board_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    repo_root = Path(board.repo_root).resolve()
+    yaml_path = repo_root / "smartkanban.yaml"
+
+    if not yaml_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"smartkanban.yaml not found at {repo_root}",
+        )
+
+    import yaml
+
+    from app.services.config_service import SmartKanbanConfig, deep_merge_dicts
+
+    try:
+        with open(yaml_path) as f:
+            yaml_data = yaml.safe_load(f) or {}
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse smartkanban.yaml: {e}",
+        )
+
+    # Build: defaults <- yaml <- existing board config
+    defaults = SmartKanbanConfig().to_dict()
+    merged = deep_merge_dicts(defaults, yaml_data)
+    if board.config:
+        merged = deep_merge_dicts(merged, board.config)
+
+    from app.schemas.board import BoardUpdate
+
+    board = await service.update_board(board_id, BoardUpdate(config=merged))
+
+    return BoardConfigResponse(
+        board_id=board.id,
+        config=board.config,
+        has_overrides=True,
+    )
 
 
 @router.delete(

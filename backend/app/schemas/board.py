@@ -53,6 +53,7 @@ class BoardResponse(BaseModel):
     repo_root: str
     default_branch: str | None
     config: dict | None
+    owner_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

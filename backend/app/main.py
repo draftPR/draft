@@ -1,4 +1,4 @@
-"""Alma Kanban Backend - FastAPI Application."""
+"""Telem Backend - FastAPI Application."""
 
 import logging
 import os
@@ -43,6 +43,7 @@ from app.routers import (
     revisions_router,
     tickets_router,
 )
+from app.routers.auth import router as auth_router
 from app.routers.agents import router as agents_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.executors import router as executors_router
@@ -70,7 +71,7 @@ if _sentry_dsn:
     except ImportError:
         pass  # sentry-sdk not installed, skip
 
-APP_NAME = "Alma Kanban"
+APP_NAME = "Telem"
 APP_VERSION = "0.1.0"
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=APP_NAME,
     version=APP_VERSION,
-    description="A local-first Alma Kanban application with state machine workflow",
+    description="A local-first Telem application with state machine workflow",
     lifespan=lifespan,
 )
 
@@ -249,7 +250,7 @@ async def llm_api_error_handler(request: Request, exc: LLMAPIError) -> JSONRespo
 async def smart_kanban_error_handler(
     request: Request, exc: SmartKanbanError
 ) -> JSONResponse:
-    """Handle generic Alma Kanban errors."""
+    """Handle generic Telem errors."""
     return JSONResponse(
         status_code=500,
         content={
@@ -438,6 +439,7 @@ async def liveness() -> JSONResponse:
 
 
 # Include routers
+app.include_router(auth_router)  # User registration and login
 app.include_router(goals_router)
 app.include_router(tickets_router)
 app.include_router(boards_router)  # New multi-board endpoints (/boards/...)

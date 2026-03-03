@@ -1,4 +1,4 @@
-"""SQLAlchemy models for Alma Kanban."""
+"""SQLAlchemy models for Telem."""
 
 from app.models.agent_conversation_history import AgentConversationHistory
 from app.models.agent_session import AgentMessage, AgentSession
@@ -23,6 +23,7 @@ from app.models.review_summary import ReviewSummary
 from app.models.revision import Revision
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
+from app.models.user import User
 from app.models.workspace import Workspace
 
 __all__ = [
@@ -50,5 +51,6 @@ __all__ = [
     "Revision",
     "Ticket",
     "TicketEvent",
+    "User",
     "Workspace",
 ]

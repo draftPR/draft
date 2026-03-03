@@ -24,22 +24,25 @@ class BoardService:
 
     @staticmethod
     def get_default_board_config() -> dict:
-        """Get sensible default configuration for new boards.
+        """Get full default configuration for new boards.
 
-        These defaults prevent common pitfalls:
-        - sonnet-4.5 instead of auto (which defaults to expensive opus-thinking)
-        - 300s timeout (5 minutes, reasonable for most tasks)
+        Returns a complete SmartKanbanConfig as a dict so that the DB
+        is the single source of truth (no YAML needed at runtime).
 
-        Users can override these via BoardSettingsDialog UI or API.
+        Key defaults:
+        - executor_model: "sonnet-4.5" (fast and cost-effective)
+        - timeout: 300 (5 minutes, reasonable for most tasks)
         """
-        return {
-            "execute_config": {
-                "executor_model": "sonnet-4.5",
-                "timeout": 300,
-            }
-        }
+        from app.services.config_service import SmartKanbanConfig
 
-    async def create_board(self, data: BoardCreate) -> Board:
+        config = SmartKanbanConfig()
+        full = config.to_dict()
+        # Override with our preferred defaults
+        full["execute_config"]["executor_model"] = "sonnet-4.5"
+        full["execute_config"]["timeout"] = 300
+        return full
+
+    async def create_board(self, data: BoardCreate, owner_id: str | None = None) -> Board:
         """Create a new board with sensible default configuration.
 
         CRITICAL: repo_root becomes the authoritative path for all
@@ -82,6 +85,7 @@ class BoardService:
             repo_root=str(repo_path),  # Store resolved absolute path
             default_branch=data.default_branch,
             config=board_config,
+            owner_id=owner_id,
         )
         self.db.add(board)
         await self.db.commit()
@@ -114,9 +118,16 @@ class BoardService:
             raise ValueError(f"Board not found: {board_id}")
         return board
 
-    async def get_boards(self) -> list[Board]:
-        """Get all boards."""
-        result = await self.db.execute(select(Board))
+    async def get_boards(self, owner_id: str | None = None) -> list[Board]:
+        """Get all boards, optionally filtered by owner.
+
+        When owner_id is provided, returns only boards owned by that user.
+        When owner_id is None, returns all boards (backward compatible).
+        """
+        query = select(Board)
+        if owner_id is not None:
+            query = query.where(Board.owner_id == owner_id)
+        result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def update_board(self, board_id: str, data: BoardUpdate) -> Board:

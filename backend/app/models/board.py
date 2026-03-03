@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.goal import Goal
     from app.models.job import Job
     from app.models.ticket import Ticket
+    from app.models.user import User
     from app.models.workspace import Workspace
 
 
@@ -44,6 +45,14 @@ class Board(Base):
     # Overrides settings from smartkanban.yaml
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # Owner (nullable for backward compat with single-user setups)
+    owner_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -52,6 +61,7 @@ class Board(Base):
     )
 
     # Relationships
+    owner: Mapped["User | None"] = relationship("User", back_populates="boards")
     goals: Mapped[list["Goal"]] = relationship(
         "Goal", back_populates="board", cascade="all, delete-orphan"
     )
