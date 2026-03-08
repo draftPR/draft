@@ -8,43 +8,6 @@ An AI-powered local-first kanban board that uses AI agents to automatically impl
   <img src="docs/demo.gif" alt="Draft Demo" width="900" />
 </p>
 
-## Screenshots
-
-### Kanban Board
-Full board view with ticket states, dependency tracking, and autopilot controls.
-
-![Kanban Board](docs/screenshots/kanban-board.png)
-
-### Ticket Detail
-Ticket detail panel showing description, state, agent actions, and worktree info.
-
-![Ticket Detail](docs/screenshots/ticket-detail.png)
-
-### Dependency Graph
-Visual DAG of ticket dependencies in the debug panel.
-
-![Dependency Graph](docs/screenshots/dependency-graph.png)
-
-### Agent Execution
-Live agent activity log streaming during ticket execution.
-
-![Agent Execution](docs/screenshots/agent-execution.png)
-
-### Autopilot Running
-Board with autopilot active — tickets flowing through executing, verifying, and blocked states.
-
-![Autopilot Running](docs/screenshots/autopilot-running.png)
-
-### Code Review
-Revision diff view with inline commenting and approve/request changes workflow.
-
-![Code Review](docs/screenshots/code-review.png)
-
-### Inline Comments
-Line-level commenting on revision diffs.
-
-![Inline Comments](docs/screenshots/inline-comments.png)
-
 ## Tech Stack
 
 | Layer | Technology |
@@ -66,7 +29,7 @@ No external services (Redis, etc.) required — everything runs in-process.
 ## Project Structure
 
 ```
-alma-kanban/
+draft/
 ├── frontend/              # React + Vite + TypeScript + shadcn
 │   ├── src/
 │   │   ├── components/    # UI components (KanbanBoard, TicketDetailPanel, etc.)
@@ -357,7 +320,13 @@ Variables:
 - **Formatter:** Prettier
 - Run: `make lint-frontend` / `make format-frontend`
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute.
+
 ## License
 
-MIT
+Business Source License 1.1 (BSL 1.1). See [LICENSE](LICENSE) for details.
+
+Free for non-commercial use including personal projects, education, and evaluation. Commercial use requires a separate license. Converts to Apache 2.0 on 2030-02-26.
 

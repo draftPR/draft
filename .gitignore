@@ -47,24 +47,42 @@ frontend/dist/
 *.db
 *.sqlite
 *.sqlite3
+*.db-shm
+*.db-wal
 
 # Testing
 .coverage
 htmlcov/
 .pytest_cache/
 .ruff_cache/
+frontend/playwright-report/
+frontend/test-results/
 
 # TypeScript
 *.tsbuildinfo
 
-# Smart Kanban workspaces (git worktrees)
+# Draft workspaces (git worktrees)
 .smartkanban/
 
-# Session/summary markdown files (generated during development)
+# Internal dev docs (keep only README, CLAUDE, CONTRIBUTING)
 /*.md
 !CLAUDE.md
 !AGENTS.md
 !README.md
+!CONTRIBUTING.md
 
-*.db-shm
-*.db-wal
+# Demo / recording artifacts
+demo-videos/
+issues/
+*.mp4
+*.webm
+
+# Utility scripts (not part of the product)
+record-demo*.mjs
+cleanup_calculator*.sh
+delete_board.py
+test_ticket_generation.py
+supervisord.conf
+nginx.conf
+backend/test_parse.py
+backend/setup_demo_review.py
