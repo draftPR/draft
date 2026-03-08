@@ -1,11 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/board-overview.png" alt="Draft - AI-Powered Kanban Board" width="900" />
-</p>
-
-<h1 align="center">Draft</h1>
-
-<p align="center">
-  <strong>AI-powered local-first kanban board that turns goals into working code</strong>
+  <img src="docs/screenshots/banner.png" alt="Draft - Describe a feature. Get a PR." width="900" />
 </p>
 
 <p align="center">
@@ -18,21 +12,22 @@
   <img src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
 </p>
 
-<p align="center">
-  Draft creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the results, and manages the workflow through a state machine.
-</p>
-
 ---
 
+### Kanban Board
 <p align="center">
-  <img src="docs/screenshots/ticket-detail.png" alt="Ticket Detail & Agent Execution" width="700" />
+  <img src="docs/screenshots/board-overview.png" alt="Draft Kanban Board" width="800" />
 </p>
-<p align="center"><em>Ticket Detail & Agent Execution</em></p>
 
+### Ticket Detail & Agent Execution
 <p align="center">
-  <img src="docs/screenshots/code-review.png" alt="Code Review" width="700" />
+  <img src="docs/screenshots/ticket-detail.png" alt="Ticket Detail" width="800" />
 </p>
-<p align="center"><em>Built-in Code Review</em></p>
+
+### Built-in Code Review
+<p align="center">
+  <img src="docs/screenshots/code-review.png" alt="Code Review" width="800" />
+</p>
 
 ## Tech Stack
 
