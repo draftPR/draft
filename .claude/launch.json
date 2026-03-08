@@ -2,10 +2,11 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "landing",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8080", "--directory", "landing"],
-      "port": 8080
+      "name": "backend",
+      "runtimeExecutable": "./venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+      "cwd": "backend",
+      "port": 8000
     },
     {
       "name": "frontend",
