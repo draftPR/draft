@@ -147,6 +147,7 @@ export function AgentSelector({
     };
     
     loadAgents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
   const selectedAgent = agents.find(a => a.type === value);

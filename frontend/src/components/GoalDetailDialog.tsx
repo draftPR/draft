@@ -56,7 +56,7 @@ export function GoalDetailDialog({
 }: GoalDetailDialogProps) {
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(false);
-  const [generating, _setGenerating] = useState(false);
+  const [generating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [proposedTickets, setProposedTickets] = useState<ProposedTicket[]>([]);
   const [showReview, setShowReview] = useState(false);

@@ -29,7 +29,7 @@ interface ChecklistItem {
   description: string;
   status: "passed" | "failed" | "pending" | "info";
   auto_checked: boolean;
-  value?: any;
+  value?: string | number | boolean | null;
 }
 
 interface RollbackPlan {

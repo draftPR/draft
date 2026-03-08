@@ -100,6 +100,7 @@ export function BoardSettingsDialog({
     if (preferredExecutor) {
       fetchModels();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferredExecutor]);
 
   // Load current config
@@ -107,6 +108,7 @@ export function BoardSettingsDialog({
     if (open) {
       loadConfig();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, boardId]);
 
   const loadConfig = async () => {

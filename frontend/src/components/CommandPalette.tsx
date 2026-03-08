@@ -14,14 +14,7 @@ import { useBoardStore } from "@/stores/boardStore";
 import { useTicketSelectionStore } from "@/stores/ticketStore";
 import type { BoardResponse, Ticket } from "@/types/api";
 import { STATE_DISPLAY_NAMES } from "@/types/api";
-import {
-  Search,
-  Target,
-  Settings,
-  Play,
-  CheckSquare,
-  FileText,
-} from "lucide-react";
+import { Search } from "lucide-react";
 
 export interface CommandAction {
   id: string;
@@ -242,59 +235,3 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
   );
 }
 
-/**
- * Default commands for common Draft actions.
- * Build this array in App.tsx, passing callbacks from App state.
- */
-export const exampleCommands: CommandAction[] = [
-  {
-    id: "new-goal",
-    label: "Create New Goal",
-    description: "Define a new development goal",
-    icon: Target,
-    shortcut: "n g",
-    category: "Goals",
-    onSelect: () => console.log("Create new goal"),
-    keywords: ["add", "goal", "objective"],
-  },
-  {
-    id: "generate-tickets",
-    label: "Generate Tickets from Goal",
-    description: "AI-generate tickets for the selected goal",
-    icon: FileText,
-    shortcut: "g t",
-    category: "Goals",
-    onSelect: () => console.log("Generate tickets"),
-    keywords: ["plan", "tickets", "ai"],
-  },
-  {
-    id: "execute-all",
-    label: "Execute All Ready Tickets",
-    description: "Start autonomous execution of all planned tickets",
-    icon: Play,
-    shortcut: "e a",
-    category: "Tickets",
-    onSelect: () => console.log("Execute all tickets"),
-    keywords: ["run", "start", "execute"],
-  },
-  {
-    id: "verify-all",
-    label: "Verify All Completed Tickets",
-    description: "Run verification commands on completed tickets",
-    icon: CheckSquare,
-    shortcut: "v a",
-    category: "Tickets",
-    onSelect: () => console.log("Verify all tickets"),
-    keywords: ["test", "verify", "check"],
-  },
-  {
-    id: "select-executor",
-    label: "Select Executor",
-    description: "Choose which AI coding agent to use",
-    icon: Settings,
-    shortcut: "s e",
-    category: "Settings",
-    onSelect: () => console.log("Select executor"),
-    keywords: ["agent", "claude", "cursor", "gemini", "codex"],
-  },
-];

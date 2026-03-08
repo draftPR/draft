@@ -18,7 +18,7 @@
  */
 
 import { test, expect } from "@playwright/test";
-import { mockAllApiRoutes, mockBoard, mockGoal, mockTickets } from "./fixtures";
+import { mockAllApiRoutes, mockTickets } from "./fixtures";
 
 const API = "http://localhost:8000";
 

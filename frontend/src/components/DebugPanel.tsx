@@ -109,7 +109,6 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
   
   // UI states
   const [loading, setLoading] = useState(false);
-  const [_error, _setError] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [copied, setCopied] = useState(false);
   
