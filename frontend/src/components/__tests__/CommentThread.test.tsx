@@ -8,13 +8,12 @@ const baseComment: ReviewComment = {
   revision_id: "rev-1",
   file_path: "src/app.ts",
   line_number: 42,
+  anchor: "src/app.ts:42",
   body: "This function needs error handling",
   author_type: "human",
   resolved: false,
   line_content: "function doStuff() {",
-  hunk_header: null,
   created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
 };
 
 describe("CommentThread", () => {

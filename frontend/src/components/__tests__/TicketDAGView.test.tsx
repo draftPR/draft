@@ -30,7 +30,7 @@ describe("TicketDAGView", () => {
 
   it("renders loading state initially", () => {
     // Never resolve the fetch
-    global.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
 
     render(<TicketDAGView />);
     // The loading spinner should appear
@@ -39,7 +39,7 @@ describe("TicketDAGView", () => {
   });
 
   it("renders error state on fetch failure", async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
 
     render(<TicketDAGView />);
     await waitFor(() => {
@@ -48,7 +48,7 @@ describe("TicketDAGView", () => {
   });
 
   it("renders empty state when no tickets", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ columns: [] }),
     });
@@ -62,7 +62,7 @@ describe("TicketDAGView", () => {
   });
 
   it("renders DAG with tickets", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({
@@ -81,7 +81,7 @@ describe("TicketDAGView", () => {
   });
 
   it("renders ticket titles in SVG nodes (truncated)", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({

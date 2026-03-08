@@ -31,6 +31,7 @@ describe("AgentActivityLog", () => {
   it("shows empty state when no jobs exist", async () => {
     mockedFetchLogs.mockResolvedValue({
       ticket_id: "ticket-1",
+      ticket_title: "Test Ticket",
       total_jobs: 0,
       total_entries: 0,
       executions: [],
@@ -59,6 +60,7 @@ describe("AgentActivityLog", () => {
   it("shows execution summary when data is available", async () => {
     mockedFetchLogs.mockResolvedValue({
       ticket_id: "ticket-1",
+      ticket_title: "Test Ticket",
       total_jobs: 2,
       total_entries: 15,
       executions: [
@@ -66,6 +68,8 @@ describe("AgentActivityLog", () => {
           job_id: "job-1",
           job_kind: "execute",
           job_status: "succeeded",
+          started_at: "2025-01-01T00:00:00Z",
+          finished_at: "2025-01-01T00:02:00Z",
           duration_seconds: 120,
           entry_count: 10,
           entries: [],
@@ -74,6 +78,8 @@ describe("AgentActivityLog", () => {
           job_id: "job-2",
           job_kind: "verify",
           job_status: "succeeded",
+          started_at: "2025-01-01T00:02:00Z",
+          finished_at: "2025-01-01T00:02:30Z",
           duration_seconds: 30,
           entry_count: 5,
           entries: [],
@@ -92,6 +98,7 @@ describe("AgentActivityLog", () => {
   it("renders execution cards for each job", async () => {
     mockedFetchLogs.mockResolvedValue({
       ticket_id: "ticket-1",
+      ticket_title: "Test Ticket",
       total_jobs: 1,
       total_entries: 3,
       executions: [
@@ -99,6 +106,8 @@ describe("AgentActivityLog", () => {
           job_id: "job-1",
           job_kind: "execute",
           job_status: "succeeded",
+          started_at: "2025-01-01T00:00:00Z",
+          finished_at: "2025-01-01T00:01:00Z",
           duration_seconds: 60,
           entry_count: 3,
           entries: [],

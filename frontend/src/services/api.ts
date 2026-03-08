@@ -158,9 +158,9 @@ export async function deleteAllTickets(boardId: string): Promise<{ message: stri
 
 // ==================== Global Settings API ====================
 
-export async function getGlobalSettings(boardId?: string): Promise<{ board_id: string; execute_config: any }> {
+export async function getGlobalSettings(boardId?: string): Promise<{ board_id: string; config_path: string; execute_config: any }> {
   const params = boardId ? `?board_id=${boardId}` : "";
-  return apiFetch<{ board_id: string; execute_config: any }>(`/settings${params}`);
+  return apiFetch<{ board_id: string; config_path: string; execute_config: any }>(`/settings${params}`);
 }
 
 export async function updateGlobalSettings(settings: Record<string, any>, boardId?: string): Promise<void> {

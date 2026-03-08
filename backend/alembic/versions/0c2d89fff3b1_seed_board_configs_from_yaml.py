@@ -20,8 +20,9 @@ import logging
 from pathlib import Path
 
 import yaml
-from alembic import op
 from sqlalchemy import text
+
+from alembic import op
 
 logger = logging.getLogger(__name__)
 

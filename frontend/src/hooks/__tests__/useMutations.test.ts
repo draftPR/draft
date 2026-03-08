@@ -47,7 +47,7 @@ describe("useStartAutopilot", () => {
     const { result } = renderHook(() => useStartAutopilot());
 
     await act(async () => {
-      result.current.mutate();
+      result.current.mutate(undefined);
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

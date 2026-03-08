@@ -35,7 +35,7 @@ export function useBackendStatus(): BackendStatus {
   const [lastSeen, setLastSeen] = useState<number | null>(null);
   const [waking, setWaking] = useState(false);
   const failCount = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastAutoWake = useRef(0);
 
   const ping = useCallback(async () => {

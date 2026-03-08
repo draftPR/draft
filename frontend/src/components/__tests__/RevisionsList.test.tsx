@@ -7,8 +7,11 @@ const mockRevisions = [
   {
     id: "rev-1",
     ticket_id: "ticket-1",
+    job_id: "job-1",
     number: 1,
     status: RevisionStatus.OPEN,
+    diff_stat_evidence_id: null,
+    diff_patch_evidence_id: null,
     unresolved_comment_count: 0,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -16,8 +19,11 @@ const mockRevisions = [
   {
     id: "rev-2",
     ticket_id: "ticket-1",
+    job_id: "job-2",
     number: 2,
     status: RevisionStatus.APPROVED,
+    diff_stat_evidence_id: null,
+    diff_patch_evidence_id: null,
     unresolved_comment_count: 3,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

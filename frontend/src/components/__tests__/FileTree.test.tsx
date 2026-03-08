@@ -41,14 +41,14 @@ describe("FileTree", () => {
   });
 
   it("renders loading state initially", () => {
-    global.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
 
     render(<FileTree ticketId="ticket-1" />);
     expect(screen.getByText("Loading files...")).toBeInTheDocument();
   });
 
   it("renders error state on fetch failure", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 404,
     });
@@ -62,7 +62,7 @@ describe("FileTree", () => {
   });
 
   it("renders no worktree message when tree is null", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(null),
     });
@@ -76,7 +76,7 @@ describe("FileTree", () => {
   });
 
   it("renders file tree with directories and files", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockTree),
     });
@@ -89,7 +89,7 @@ describe("FileTree", () => {
   });
 
   it("expands directories at depth 0 by default", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockTree),
     });
@@ -103,7 +103,7 @@ describe("FileTree", () => {
   });
 
   it("calls onFileSelect when a file is clicked", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockTree),
     });
@@ -119,7 +119,7 @@ describe("FileTree", () => {
   });
 
   it("sorts directories before files", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockTree),
     });

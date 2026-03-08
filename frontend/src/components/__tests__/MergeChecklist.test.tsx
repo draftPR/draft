@@ -26,7 +26,7 @@ describe("MergeChecklist", () => {
   });
 
   it("renders loading state initially", () => {
-    global.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
 
     render(<MergeChecklist goalId="goal-1" />);
     // Loading shows a spinner, check container renders
@@ -34,7 +34,7 @@ describe("MergeChecklist", () => {
   });
 
   it("renders checklist data after loading", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockChecklistData),
     });
@@ -48,7 +48,7 @@ describe("MergeChecklist", () => {
   });
 
   it("renders automated checks section", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockChecklistData),
     });
@@ -63,7 +63,7 @@ describe("MergeChecklist", () => {
   });
 
   it("renders manual verification section", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockChecklistData),
     });
@@ -85,7 +85,7 @@ describe("MergeChecklist", () => {
   });
 
   it("renders Merge All Changes button", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockChecklistData),
     });
@@ -99,7 +99,7 @@ describe("MergeChecklist", () => {
   });
 
   it("disables merge button when not ready", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockChecklistData),
     });
@@ -114,7 +114,7 @@ describe("MergeChecklist", () => {
   });
 
   it("shows remaining checks count when not ready", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockChecklistData),
     });
@@ -128,7 +128,7 @@ describe("MergeChecklist", () => {
   });
 
   it("renders no checklist message on null data", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
       json: () => Promise.resolve({}),
     });

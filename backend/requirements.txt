@@ -16,3 +16,5 @@ langchain-community>=0.3.0  # Community tools (optional)
 gitpython
 bcrypt>=4.0.0
 python-jose[cryptography]>=3.3.0
+pydantic[email]>=2.0.0  # email-validator for Pydantic EmailStr
+pyyaml>=6.0  # YAML config parsing

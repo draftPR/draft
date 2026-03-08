@@ -64,7 +64,7 @@ describe("TicketCard", () => {
       <TicketCard ticket={baseTicket} index={0} onClick={onClick} />,
     );
 
-    const card = screen.getByText("Fix login button").closest("div[class*='cursor-pointer']");
+    const card = screen.getByText("Fix login button").closest("div[class*='cursor-pointer']") as HTMLElement | null;
     if (card) {
       await card.click();
     }
