@@ -186,11 +186,11 @@ async def get_board_config(
     Get the board-level configuration overrides.
 
     Returns the raw config JSON stored in the board, which overrides
-    settings from smartkanban.yaml in the repository.
+    settings from draft.yaml in the repository.
 
     Configuration priority (highest to lowest):
     1. Board config (this endpoint)
-    2. YAML config (smartkanban.yaml)
+    2. YAML config (draft.yaml)
     3. Defaults
     """
     service = BoardService(db)
@@ -268,14 +268,14 @@ async def update_board_config(
 @router.post(
     "/{board_id}/config/import-yaml",
     response_model=BoardConfigResponse,
-    summary="Import configuration from smartkanban.yaml",
+    summary="Import configuration from draft.yaml",
 )
 async def import_yaml_config(
     board_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> BoardConfigResponse:
     """
-    One-time import: reads smartkanban.yaml from the board's repo_root,
+    One-time import: reads draft.yaml from the board's repo_root,
     deep-merges it with the existing board config, and saves to DB.
 
     After this, the board's DB config is the single source of truth.
@@ -287,17 +287,17 @@ async def import_yaml_config(
         raise HTTPException(status_code=404, detail=str(e))
 
     repo_root = Path(board.repo_root).resolve()
-    yaml_path = repo_root / "smartkanban.yaml"
+    yaml_path = repo_root / "draft.yaml"
 
     if not yaml_path.exists():
         raise HTTPException(
             status_code=404,
-            detail=f"smartkanban.yaml not found at {repo_root}",
+            detail=f"draft.yaml not found at {repo_root}",
         )
 
     import yaml
 
-    from app.services.config_service import SmartKanbanConfig, deep_merge_dicts
+    from app.services.config_service import DraftConfig, deep_merge_dicts
 
     try:
         with open(yaml_path) as f:
@@ -305,11 +305,11 @@ async def import_yaml_config(
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Failed to parse smartkanban.yaml: {e}",
+            detail=f"Failed to parse draft.yaml: {e}",
         )
 
     # Build: defaults <- yaml <- existing board config
-    defaults = SmartKanbanConfig().to_dict()
+    defaults = DraftConfig().to_dict()
     merged = deep_merge_dicts(defaults, yaml_data)
     if board.config:
         merged = deep_merge_dicts(merged, board.config)
@@ -337,7 +337,7 @@ async def clear_board_config(
     """
     Clear all board-level configuration overrides.
 
-    After this, the board will use settings from smartkanban.yaml only.
+    After this, the board will use settings from draft.yaml only.
     """
     service = BoardService(db)
     try:
@@ -859,7 +859,7 @@ async def analyze_codebase_legacy(
     """
     **DEPRECATED:** Use POST /boards/{board_id}/analyze-codebase instead.
 
-    This endpoint uses the repo_root from smartkanban.yaml config.
+    This endpoint uses the repo_root from draft.yaml config.
     The board-scoped endpoint is preferred for multi-board setups.
     """
     # Get repo root from config - legacy path

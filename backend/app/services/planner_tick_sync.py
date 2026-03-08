@@ -60,7 +60,7 @@ def run_planner_tick_sync() -> dict:
 
     # Load config from DB (first active board's config is the source of truth)
     from app.models.board import Board
-    from app.services.config_service import SmartKanbanConfig
+    from app.services.config_service import DraftConfig
 
     board_config = None
     with get_sync_db() as config_db:
@@ -68,7 +68,7 @@ def run_planner_tick_sync() -> dict:
         if board and board.config:
             board_config = board.config
 
-    config = SmartKanbanConfig.from_board_config(board_config).planner_config
+    config = DraftConfig.from_board_config(board_config).planner_config
 
     executed = 0
     followups_created = 0
@@ -275,12 +275,12 @@ def _get_max_parallel_jobs() -> int:
     """Read max_parallel_jobs from config (DB first, then default)."""
     try:
         from app.models.board import Board
-        from app.services.config_service import SmartKanbanConfig
+        from app.services.config_service import DraftConfig
 
         with get_sync_db() as db:
             board = db.execute(select(Board).limit(1)).scalar_one_or_none()
             if board and board.config:
-                return SmartKanbanConfig.from_board_config(
+                return DraftConfig.from_board_config(
                     board.config
                 ).execute_config.max_parallel_jobs
         return 1

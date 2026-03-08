@@ -19,7 +19,7 @@ from app.models.evidence import Evidence
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.models.workspace import Workspace
-from app.services.config_service import SmartKanbanConfig
+from app.services.config_service import DraftConfig
 from app.services.workspace_service import WorkspaceService
 from app.state_machine import TicketState
 
@@ -85,7 +85,7 @@ class CleanupService:
     """Service for cleaning up worktrees and evidence files.
 
     Safety:
-        - Only deletes paths under .smartkanban/
+        - Only deletes paths under .draft/
         - Uses `git worktree remove` + `git worktree prune` (not shutil)
         - Never deletes worktrees for tickets in executing/verifying/needs_human
         - Validates paths before deletion
@@ -94,9 +94,9 @@ class CleanupService:
         - Hard guard: refuses if worktree path equals main repo path
     """
 
-    SMARTKANBAN_DIR = ".smartkanban"  # Legacy
-    WORKTREES_DIR = ".smartkanban/worktrees"  # Legacy
-    EVIDENCE_DIR = ".smartkanban/evidence"  # Legacy
+    LEGACY_DRAFT_DIR = ".draft"  # Legacy
+    WORKTREES_DIR = ".draft/worktrees"  # Legacy
+    EVIDENCE_DIR = ".draft/evidence"  # Legacy
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -203,7 +203,7 @@ class CleanupService:
         Uses proper Path resolution and comparison (not string matching)
         to handle trailing slashes, symlinks, and relative paths.
 
-        Safety: Only considers paths under .smartkanban/worktrees/ as valid
+        Safety: Only considers paths under .draft/worktrees/ as valid
         worktrees for this check.
 
         Args:
@@ -217,9 +217,9 @@ class CleanupService:
             # Resolve and normalize the path we're checking
             check_path = path.resolve()
 
-            # Safety: Validate check_path is under central dir or legacy .smartkanban/worktrees/
+            # Safety: Validate check_path is under central dir or legacy .draft/worktrees/
             central_root = get_worktrees_root().resolve()
-            smartkanban_worktrees = (repo_path / self.WORKTREES_DIR).resolve()
+            legacy_worktrees = (repo_path / self.WORKTREES_DIR).resolve()
             in_valid_dir = False
             try:
                 check_path.relative_to(central_root)
@@ -228,13 +228,13 @@ class CleanupService:
                 pass
             if not in_valid_dir:
                 try:
-                    check_path.relative_to(smartkanban_worktrees)
+                    check_path.relative_to(legacy_worktrees)
                     in_valid_dir = True
                 except ValueError:
                     pass
             if not in_valid_dir:
                 logger.warning(
-                    f"Path {check_path} is not under {central_root} or {smartkanban_worktrees}, "
+                    f"Path {check_path} is not under {central_root} or {legacy_worktrees}, "
                     f"not checking worktree registration"
                 )
                 return False
@@ -278,7 +278,7 @@ class CleanupService:
         """Delete a single worktree using git worktree remove.
 
         Steps:
-        1. Validate path is under .smartkanban/worktrees/
+        1. Validate path is under .draft/worktrees/
         2. Run `git worktree remove --force <path>`
         3. Run `git worktree prune` to clean up stale entries
         4. Delete branch ONLY if merge succeeded or delete_branch=True
@@ -301,10 +301,10 @@ class CleanupService:
         # Resolve paths canonically for consistent comparison
         resolved_worktree = worktree_path.resolve()
         resolved_repo = repo_path.resolve()
-        resolved_smartkanban = (repo_path / self.WORKTREES_DIR).resolve()
+        resolved_legacy = (repo_path / self.WORKTREES_DIR).resolve()
 
         # HARD GUARD: Never allow deletion of the main repo itself
-        # Even if symlink weirdness makes it appear under .smartkanban/worktrees
+        # Even if symlink weirdness makes it appear under .draft/worktrees
         # Check 1: worktree equals repo
         # Check 2 (belt-and-suspenders): repo is under worktree (worktree is parent of repo)
         worktree_is_repo = resolved_worktree == resolved_repo
@@ -352,7 +352,7 @@ class CleanupService:
             await self.db.flush()
             return False
 
-        # Safety: validate path is under central data dir or legacy .smartkanban/worktrees/
+        # Safety: validate path is under central data dir or legacy .draft/worktrees/
         resolved_central = get_worktrees_root().resolve()
         in_central = False
         in_legacy = False
@@ -362,7 +362,7 @@ class CleanupService:
         except ValueError:
             pass
         try:
-            resolved_worktree.relative_to(resolved_smartkanban)
+            resolved_worktree.relative_to(resolved_legacy)
             in_legacy = True
         except ValueError:
             pass
@@ -788,7 +788,7 @@ class CleanupService:
             CleanupResult with counts and details
         """
         result = CleanupResult()
-        cleanup_config = SmartKanbanConfig().cleanup_config
+        cleanup_config = DraftConfig().cleanup_config
 
         ttl_threshold = datetime.now(UTC) - timedelta(
             days=cleanup_config.worktree_ttl_days
@@ -863,7 +863,7 @@ class CleanupService:
         tracked_result = await self.db.execute(query)
         tracked_paths = {Path(p).resolve() for p in tracked_result.scalars().all()}
 
-        # Scan both central data dir and legacy .smartkanban/worktrees/
+        # Scan both central data dir and legacy .draft/worktrees/
         scan_dirs = []
         central_worktrees = get_worktrees_root()
         if central_worktrees.exists():
@@ -936,7 +936,7 @@ class CleanupService:
             CleanupResult with counts and details
         """
         result = CleanupResult()
-        cleanup_config = SmartKanbanConfig().cleanup_config
+        cleanup_config = DraftConfig().cleanup_config
         repo_path = WorkspaceService.get_repo_path()
 
         ttl_threshold = datetime.now(UTC) - timedelta(
@@ -1040,7 +1040,7 @@ class CleanupService:
         return combined
 
     def _is_safe_path(self, path: Path, repo_root: Path) -> bool:
-        """Check if a path is safe to delete (under central data dir or .smartkanban/).
+        """Check if a path is safe to delete (under central data dir or .draft/).
 
         Args:
             path: Path to check
@@ -1059,10 +1059,10 @@ class CleanupService:
                     return True
             except ValueError:
                 pass
-            # Check legacy .smartkanban/
-            smartkanban_root = (repo_root / self.SMARTKANBAN_DIR).resolve()
-            common = os.path.commonpath([str(resolved), str(smartkanban_root)])
-            return common == str(smartkanban_root)
+            # Check legacy .draft/
+            draft_root = (repo_root / self.LEGACY_DRAFT_DIR).resolve()
+            common = os.path.commonpath([str(resolved), str(draft_root)])
+            return common == str(draft_root)
         except (ValueError, OSError):
             return False
 

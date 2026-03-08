@@ -73,7 +73,7 @@ class TestCleanupServicePathValidation:
     async def test_repo_path_equals_worktree_path_is_blocked(self, db: AsyncSession):
         """Test that cleanup is blocked when worktree path resolves to repo path.
 
-        This prevents symlink attacks where .smartkanban/worktrees/foo -> /repo
+        This prevents symlink attacks where .draft/worktrees/foo -> /repo
         """
         # Create test entities
         goal = Goal(id=str(uuid4()), title="Test Goal")
@@ -91,7 +91,7 @@ class TestCleanupServicePathValidation:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_path = Path(tmpdir)
-            worktrees_dir = repo_path / ".smartkanban/worktrees"
+            worktrees_dir = repo_path / ".draft/worktrees"
             worktrees_dir.mkdir(parents=True)
 
             # Create a symlink that points back to repo root
@@ -146,8 +146,8 @@ class TestCleanupServicePathValidation:
             assert workspace.cleaned_up_at is None
 
     @pytest.mark.asyncio
-    async def test_worktree_path_outside_smartkanban_is_blocked(self, db: AsyncSession):
-        """Test that cleanup is blocked for paths outside .smartkanban/worktrees."""
+    async def test_worktree_path_outside_draft_dir_is_blocked(self, db: AsyncSession):
+        """Test that cleanup is blocked for paths outside .draft/worktrees."""
         goal = Goal(id=str(uuid4()), title="Test Goal")
         db.add(goal)
         await db.flush()
@@ -164,10 +164,10 @@ class TestCleanupServicePathValidation:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_path = Path(tmpdir)
             # Create worktrees dir but put workspace path elsewhere
-            worktrees_dir = repo_path / ".smartkanban/worktrees"
+            worktrees_dir = repo_path / ".draft/worktrees"
             worktrees_dir.mkdir(parents=True)
 
-            # Path that's NOT under .smartkanban/worktrees
+            # Path that's NOT under .draft/worktrees
             evil_path = repo_path / "src" / "evil-dir"
             evil_path.mkdir(parents=True)
 
@@ -232,7 +232,7 @@ class TestCleanupServiceStillRegistered:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_path = Path(tmpdir)
-            worktrees_dir = repo_path / ".smartkanban/worktrees"
+            worktrees_dir = repo_path / ".draft/worktrees"
             worktrees_dir.mkdir(parents=True)
 
             # Create actual worktree directory
@@ -336,7 +336,7 @@ class TestCleanupServiceStillRegistered:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_path = Path(tmpdir)
-            worktrees_dir = repo_path / ".smartkanban/worktrees"
+            worktrees_dir = repo_path / ".draft/worktrees"
             worktrees_dir.mkdir(parents=True)
 
             worktree_path = worktrees_dir / "test-worktree"

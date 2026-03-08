@@ -242,7 +242,7 @@ async def get_planner_status(
     This helps debug "why didn't follow-ups happen?" issues.
     """
     config_service = ConfigService()
-    # Load fresh config without cache (in case smartkanban.yaml was edited)
+    # Load fresh config without cache (in case draft.yaml was edited)
     config = config_service.load_config(use_cache=False).planner_config
 
     llm_configured, llm_provider = _detect_llm_provider(model=config.model)

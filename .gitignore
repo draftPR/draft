@@ -62,6 +62,7 @@ frontend/test-results/
 *.tsbuildinfo
 
 # Draft workspaces (git worktrees)
+.draft/
 .smartkanban/
 
 # Internal dev docs (keep only README, CLAUDE, CONTRIBUTING)

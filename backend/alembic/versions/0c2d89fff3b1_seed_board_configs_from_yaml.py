@@ -7,8 +7,8 @@ Create Date: 2026-03-01 12:00:00.000000
 Seed migration: populates Board.config for all existing boards.
 
 For each board:
-  1. Load smartkanban.yaml from board.repo_root (if it exists)
-  2. Deep-merge: SmartKanbanConfig defaults ← YAML values ← existing board.config overrides
+  1. Load draft.yaml from board.repo_root (if it exists)
+  2. Deep-merge: DraftConfig defaults ← YAML values ← existing board.config overrides
   3. Write the full merged config back to Board.config
 
 This ensures every board has a complete, self-contained config in the DB
@@ -32,7 +32,7 @@ down_revision: str | None = "82ecd978cc70"
 branch_labels: str | None = None
 depends_on: str | None = None
 
-CONFIG_FILENAME = "smartkanban.yaml"
+CONFIG_FILENAME = "draft.yaml"
 
 
 def deep_merge_dicts(base: dict, override: dict) -> dict:
@@ -47,7 +47,7 @@ def deep_merge_dicts(base: dict, override: dict) -> dict:
 
 
 def _load_yaml_config(repo_root: str) -> dict | None:
-    """Try to load smartkanban.yaml from a repo root. Returns None on failure."""
+    """Try to load draft.yaml from a repo root. Returns None on failure."""
     config_path = Path(repo_root) / CONFIG_FILENAME
     if not config_path.exists():
         return None

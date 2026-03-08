@@ -35,7 +35,7 @@ from app.models.evidence import Evidence, EvidenceKind
 from app.models.job import Job, JobStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
-from app.services.config_service import SmartKanbanConfig, YoloStatus
+from app.services.config_service import DraftConfig, YoloStatus
 from app.services.cursor_log_normalizer import CursorLogNormalizer
 from app.services.executor_service import (
     ExecutorService,
@@ -294,7 +294,7 @@ def get_evidence_dir(
 ) -> Path:
     """Get the directory for storing evidence files.
 
-    Evidence is stored in a central location at ~/.telem/evidence/{job_id}/
+    Evidence is stored in a central location at ~/.draft/evidence/{job_id}/
     so it survives worktree cleanup and doesn't pollute target repos.
 
     Args:
@@ -1255,8 +1255,8 @@ def capture_git_diff(
                 if line.startswith("??"):
                     # Untracked file - extract path (skip "?? " prefix)
                     file_path = line[3:].strip()
-                    # Skip .smartkanban directory (internal files)
-                    if not file_path.startswith(".smartkanban"):
+                    # Skip .draft directory (internal files)
+                    if not file_path.startswith(".draft"):
                         untracked_files.append(file_path)
             has_untracked_files = len(untracked_files) > 0
 
@@ -1836,7 +1836,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
                 if board.repo_root:
                     board_repo_root = board.repo_root
 
-    config = SmartKanbanConfig.from_board_config(board_config)
+    config = DraftConfig.from_board_config(board_config)
     execute_config = config.execute_config
     planner_config = config.planner_config
 
@@ -2471,7 +2471,7 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
 
     This task:
     1. Ensures a worktree exists for the ticket
-    2. Loads verification commands from smartkanban.yaml
+    2. Loads verification commands from draft.yaml
     3. Runs each command in the isolated worktree directory
     4. Creates Evidence records with captured stdout/stderr
     5. Transitions ticket based on verification outcome
@@ -2542,7 +2542,7 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
             if board and board.config:
                 board_config = board.config
 
-    config = SmartKanbanConfig.from_board_config(board_config)
+    config = DraftConfig.from_board_config(board_config)
     verify_config = config.verify_config
     verify_commands = verify_config.commands
 

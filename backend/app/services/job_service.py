@@ -295,7 +295,7 @@ class JobService:
         Read the log content for a job (synchronous version).
 
         Security:
-            - Reads from central data dir, legacy .smartkanban/, or backend/logs/
+            - Reads from central data dir, legacy .draft/, or backend/logs/
             - Validates canonical path is under allowed directory
             - Caps file size to prevent memory exhaustion
 
@@ -327,10 +327,10 @@ class JobService:
         if content is not None:
             return content
 
-        # Try repo root (legacy .smartkanban/ logs)
+        # Try repo root (legacy .draft/ logs)
         repo_path = WorkspaceService.get_repo_path()
-        smartkanban_root = repo_path / ".smartkanban"
-        content = _safe_read_file(repo_path, smartkanban_root, log_path)
+        draft_root = repo_path / ".draft"
+        content = _safe_read_file(repo_path, draft_root, log_path)
         if content is not None:
             return content
 
@@ -346,7 +346,7 @@ class JobService:
         Wraps file I/O in asyncio.to_thread() to avoid blocking the event loop.
 
         Security:
-            - Only reads files under <repo_root>/.smartkanban/ or backend/logs/
+            - Only reads files under <repo_root>/.draft/ or backend/logs/
             - Rejects absolute paths
             - Validates canonical path is under allowed directory
             - Caps file size to prevent memory exhaustion

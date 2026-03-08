@@ -13,7 +13,7 @@ AWS_REGION_NAME=us-east-1
 
 ### Notes:
 
-1. **Model Configuration**: The model is configured in `smartkanban.yaml`:
+1. **Model Configuration**: The model is configured in `draft.yaml`:
    ```yaml
    planner_config:
      model: "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"

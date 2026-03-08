@@ -72,7 +72,7 @@ class BoardConfigUpdate(BaseModel):
 
     config: dict | None = Field(
         None,
-        description="Board-level configuration that overrides smartkanban.yaml settings",
+        description="Board-level configuration that overrides draft.yaml settings",
     )
 
 

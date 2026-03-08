@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.executors.registry import ExecutorRegistry
 from app.models.board import Board
-from app.services.config_service import SmartKanbanConfig, deep_merge_dicts
+from app.services.config_service import DraftConfig, deep_merge_dicts
 
 router = APIRouter(prefix="/executors", tags=["executors"])
 
@@ -220,7 +220,7 @@ async def list_executor_profiles(
         List of executor profile configurations
     """
     board = await _resolve_board_for_executors(db, board_id)
-    config = SmartKanbanConfig.from_board_config(board.config)
+    config = DraftConfig.from_board_config(board.config)
     profiles = config.executor_profiles
 
     return [
@@ -253,7 +253,7 @@ async def get_executor_profile(
         Executor profile configuration
     """
     board = await _resolve_board_for_executors(db, board_id)
-    config = SmartKanbanConfig.from_board_config(board.config)
+    config = DraftConfig.from_board_config(board.config)
     profile = config.executor_profiles.get(profile_name)
 
     if not profile:
@@ -310,7 +310,7 @@ async def save_executor_profiles(
     await db.commit()
     await db.refresh(board)
 
-    config = SmartKanbanConfig.from_board_config(board.config)
+    config = DraftConfig.from_board_config(board.config)
     return [
         {
             "name": prof.name,

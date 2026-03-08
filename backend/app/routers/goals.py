@@ -238,7 +238,7 @@ async def generate_tickets_stream(
 
                 from app.models.board import Board
                 from app.models.goal import Goal
-                from app.services.config_service import SmartKanbanConfig
+                from app.services.config_service import DraftConfig
 
                 yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Loading goal and board configuration...'})}\n\n"
 
@@ -259,7 +259,7 @@ async def generate_tickets_stream(
                     if board_obj and board_obj.config:
                         board_config_dict = board_obj.config
 
-                config = SmartKanbanConfig.from_board_config(board_config_dict)
+                config = DraftConfig.from_board_config(board_config_dict)
 
                 yield f"data: {json_lib.dumps({'type': 'status', 'message': f'Using model: {config.planner_config.model}'})}\n\n"
 
@@ -425,7 +425,7 @@ async def generate_tickets(
     The planner analyzes the goal and repository context to generate
     2-5 specific, actionable tickets with verification commands.
 
-    **Security:** Repository path is inferred from server config (smartkanban.yaml),
+    **Security:** Repository path is inferred from server config (draft.yaml),
     NOT from client request. The `workspace_path` field is deprecated and ignored.
     If sent, it will appear in X-Ignored-Fields response header.
 
@@ -457,7 +457,7 @@ async def generate_tickets(
 
     from app.models.board import Board
     from app.models.goal import Goal
-    from app.services.config_service import SmartKanbanConfig
+    from app.services.config_service import DraftConfig
 
     goal_result = await db.execute(sa_select(Goal).where(Goal.id == goal_id))
     goal_obj = goal_result.scalar_one_or_none()
@@ -476,7 +476,7 @@ async def generate_tickets(
                 board_config_dict = board_obj.config
             repo_root = Path(board_obj.repo_root).resolve()
 
-    config = SmartKanbanConfig.from_board_config(board_config_dict)
+    config = DraftConfig.from_board_config(board_config_dict)
 
     if not repo_root or not repo_root.exists():
         raise HTTPException(

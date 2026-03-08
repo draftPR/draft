@@ -420,7 +420,7 @@ class UDARPlannerService:
         """Conditional edge: Decide whether to retry validation.
 
         Retries if validation failed AND iteration < max_self_correction_iterations.
-        Max iterations is configured in smartkanban.yaml (default: 1).
+        Max iterations is configured in draft.yaml (default: 1).
 
         Args:
             state: Current UDAR state

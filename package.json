@@ -1,9 +1,9 @@
 {
-  "name": "telem",
+  "name": "draft",
   "version": "0.1.0",
   "description": "AI-powered local-first kanban board that uses AI agents to automatically implement tickets",
   "bin": {
-    "telem": "bin/alma-kanban.js"
+    "draft": "bin/draft.js"
   },
   "keywords": [
     "kanban",
@@ -11,13 +11,14 @@
     "coding-agent",
     "project-management",
     "claude",
+    "cursor",
     "autopilot"
   ],
   "author": "Draft Contributors",
-  "license": "MIT",
+  "license": "BSL-1.1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/doramirdor/alma-kanban"
+    "url": "https://github.com/doramirdor/draft"
   },
   "engines": {
     "node": ">=18"

@@ -296,7 +296,7 @@ class ExecutorService:
             "  - Qwen Code CLI: https://github.com/QwenLM/qwen-agent\n"
             "  - OpenCode CLI: https://github.com/opencode-ai/opencode\n"
             "  - Amp CLI (Sourcegraph): https://github.com/sourcegraph/amp\n"
-            "  - Cursor Agent CLI: Set agent_path in smartkanban.yaml\n"
+            "  - Cursor Agent CLI: Set agent_path in draft.yaml\n"
             "  - Cursor CLI (interactive, opens editor): https://docs.cursor.com/cli"
         )
 
@@ -399,7 +399,7 @@ class PromptBundleBuilder:
                     "completed_tickets": [{"title": str, "description": str}],  # already done
                     "goal_title": str  # optional goal title
                 }
-            verify_commands: Current verification commands from smartkanban.yaml.
+            verify_commands: Current verification commands from draft.yaml.
 
         Returns:
             Path to the created prompt file.
@@ -440,7 +440,7 @@ class PromptBundleBuilder:
             additional_context: Optional additional context.
             feedback_bundle: Optional feedback from previous revision review.
             related_tickets_context: Optional context about related tickets.
-            verify_commands: Current verification commands from smartkanban.yaml.
+            verify_commands: Current verification commands from draft.yaml.
 
         Returns:
             Formatted prompt string.
@@ -522,7 +522,7 @@ class PromptBundleBuilder:
             {commands_str}
 
             **IMPORTANT**: If the verification commands above run a broad test suite (e.g., the
-            entire test file), you MUST update `smartkanban.yaml` in this worktree to scope the
+            entire test file), you MUST update `draft.yaml` in this worktree to scope the
             `verify_config.commands` to ONLY the tests relevant to your changes. This prevents
             unrelated test failures from blocking your ticket.
 

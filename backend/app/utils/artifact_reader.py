@@ -1,7 +1,7 @@
 """Safe artifact reading utilities.
 
 Security Policy:
-    - Only reads files under central data dir or <repo_root>/.smartkanban (legacy)
+    - Only reads files under central data dir or <repo_root>/.draft (legacy)
     - Rejects absolute paths (unless under central data dir)
     - Resolves canonical paths (follows symlinks)
     - Caps file size to prevent memory exhaustion
@@ -44,8 +44,8 @@ def read_artifact(repo_root: Path, relpath: str | None) -> str | None:
     """Safely read an artifact file, enforcing security constraints.
 
     Security Policy:
-        - Accepts absolute paths under central data dir (~/.telem/)
-        - Accepts relative paths under <repo_root>/.smartkanban (legacy)
+        - Accepts absolute paths under central data dir (~/.draft/)
+        - Accepts relative paths under <repo_root>/.draft (legacy)
         - Resolves canonical path (follows symlinks)
         - Caps file size to prevent memory exhaustion
 
@@ -78,8 +78,8 @@ def read_artifact(repo_root: Path, relpath: str | None) -> str | None:
         if result is not None:
             return result
 
-    # Fall back to legacy <repo_root>/.smartkanban
-    allowed_root = (repo_root / ".smartkanban").resolve(strict=False)
+    # Fall back to legacy <repo_root>/.draft
+    allowed_root = (repo_root / ".draft").resolve(strict=False)
     target = (repo_root / rel).resolve(strict=False)
     if _is_under(target, allowed_root):
         return _read_with_cap(target)

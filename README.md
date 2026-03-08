@@ -1,23 +1,38 @@
-# Draft
-
-An AI-powered local-first kanban board that uses AI agents to automatically implement tickets. It creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the results, and manages the workflow through a state machine.
-
-## Screenshots
-
-### Kanban Board
 <p align="center">
-  <img src="docs/screenshots/board-overview.png" alt="Draft Kanban Board" width="900" />
+  <img src="docs/screenshots/board-overview.png" alt="Draft - AI-Powered Kanban Board" width="900" />
 </p>
 
-### Ticket Detail & Agent Execution
+<h1 align="center">Draft</h1>
+
 <p align="center">
-  <img src="docs/screenshots/ticket-detail.png" alt="Ticket Detail" width="900" />
+  <strong>AI-powered local-first kanban board that turns goals into working code</strong>
 </p>
 
-### Code Review
 <p align="center">
-  <img src="docs/screenshots/code-review.png" alt="Code Review" width="900" />
+  <a href="https://github.com/doramirdor/draft/actions/workflows/ci.yml"><img src="https://github.com/doramirdor/draft/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/doramirdor/draft"><img src="https://img.shields.io/github/stars/doramirdor/draft?style=social" alt="GitHub Stars" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License: BSL 1.1" /></a>
+  <img src="https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/node-18+-339933?logo=node.js&logoColor=white" alt="Node 18+" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" alt="React 19" />
+  <img src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
 </p>
+
+<p align="center">
+  Draft creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the results, and manages the workflow through a state machine.
+</p>
+
+---
+
+<p align="center">
+  <img src="docs/screenshots/ticket-detail.png" alt="Ticket Detail & Agent Execution" width="700" />
+</p>
+<p align="center"><em>Ticket Detail & Agent Execution</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/code-review.png" alt="Code Review" width="700" />
+</p>
+<p align="center"><em>Built-in Code Review</em></p>
 
 ## Tech Stack
 
@@ -57,7 +72,7 @@ draft/
 │   ├── alembic/           # Database migrations
 │   ├── tests/             # pytest test suite
 │   └── requirements.txt
-├── smartkanban.yaml       # Executor, verification, and planner config
+├── draft.yaml       # Executor, verification, and planner config
 ├── Makefile               # Developer scripts
 ├── run.py                 # Unified launcher (backend + frontend)
 └── README.md
@@ -133,10 +148,10 @@ Draft uses git worktrees to provide isolated workspaces for each ticket. This en
 
 ### How It Works
 
-1. When a job (execute/verify) runs for a ticket, a git worktree is created at `.smartkanban/worktrees/{ticket_id}/`
+1. When a job (execute/verify) runs for a ticket, a git worktree is created at `.draft/worktrees/{ticket_id}/`
 2. Each worktree gets a dedicated branch: `goal/{goal_id}/ticket/{ticket_id}`
 3. All execution and verification runs in the isolated worktree directory
-4. Logs are written to `{worktree_path}/.smartkanban/logs/{job_id}.log`
+4. Logs are written to `{worktree_path}/.draft/logs/{job_id}.log`
 5. When a ticket reaches a terminal state (done/abandoned), its worktree is automatically cleaned up
 
 ### Configuration
@@ -164,7 +179,7 @@ Draft includes a verification pipeline that runs configurable commands to verify
 
 ### Configuration
 
-Create or edit `smartkanban.yaml` at the repository root:
+Create or edit `draft.yaml` at the repository root:
 
 ```yaml
 verify_config:
@@ -175,7 +190,7 @@ verify_config:
 
 ### How Verification Works
 
-1. When a verify job runs, it loads commands from `smartkanban.yaml`
+1. When a verify job runs, it loads commands from `draft.yaml`
 2. Each command executes in the ticket's isolated worktree directory
 3. Commands run sequentially; verification stops on first failure
 4. **Evidence** is captured for each command:

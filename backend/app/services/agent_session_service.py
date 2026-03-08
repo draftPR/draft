@@ -4,7 +4,7 @@ Tracks Claude CLI session IDs to enable multi-turn conversations across executio
 When the same ticket executes multiple times, the agent can continue from where
 it left off instead of starting fresh.
 
-Session IDs are stored per-worktree in .smartkanban/agent_session.json
+Session IDs are stored per-worktree in .draft/agent_session.json
 """
 
 import json
@@ -16,7 +16,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-SESSION_DIR = ".smartkanban"
+SESSION_DIR = ".draft"
 SESSION_FILE = "agent_session.json"
 
 # Regex patterns to extract session ID from Claude CLI output
@@ -87,9 +87,9 @@ class AgentSessionService:
             content = gitignore.read_text()
             if marker not in content:
                 with open(gitignore, "a") as f:
-                    f.write(f"\n# SmartKanban session data\n{marker}\n")
+                    f.write(f"\n# Draft session data\n{marker}\n")
         else:
-            gitignore.write_text(f"# SmartKanban session data\n{marker}\n")
+            gitignore.write_text(f"# Draft session data\n{marker}\n")
 
     def get_session(self, ticket_id: str) -> AgentSession | None:
         """Get the stored session for a ticket.

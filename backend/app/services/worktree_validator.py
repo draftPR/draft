@@ -15,7 +15,7 @@ from app.data_dir import LEGACY_WORKTREES_DIR, get_worktrees_root
 class WorktreeValidationError(StrEnum):
     """Types of worktree validation failures."""
 
-    NOT_IN_SMARTKANBAN_DIR = "not_in_smartkanban_dir"
+    NOT_IN_DRAFT_DIR = "not_in_draft_dir"
     ON_PROTECTED_BRANCH = "on_protected_branch"
     IS_MAIN_REPO = "is_main_repo"
     NOT_A_GIT_REPO = "not_a_git_repo"
@@ -62,7 +62,7 @@ class WorktreeValidator:
     """Validates that a path is a safe, isolated worktree for execution.
 
     Safety Checks:
-    1. Path must be under .smartkanban/worktrees/
+    1. Path must be under .draft/worktrees/
     2. Branch must NOT be main/master/develop (protected branches)
     3. git rev-parse --show-toplevel must match the worktree path
     4. Worktree path must be different from the main repo path
@@ -99,12 +99,12 @@ class WorktreeValidator:
         worktree = Path(worktree_path).resolve()
         worktree_str = str(worktree)
 
-        # Check 1: Path must be under central data dir or legacy .smartkanban/worktrees/
+        # Check 1: Path must be under central data dir or legacy .draft/worktrees/
         in_central = worktree_str.startswith(str(get_worktrees_root()))
         in_legacy = self.LEGACY_WORKTREE_PATH_MARKER in worktree_str
         if not in_central and not in_legacy:
             return WorktreeValidationResult.failure(
-                error=WorktreeValidationError.NOT_IN_SMARTKANBAN_DIR,
+                error=WorktreeValidationError.NOT_IN_DRAFT_DIR,
                 message=(
                     f"Worktree path must be under {self.WORKTREE_PATH_MARKER}/ "
                     f"or legacy {self.LEGACY_WORKTREE_PATH_MARKER}/. "

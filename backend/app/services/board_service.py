@@ -26,16 +26,16 @@ class BoardService:
     def get_default_board_config() -> dict:
         """Get full default configuration for new boards.
 
-        Returns a complete SmartKanbanConfig as a dict so that the DB
+        Returns a complete DraftConfig as a dict so that the DB
         is the single source of truth (no YAML needed at runtime).
 
         Key defaults:
         - executor_model: "sonnet-4.5" (fast and cost-effective)
         - timeout: 300 (5 minutes, reasonable for most tasks)
         """
-        from app.services.config_service import SmartKanbanConfig
+        from app.services.config_service import DraftConfig
 
-        config = SmartKanbanConfig()
+        config = DraftConfig()
         full = config.to_dict()
         # Override with our preferred defaults
         full["execute_config"]["executor_model"] = "sonnet-4.5"

@@ -4,7 +4,7 @@ Provides a simple circular buffer for orchestrator-level events
 (planner decisions, state transitions, etc.) that can be read
 by the debug router for display in the UI.
 
-Also persists entries to a JSONL file at .smartkanban/logs/orchestrator.jsonl
+Also persists entries to a JSONL file at .draft/logs/orchestrator.jsonl
 so logs survive restarts.
 """
 

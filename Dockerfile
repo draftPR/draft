@@ -53,7 +53,7 @@ COPY backend/ ./backend/
 COPY --from=frontend-builder /build/dist ./frontend/dist/
 
 # Copy configuration files
-COPY Makefile run.py smartkanban.yaml* ./
+COPY Makefile run.py draft.yaml* ./
 
 # Create data directories
 RUN mkdir -p /app/data /app/logs && chown -R alma:alma /app

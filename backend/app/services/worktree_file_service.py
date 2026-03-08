@@ -5,7 +5,7 @@ from pathlib import Path
 # Directories to always skip
 SKIP_DIRS = {
     ".git",
-    ".smartkanban",
+    ".draft",
     "__pycache__",
     "node_modules",
     ".venv",

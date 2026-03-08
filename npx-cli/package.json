@@ -21,7 +21,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/doramirdor/alma-kanban"
+    "url": "https://github.com/doramirdor/draft"
   },
   "scripts": {
     "prepublishOnly": "bash build.sh",

@@ -35,7 +35,7 @@ frontend/dist
 Thumbs.db
 
 # Project
-.smartkanban/
+.draft/
 
 # Test artifacts
 test-results/

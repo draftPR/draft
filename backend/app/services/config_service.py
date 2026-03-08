@@ -1,4 +1,4 @@
-"""Service for reading and parsing smartkanban.yaml configuration."""
+"""Service for reading and parsing draft.yaml configuration."""
 
 import logging
 import os
@@ -139,7 +139,7 @@ class ExecuteConfig:
         worktree_canonical = os.path.realpath(worktree_path)
 
         # If repo_root is provided, use it; otherwise derive from worktree path
-        # (worktrees are typically under {repo_root}/.smartkanban/worktrees/)
+        # (worktrees are typically under {repo_root}/.draft/worktrees/)
         if repo_root:
             check_path = os.path.realpath(repo_root)
         else:
@@ -441,7 +441,7 @@ class PlannerConfig:
 class ExecutorProfile:
     """A named executor profile with configurable settings.
 
-    Profiles allow per-executor overrides in smartkanban.yaml:
+    Profiles allow per-executor overrides in draft.yaml:
 
         executor_profiles:
           fast:
@@ -492,7 +492,7 @@ def _dataclass_to_dict(obj: Any) -> Any:
 
 
 @dataclass
-class SmartKanbanConfig:
+class DraftConfig:
     """Root configuration for Draft.
 
     Structure:
@@ -547,7 +547,7 @@ class SmartKanbanConfig:
     executor_profiles: dict[str, ExecutorProfile] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SmartKanbanConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "DraftConfig":
         """Create a config instance from a dictionary."""
         # Parse project config
         project_data = data.get("project", {})
@@ -631,10 +631,8 @@ class SmartKanbanConfig:
         return _dataclass_to_dict(self)
 
     @classmethod
-    def from_board_config(
-        cls, board_config: dict[str, Any] | None
-    ) -> "SmartKanbanConfig":
-        """Create a SmartKanbanConfig from a board's config dict.
+    def from_board_config(cls, board_config: dict[str, Any] | None) -> "DraftConfig":
+        """Create a DraftConfig from a board's config dict.
 
         This is the primary way to load config at runtime - directly from
         the board's DB-stored config, without reading any YAML file.
@@ -643,7 +641,7 @@ class SmartKanbanConfig:
             board_config: The board.config JSON dict, or None for defaults.
 
         Returns:
-            SmartKanbanConfig with all sections populated.
+            DraftConfig with all sections populated.
         """
         if not board_config:
             return cls()
@@ -666,10 +664,10 @@ class SmartKanbanConfig:
 
 
 class ConfigService:
-    """Service for reading and parsing smartkanban.yaml configuration."""
+    """Service for reading and parsing draft.yaml configuration."""
 
-    CONFIG_FILENAME = "smartkanban.yaml"
-    _cache: dict[str, SmartKanbanConfig] = {}
+    CONFIG_FILENAME = "draft.yaml"
+    _cache: dict[str, DraftConfig] = {}
 
     def __init__(self, repo_path: Path | str | None = None):
         """
@@ -706,30 +704,30 @@ class ConfigService:
         """Get the path to the config file."""
         return self.repo_path / self.CONFIG_FILENAME
 
-    def load_config(self, use_cache: bool = False) -> SmartKanbanConfig:
+    def load_config(self, use_cache: bool = False) -> DraftConfig:
         """
-        Load and parse the smartkanban.yaml configuration.
+        Load and parse the draft.yaml configuration.
 
         Args:
             use_cache: Whether to use cached config if available (default: False for dev).
 
         Returns:
-            SmartKanbanConfig instance with parsed configuration.
+            DraftConfig instance with parsed configuration.
             Returns default config if file doesn't exist or is invalid.
         """
         return self._load_config_from_file()
 
-    def _load_config_from_file(self) -> SmartKanbanConfig:
+    def _load_config_from_file(self) -> DraftConfig:
         """Load config from file, returning defaults if not found or invalid."""
         if not self.config_path.exists():
-            return SmartKanbanConfig()
+            return DraftConfig()
 
         try:
             with open(self.config_path) as f:
                 data = yaml.safe_load(f)
 
             if data is None:
-                return SmartKanbanConfig()
+                return DraftConfig()
 
             if not isinstance(data, dict):
                 logger.warning(
@@ -738,9 +736,9 @@ class ConfigService:
                     self.config_path,
                     type(data).__name__,
                 )
-                return SmartKanbanConfig()
+                return DraftConfig()
 
-            return SmartKanbanConfig.from_dict(data)
+            return DraftConfig.from_dict(data)
 
         except yaml.YAMLError as e:
             logger.warning(
@@ -748,29 +746,29 @@ class ConfigService:
                 self.config_path,
                 e,
             )
-            return SmartKanbanConfig()
+            return DraftConfig()
         except OSError as e:
             logger.warning(
                 "Failed to read config file %s: %s; using default configuration",
                 self.config_path,
                 e,
             )
-            return SmartKanbanConfig()
+            return DraftConfig()
 
     def load_config_with_board_overrides(
         self,
         board_config: dict[str, Any] | None = None,
         use_cache: bool = False,
-    ) -> SmartKanbanConfig:
+    ) -> DraftConfig:
         """Load config from file and apply board-level overrides.
 
         Args:
             board_config: Optional dict of board-level config overrides.
-                         Keys match smartkanban.yaml sections (e.g. execute_config, planner_config).
+                         Keys match draft.yaml sections (e.g. execute_config, planner_config).
             use_cache: Whether to use cached config.
 
         Returns:
-            SmartKanbanConfig with board overrides merged in.
+            DraftConfig with board overrides merged in.
         """
         config = self.load_config(use_cache=use_cache)
 
@@ -869,7 +867,7 @@ class ConfigService:
     def save_executor_profiles(
         self, profiles: list[dict[str, Any]]
     ) -> dict[str, ExecutorProfile]:
-        """Save executor profiles to smartkanban.yaml.
+        """Save executor profiles to draft.yaml.
 
         Reads the existing YAML, updates only the executor_profiles section,
         and writes back. Preserves all other config and comments where possible.

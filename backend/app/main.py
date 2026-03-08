@@ -453,7 +453,7 @@ app.include_router(debug_router)
 app.include_router(agents_router)  # AI agent management
 app.include_router(dashboard_router)  # Sprint dashboard and metrics
 app.include_router(executors_router)  # Executor plugin management
-app.include_router(settings_router)  # Global settings (smartkanban.yaml)
+app.include_router(settings_router)  # Global settings (draft.yaml)
 app.include_router(websocket_router)  # WebSocket real-time updates
 app.include_router(pull_requests_router)  # GitHub PR integration
 app.include_router(webhooks_router)  # Webhook notifications for ticket changes

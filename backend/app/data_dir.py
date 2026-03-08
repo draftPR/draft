@@ -1,25 +1,25 @@
 """Central data directory for Draft runtime artifacts.
 
 All worktrees, logs, and evidence files live under a single central
-directory (~/.telem/ by default) instead of polluting target repos.
+directory (~/.draft/ by default) instead of polluting target repos.
 
-Override with the TELEM_DATA_DIR environment variable.
+Override with the DRAFT_DATA_DIR environment variable.
 """
 
 import os
 from pathlib import Path
 
-_DEFAULT_DATA_DIR = Path.home() / ".telem"
+_DEFAULT_DATA_DIR = Path.home() / ".draft"
 
 
 def get_data_dir() -> Path:
     """Return the central data directory, creating it if needed.
 
     Resolution order:
-        1. TELEM_DATA_DIR environment variable
-        2. ~/.telem/
+        1. DRAFT_DATA_DIR environment variable
+        2. ~/.draft/
     """
-    data_dir = Path(os.environ.get("TELEM_DATA_DIR", str(_DEFAULT_DATA_DIR)))
+    data_dir = Path(os.environ.get("DRAFT_DATA_DIR", str(_DEFAULT_DATA_DIR)))
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 
@@ -81,5 +81,5 @@ def get_jobs_dir(job_id: str) -> Path:
 
 
 # Legacy path constant for migration-period checks
-LEGACY_SMARTKANBAN_DIR = ".smartkanban"
-LEGACY_WORKTREES_DIR = ".smartkanban/worktrees"
+LEGACY_DRAFT_DIR = ".draft"
+LEGACY_WORKTREES_DIR = ".draft/worktrees"

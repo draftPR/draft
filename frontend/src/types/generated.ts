@@ -297,7 +297,7 @@ export interface paths {
          *     The planner analyzes the goal and repository context to generate
          *     2-5 specific, actionable tickets with verification commands.
          *
-         *     **Security:** Repository path is inferred from server config (smartkanban.yaml),
+         *     **Security:** Repository path is inferred from server config (draft.yaml),
          *     NOT from client request. The `workspace_path` field is deprecated and ignored.
          *     If sent, it will appear in X-Ignored-Fields response header.
          *
@@ -574,7 +574,7 @@ export interface paths {
          *     then to VERIFYING or BLOCKED based on the outcome.
          *
          *     Pass `executor_profile` query param to use a named profile from
-         *     smartkanban.yaml (e.g., `?executor_profile=fast`).
+         *     draft.yaml (e.g., `?executor_profile=fast`).
          *
          *     For automated execution of all planned tickets, use `/planner/start`.
          */
@@ -980,11 +980,11 @@ export interface paths {
          * @description Get the board-level configuration overrides.
          *
          *     Returns the raw config JSON stored in the board, which overrides
-         *     settings from smartkanban.yaml in the repository.
+         *     settings from draft.yaml in the repository.
          *
          *     Configuration priority (highest to lowest):
          *     1. Board config (this endpoint)
-         *     2. YAML config (smartkanban.yaml)
+         *     2. YAML config (draft.yaml)
          *     3. Defaults
          */
         get: operations["get_board_config_boards__board_id__config_get"];
@@ -1009,7 +1009,7 @@ export interface paths {
          * Clear board configuration
          * @description Clear all board-level configuration overrides.
          *
-         *     After this, the board will use settings from smartkanban.yaml only.
+         *     After this, the board will use settings from draft.yaml only.
          */
         delete: operations["clear_board_config_boards__board_id__config_delete"];
         options?: never;
@@ -1027,8 +1027,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Import configuration from smartkanban.yaml
-         * @description One-time import: reads smartkanban.yaml from the board's repo_root,
+         * Import configuration from draft.yaml
+         * @description One-time import: reads draft.yaml from the board's repo_root,
          *     deep-merges it with the existing board config, and saves to DB.
          *
          *     After this, the board's DB config is the single source of truth.
@@ -1327,7 +1327,7 @@ export interface paths {
          * @deprecated
          * @description **DEPRECATED:** Use POST /boards/{board_id}/analyze-codebase instead.
          *
-         *     This endpoint uses the repo_root from smartkanban.yaml config.
+         *     This endpoint uses the repo_root from draft.yaml config.
          *     The board-scoped endpoint is preferred for multi-board setups.
          */
         post: operations["analyze_codebase_legacy_board_analyze_codebase_post"];
@@ -1735,7 +1735,7 @@ export interface paths {
          * Get stdout content for an evidence record
          * @description Get the stdout content for a verification command.
          *
-         *     Security: Only reads files under <repo_root>/.smartkanban/
+         *     Security: Only reads files under <repo_root>/.draft/
          */
         get: operations["get_evidence_stdout_evidence__evidence_id__stdout_get"];
         put?: never;
@@ -1757,7 +1757,7 @@ export interface paths {
          * Get stderr content for an evidence record
          * @description Get the stderr content for a verification command.
          *
-         *     Security: Only reads files under <repo_root>/.smartkanban/
+         *     Security: Only reads files under <repo_root>/.draft/
          */
         get: operations["get_evidence_stderr_evidence__evidence_id__stderr_get"];
         put?: never;
@@ -2389,13 +2389,13 @@ export interface paths {
          *     By default runs in dry_run mode, which only reports what would be deleted.
          *     Set dry_run=false to actually perform deletions.
          *
-         *     Cleanup rules (from smartkanban.yaml cleanup_config):
+         *     Cleanup rules (from draft.yaml cleanup_config):
          *     - worktree_ttl_days: Delete worktrees older than this
          *     - evidence_ttl_days: Delete evidence files older than this
          *     - max_worktrees: Maximum number of active worktrees (not enforced yet)
          *
          *     Safety:
-         *     - Only deletes files under .smartkanban/
+         *     - Only deletes files under .draft/
          *     - Uses `git worktree remove` + `git worktree prune`
          *     - Never deletes worktrees for tickets in executing/verifying/needs_human
          *     - Creates audit events for deletions
@@ -3566,7 +3566,7 @@ export interface components {
         BoardConfigUpdate: {
             /**
              * Config
-             * @description Board-level configuration that overrides smartkanban.yaml settings
+             * @description Board-level configuration that overrides draft.yaml settings
              */
             config?: {
                 [key: string]: unknown;

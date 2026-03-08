@@ -35,7 +35,7 @@ class LLMService:
 
     Uses LiteLLM to support multiple providers (OpenAI, Anthropic, etc.)
     with a unified API. The model and settings are configured via
-    smartkanban.yaml planner_config section.
+    draft.yaml planner_config section.
 
     This service is intentionally minimal - it only handles:
     1. Making LLM API calls

@@ -38,7 +38,7 @@ WORKDIR /workspace
 COPY backend/ /workspace/backend/
 COPY frontend/ /workspace/frontend/
 COPY demo-repo/ /workspace/demo-repo/
-COPY smartkanban.yaml /workspace/smartkanban.yaml
+COPY draft.yaml /workspace/draft.yaml
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 COPY start.sh /workspace/start.sh
 

@@ -61,7 +61,7 @@ async def get_evidence_stdout(
 ) -> PlainTextResponse:
     """Get the stdout content for a verification command.
 
-    Security: Only reads files under <repo_root>/.smartkanban/
+    Security: Only reads files under <repo_root>/.draft/
     """
     evidence = await get_evidence_by_id(evidence_id, db)
     repo_root = await _get_repo_root_for_evidence(evidence, db)
@@ -84,7 +84,7 @@ async def get_evidence_stderr(
 ) -> PlainTextResponse:
     """Get the stderr content for a verification command.
 
-    Security: Only reads files under <repo_root>/.smartkanban/
+    Security: Only reads files under <repo_root>/.draft/
     """
     evidence = await get_evidence_by_id(evidence_id, db)
     repo_root = await _get_repo_root_for_evidence(evidence, db)

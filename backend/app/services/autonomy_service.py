@@ -24,7 +24,7 @@ from app.models.goal import Goal
 from app.models.revision import Revision
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
-from app.services.config_service import AutonomyConfig, SmartKanbanConfig
+from app.services.config_service import AutonomyConfig, DraftConfig
 from app.services.workspace_service import WorkspaceService
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class AutonomyService:
 
     def __init__(self, config: AutonomyConfig | None = None):
         if config is None:
-            config = SmartKanbanConfig().autonomy_config
+            config = DraftConfig().autonomy_config
         self.config = config
 
     # ── Async methods (for FastAPI routes and planner) ──

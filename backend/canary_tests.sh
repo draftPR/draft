@@ -274,13 +274,13 @@ canary_2() {
 # Expected flow:
 #   executing → needs_human (YOLO refused due to empty allowlist)
 #
-# NOTE: This test requires yolo_mode: true in smartkanban.yaml
+# NOTE: This test requires yolo_mode: true in draft.yaml
 #       with an empty yolo_allowlist
 # =============================================================================
 canary_3() {
     log_step "CANARY 3: YOLO Refusal (requires yolo_mode: true, empty allowlist)"
     
-    log_warn "This test requires modifying smartkanban.yaml:"
+    log_warn "This test requires modifying draft.yaml:"
     log_warn "  yolo_mode: true"
     log_warn "  yolo_allowlist: []"
     log_warn ""
@@ -339,14 +339,14 @@ canary_3() {
 #   [human makes changes]
 #   resume → verifying → needs_human (or blocked if no changes)
 #
-# NOTE: This test requires preferred_executor: "cursor" in smartkanban.yaml
+# NOTE: This test requires preferred_executor: "cursor" in draft.yaml
 #       OR cursor CLI must be the only available executor
 # =============================================================================
 canary_4() {
     log_step "CANARY 4: Cursor Interactive + Resume"
     
     log_warn "This test requires either:"
-    log_warn "  1. preferred_executor: 'cursor' in smartkanban.yaml"
+    log_warn "  1. preferred_executor: 'cursor' in draft.yaml"
     log_warn "  2. OR: Only Cursor CLI available (no Claude CLI)"
     log_warn ""
     log_warn "If Claude is available and preferred, this test will behave like Canary 1."
@@ -516,7 +516,7 @@ canary_5() {
             log_error "❌ CANARY 5 FAILED: Verification passed when it should have failed"
             log_error "This means either:"
             log_error "  1. Executor didn't actually introduce a syntax error"
-            log_error "  2. Verification commands aren't checking syntax (update smartkanban.yaml)"
+            log_error "  2. Verification commands aren't checking syntax (update draft.yaml)"
             return 1
         fi
     elif [ "$state_after_execute" = "blocked" ]; then

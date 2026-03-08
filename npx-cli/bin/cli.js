@@ -16,8 +16,8 @@ const os = require("os");
 const http = require("http");
 
 // ── Config ──────────────────────────────────────────────────────────
-const TELEM_HOME = path.join(os.homedir(), ".telem");
-const VENV_DIR = path.join(TELEM_HOME, "venv");
+const DRAFT_HOME = path.join(os.homedir(), ".draft");
+const VENV_DIR = path.join(DRAFT_HOME, "venv");
 const DEFAULT_PORT = 8000;
 
 const PKG_ROOT = path.resolve(__dirname, "..");
@@ -172,7 +172,7 @@ function ensureVenv(pythonCmd) {
   }
 
   log("Creating Python virtual environment...");
-  fs.mkdirSync(TELEM_HOME, { recursive: true });
+  fs.mkdirSync(DRAFT_HOME, { recursive: true });
   execSync(`${pythonCmd} -m venv "${VENV_DIR}"`, { stdio: "inherit" });
 }
 
@@ -237,12 +237,12 @@ function runMigrations(appRoot) {
 }
 
 /**
- * Symlink smartkanban.yaml into the user's CWD if it doesn't exist.
+ * Symlink draft.yaml into the user's CWD if it doesn't exist.
  * This lets ConfigService find it from the repo root.
  */
 function ensureConfig(appRoot) {
-  const userConfig = path.join(process.cwd(), "smartkanban.yaml");
-  const bundledConfig = path.join(appRoot, "smartkanban.yaml");
+  const userConfig = path.join(process.cwd(), "draft.yaml");
+  const bundledConfig = path.join(appRoot, "draft.yaml");
 
   // User already has a config — use theirs
   if (fs.existsSync(userConfig)) {
@@ -252,7 +252,7 @@ function ensureConfig(appRoot) {
   // Copy bundled default config to CWD so ConfigService finds it
   if (fs.existsSync(bundledConfig)) {
     fs.copyFileSync(bundledConfig, userConfig);
-    log("Created default smartkanban.yaml in current directory");
+    log("Created default draft.yaml in current directory");
   }
 }
 
@@ -461,7 +461,7 @@ function showHelp() {
 \x1b[1mAI Agents (optional):\x1b[0m
   - Claude Code CLI (claude): https://docs.anthropic.com/en/docs/claude-code
   - Cursor Agent CLI: https://www.cursor.com/
-  - Any supported executor configured in smartkanban.yaml
+  - Any supported executor configured in draft.yaml
 `);
 }
 

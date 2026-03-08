@@ -21,7 +21,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # Add config JSON column to boards table
-    # This allows board-level configuration overrides for smartkanban.yaml settings
+    # This allows board-level configuration overrides for draft.yaml settings
     op.add_column("boards", sa.Column("config", sa.JSON(), nullable=True))
 
 

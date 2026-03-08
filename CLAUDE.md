@@ -84,9 +84,9 @@ Tickets can depend on each other via `blocked_by_ticket_id` (self-referential FK
 ### Git Worktree Isolation
 
 Each ticket gets its own isolated git worktree for parallel execution:
-- Worktrees: `.smartkanban/worktrees/{ticket_id}/`
+- Worktrees: `.draft/worktrees/{ticket_id}/`
 - Branches: `goal/{goal_id}/ticket/{ticket_id}`
-- Logs: `{worktree_path}/.smartkanban/logs/{job_id}.log`
+- Logs: `{worktree_path}/.draft/logs/{job_id}.log`
 - Auto-cleaned when tickets reach terminal states
 
 Key services: `WorkspaceService` (creates worktrees), `WorktreeValidator` (validates safety), `CleanupService` (removes stale worktrees)
@@ -117,11 +117,11 @@ State transitions after execution:
 - Headless success with NO diff → `BLOCKED` (reason: "no changes")
 - Headless failure → `BLOCKED`
 
-**YOLO Mode:** When enabled in `smartkanban.yaml`, Claude CLI runs with `--dangerously-skip-permissions`. Only runs if `yolo_allowlist` has trusted repo paths.
+**YOLO Mode:** When enabled in `draft.yaml`, Claude CLI runs with `--dangerously-skip-permissions`. Only runs if `yolo_allowlist` has trusted repo paths.
 
 ### Verification Pipeline
 
-After execution, verification commands from `smartkanban.yaml` run sequentially in the worktree:
+After execution, verification commands from `draft.yaml` run sequentially in the worktree:
 - Each command's stdout/stderr captured as `Evidence` records
 - All pass → `NEEDS_HUMAN`; any fail → `BLOCKED`
 - Stop on first failure
@@ -208,13 +208,13 @@ Ruff ignores `B008` (function call in default argument) because FastAPI's `Depen
 
 - Use `LLMService` wrapper (via LiteLLM) for all LLM calls
 - Supports OpenAI, Anthropic, AWS Bedrock
-- Configure model in `smartkanban.yaml` (`planner_config.model`)
+- Configure model in `draft.yaml` (`planner_config.model`)
 - Cost tracking via `CostTrackingService` with per-goal budgets
 
 ### Configuration Files
 
 - `backend/.env`: Database URL, CORS, AWS credentials (copy from `.env.example`)
-- `smartkanban.yaml` (repo root): Executor config, verification commands, cleanup TTLs, planner settings, merge strategy
+- `draft.yaml` (repo root): Executor config, verification commands, cleanup TTLs, planner settings, merge strategy
 - `backend/pyproject.toml`: Ruff + pytest config
 
 ### Coding Style
@@ -237,4 +237,4 @@ Ruff ignores `B008` (function call in default argument) because FastAPI's `Depen
 3. Update `find_executor()` to detect new CLI
 
 ### Adding a Verification Command
-Edit `smartkanban.yaml` under `verify_config.commands`.
+Edit `draft.yaml` under `verify_config.commands`.

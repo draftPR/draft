@@ -29,7 +29,7 @@ demo-repo/
 │   └── utils.py         # Utility functions
 ├── tests/
 │   └── test_calculator.py  # Incomplete test suite
-└── .smartkanban.yaml    # Draft configuration
+└── .draft.yaml    # Draft configuration
 ```
 
 ## Running Tests

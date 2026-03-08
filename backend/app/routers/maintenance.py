@@ -37,13 +37,13 @@ async def run_cleanup(
     By default runs in dry_run mode, which only reports what would be deleted.
     Set dry_run=false to actually perform deletions.
 
-    Cleanup rules (from smartkanban.yaml cleanup_config):
+    Cleanup rules (from draft.yaml cleanup_config):
     - worktree_ttl_days: Delete worktrees older than this
     - evidence_ttl_days: Delete evidence files older than this
     - max_worktrees: Maximum number of active worktrees (not enforced yet)
 
     Safety:
-    - Only deletes files under .smartkanban/
+    - Only deletes files under .draft/
     - Uses `git worktree remove` + `git worktree prune`
     - Never deletes worktrees for tickets in executing/verifying/needs_human
     - Creates audit events for deletions

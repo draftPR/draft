@@ -324,7 +324,7 @@ class RevisionService:
         """Read the content of an evidence file.
 
         SECURITY: Uses read_artifact() which enforces:
-        - File must be under <repo_root>/.smartkanban
+        - File must be under <repo_root>/.draft
         - No path traversal attacks
         - Size limits
 

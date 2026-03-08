@@ -24,26 +24,26 @@ from sqlalchemy import select
 from app.database import async_session_maker, init_db
 from app.models.board import Board
 from app.models.goal import Goal
-from app.services.config_service import SmartKanbanConfig
+from app.services.config_service import DraftConfig
 
 BOARD_ID = "demo-board"
 
 
 def _load_demo_config(demo_repo_path: Path) -> dict:
-    """Load demo-repo/smartkanban.yaml and set dynamic paths.
+    """Load demo-repo/draft.yaml and set dynamic paths.
 
     Reads the YAML config and sets the yolo_allowlist to the actual
     demo-repo path so it works on any machine.
     """
-    yaml_path = demo_repo_path / "smartkanban.yaml"
+    yaml_path = demo_repo_path / "draft.yaml"
     if yaml_path.exists():
         with open(yaml_path) as f:
             raw = yaml.safe_load(f) or {}
     else:
         raw = {}
 
-    # Parse through SmartKanbanConfig for proper defaults, then convert back
-    config = SmartKanbanConfig.from_dict(raw)
+    # Parse through DraftConfig for proper defaults, then convert back
+    config = DraftConfig.from_dict(raw)
     config_dict = config.to_dict()
 
     # Set yolo_allowlist dynamically to the resolved demo-repo path
@@ -77,7 +77,7 @@ async def seed_demo_data():
             print(f"ERROR: demo-repo not found at {demo_repo_path}")
             return
 
-        # Load demo config from smartkanban.yaml and set dynamic yolo_allowlist
+        # Load demo config from draft.yaml and set dynamic yolo_allowlist
         board_config = _load_demo_config(demo_repo_path)
 
         # Create demo board

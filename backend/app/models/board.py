@@ -42,7 +42,7 @@ class Board(Base):
     default_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Board-level configuration overrides (JSON)
-    # Overrides settings from smartkanban.yaml
+    # Overrides settings from draft.yaml
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Owner (nullable for backward compat with single-user setups)

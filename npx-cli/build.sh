@@ -16,13 +16,13 @@ mkdir -p "$APP_DIR"
 # Copy backend (exclude venv, __pycache__, .db files, .env)
 rsync -a --exclude='venv/' --exclude='__pycache__/' --exclude='*.pyc' \
   --exclude='*.db' --exclude='*.db-shm' --exclude='*.db-wal' \
-  --exclude='.env' --exclude='.smartkanban/' \
+  --exclude='.env' --exclude='.draft/' \
   "$MONO_ROOT/backend/" "$APP_DIR/backend/"
 
-# Copy smartkanban.yaml (default config)
-if [ -f "$MONO_ROOT/smartkanban.yaml" ]; then
-  cp "$MONO_ROOT/smartkanban.yaml" "$APP_DIR/smartkanban.yaml"
-  echo "[alma-build] Copied smartkanban.yaml"
+# Copy draft.yaml (default config)
+if [ -f "$MONO_ROOT/draft.yaml" ]; then
+  cp "$MONO_ROOT/draft.yaml" "$APP_DIR/draft.yaml"
+  echo "[alma-build] Copied draft.yaml"
 fi
 
 # Build frontend for production

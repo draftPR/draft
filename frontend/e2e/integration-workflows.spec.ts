@@ -71,7 +71,7 @@ const mockMergeStatus = {
   has_approved_revision: true,
   workspace: {
     branch_name: "goal/goal-1/ticket/ticket-1",
-    path: "/tmp/test-repo/.smartkanban/worktrees/ticket-1",
+    path: "/tmp/test-repo/.draft/worktrees/ticket-1",
   },
 };
 

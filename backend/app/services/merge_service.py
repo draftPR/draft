@@ -21,7 +21,7 @@ from app.models.revision import RevisionStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.models.workspace import Workspace
-from app.services.config_service import SmartKanbanConfig
+from app.services.config_service import DraftConfig
 from app.services.workspace_service import WorkspaceService
 from app.state_machine import TicketState
 
@@ -59,7 +59,7 @@ class MergeService:
     from an isolated worktree back into the main repository's default branch.
 
     Safety:
-        - Only operates on worktrees under .smartkanban/worktrees/
+        - Only operates on worktrees under .draft/worktrees/
         - Never modifies protected branches directly
         - Validates ticket is in 'done' state with approved revision
         - Captures all git output as evidence (stdout AND stderr)
@@ -71,7 +71,7 @@ class MergeService:
 
     def __init__(self, db: AsyncSession, board_config: dict | None = None):
         self.db = db
-        self._config = SmartKanbanConfig.from_board_config(board_config)
+        self._config = DraftConfig.from_board_config(board_config)
 
     async def merge_ticket(
         self,
@@ -134,10 +134,10 @@ class MergeService:
         if not worktree_path.exists():
             raise ValidationError(f"Worktree path does not exist: {worktree_path}")
 
-        # Validate worktree is under central data dir or legacy .smartkanban/worktrees/
+        # Validate worktree is under central data dir or legacy .draft/worktrees/
         repo_path = WorkspaceService.get_repo_path()
         central_worktrees = get_worktrees_root()
-        legacy_worktrees = repo_path / ".smartkanban" / "worktrees"
+        legacy_worktrees = repo_path / ".draft" / "worktrees"
         resolved = worktree_path.resolve()
         under_central = False
         under_legacy = False

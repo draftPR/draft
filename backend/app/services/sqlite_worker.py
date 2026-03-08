@@ -233,7 +233,7 @@ _worker: SQLiteWorker | None = None
 def get_worker() -> SQLiteWorker:
     """Get or create the global SQLite worker.
 
-    Reads max_parallel_jobs from smartkanban.yaml to configure the thread pool.
+    Reads max_parallel_jobs from draft.yaml to configure the thread pool.
     """
     global _worker
     if _worker is None:

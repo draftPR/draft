@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.board import Board
-from app.services.config_service import SmartKanbanConfig, deep_merge_dicts
+from app.services.config_service import DraftConfig, deep_merge_dicts
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ async def get_global_settings(
         Current execute_config from the board's config.
     """
     board = await _resolve_board(db, board_id)
-    config = SmartKanbanConfig.from_board_config(board.config)
+    config = DraftConfig.from_board_config(board.config)
 
     return SettingsResponse(
         execute_config={
@@ -145,7 +145,7 @@ async def update_global_settings(
         await db.commit()
         await db.refresh(board)
 
-    config = SmartKanbanConfig.from_board_config(board.config)
+    config = DraftConfig.from_board_config(board.config)
     return SettingsResponse(
         execute_config={
             "timeout": config.execute_config.timeout,
@@ -168,7 +168,7 @@ async def get_planner_config(
 ):
     """Get current planner configuration from board config (DB)."""
     board = await _resolve_board(db, board_id)
-    config = SmartKanbanConfig.from_board_config(board.config)
+    config = DraftConfig.from_board_config(board.config)
     planner = config.planner_config
 
     return PlannerConfigResponse(
@@ -205,7 +205,7 @@ async def update_planner_config(
         await db.commit()
         await db.refresh(board)
 
-    config = SmartKanbanConfig.from_board_config(board.config)
+    config = DraftConfig.from_board_config(board.config)
     planner = config.planner_config
 
     return PlannerConfigResponse(
@@ -231,7 +231,7 @@ async def check_planner_health(
     import shutil
 
     board = await _resolve_board(db, board_id)
-    config = SmartKanbanConfig.from_board_config(board.config)
+    config = DraftConfig.from_board_config(board.config)
     planner = config.planner_config
     model = planner.model
 

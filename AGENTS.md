@@ -1,10 +1,10 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `backend/`: FastAPI app (`backend/app`), Alembic migrations, and `backend/tests` (pytest). Config lives in `backend/.env` and `smartkanban.yaml` at repo root.
+- `backend/`: FastAPI app (`backend/app`), Alembic migrations, and `backend/tests` (pytest). Config lives in `backend/.env` and `draft.yaml` at repo root.
 - `frontend/`: React + Vite + TypeScript app in `frontend/src` with Tailwind/shadcn UI.
 - `scripts/`: helper scripts; `run.py` boots all services.
-- `.smartkanban/`: worktrees, logs, and evidence (generated).
+- `.draft/`: worktrees, logs, and evidence (generated).
 
 ## Build, Test, and Development Commands
 - `make setup`: create `backend/venv` and install backend + frontend deps.
@@ -30,4 +30,4 @@
 
 ## Security & Configuration Tips
 - Set backend environment variables in `backend/.env` (see `backend/ENV_SETUP.md`).
-- Verification commands run from `smartkanban.yaml`; keep them repo-root safe (e.g., `cd backend && pytest tests -v`).
+- Verification commands run from `draft.yaml`; keep them repo-root safe (e.g., `cd backend && pytest tests -v`).

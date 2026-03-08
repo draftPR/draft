@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User
 
 # Configuration
-SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "alma-kanban-dev-secret-change-in-production")
+SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "draft-dev-secret-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("AUTH_TOKEN_EXPIRE_MINUTES", "1440"))  # 24h
 

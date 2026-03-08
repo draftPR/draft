@@ -169,7 +169,7 @@ class GenerateTicketsRequest(BaseModel):
     """Request schema for generating tickets from a goal.
 
     SECURITY NOTE: The repository path is ALWAYS inferred from server config
-    (smartkanban.yaml repo_root). This prevents directory traversal attacks.
+    (draft.yaml repo_root). This prevents directory traversal attacks.
     """
 
     model_config = ConfigDict(extra="ignore")

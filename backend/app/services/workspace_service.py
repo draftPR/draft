@@ -155,7 +155,7 @@ class WorkspaceService:
         """
         Get the worktree directory path for a ticket.
 
-        Uses central data dir: ~/.telem/worktrees/{board_id}/{ticket_id}/
+        Uses central data dir: ~/.draft/worktrees/{board_id}/{ticket_id}/
 
         Args:
             ticket_id: The ticket UUID.
@@ -218,7 +218,7 @@ class WorkspaceService:
         1. Validates the repository is a git repo
         2. Validates the base branch exists
         3. Creates a new branch based on the base branch
-        4. Creates a worktree at .smartkanban/worktrees/{ticket_id}/
+        4. Creates a worktree at .draft/worktrees/{ticket_id}/
         5. Records the workspace in the database
 
         Args:

@@ -705,7 +705,7 @@ async def execute_ticket(
     then to VERIFYING or BLOCKED based on the outcome.
 
     Pass `executor_profile` query param to use a named profile from
-    smartkanban.yaml (e.g., `?executor_profile=fast`).
+    draft.yaml (e.g., `?executor_profile=fast`).
 
     For automated execution of all planned tickets, use `/planner/start`.
     """
@@ -1697,16 +1697,16 @@ def parse_cursor_json_output(
 def _strip_worktree_prefix(path: str) -> str:
     """Strip worktree path prefixes for cleaner display.
 
-    Handles both central (~/.telem/worktrees/) and legacy (.smartkanban/worktrees/) paths.
+    Handles both central (~/.draft/worktrees/) and legacy (.draft/worktrees/) paths.
     """
     import re
 
-    # Match central data dir pattern: .../.telem/worktrees/{board_id}/{ticket_id}/...
-    m = re.search(r"\.telem/worktrees/[^/]+/[^/]+/(.+)", path)
+    # Match central data dir pattern: .../.draft/worktrees/{board_id}/{ticket_id}/...
+    m = re.search(r"\.draft/worktrees/[^/]+/[^/]+/(.+)", path)
     if m:
         return m.group(1)
-    # Match legacy pattern: .../.smartkanban/worktrees/{ticket_id}/...
-    m = re.search(r"\.smartkanban/worktrees/[^/]+/(.+)", path)
+    # Match legacy pattern: .../.draft/worktrees/{ticket_id}/...
+    m = re.search(r"\.draft/worktrees/[^/]+/(.+)", path)
     if m:
         return m.group(1)
     return path
