@@ -83,7 +83,9 @@ async def create_board(
     """
     service = BoardService(db)
     try:
-        board = await service.create_board(data, owner_id=current_user.id if current_user else None)
+        board = await service.create_board(
+            data, owner_id=current_user.id if current_user else None
+        )
         return BoardResponse.model_validate(board)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -508,9 +510,7 @@ async def export_board(
 
     # Get goals
     goals_result = await db.execute(
-        select(Goal)
-        .where(Goal.board_id == board_id)
-        .order_by(Goal.created_at.asc())
+        select(Goal).where(Goal.board_id == board_id).order_by(Goal.created_at.asc())
     )
     goals = list(goals_result.scalars().all())
 
@@ -525,9 +525,7 @@ async def export_board(
 
     # Get jobs
     jobs_result = await db.execute(
-        select(Job)
-        .where(Job.board_id == board_id)
-        .order_by(Job.created_at.asc())
+        select(Job).where(Job.board_id == board_id).order_by(Job.created_at.asc())
     )
     jobs = list(jobs_result.scalars().all())
 
@@ -539,12 +537,8 @@ async def export_board(
             "repo_root": board.repo_root,
             "default_branch": board.default_branch,
             "config": board.config,
-            "created_at": board.created_at.isoformat()
-            if board.created_at
-            else None,
-            "updated_at": board.updated_at.isoformat()
-            if board.updated_at
-            else None,
+            "created_at": board.created_at.isoformat() if board.created_at else None,
+            "updated_at": board.updated_at.isoformat() if board.updated_at else None,
         },
         "goals": [
             {
@@ -552,12 +546,8 @@ async def export_board(
                 "title": g.title,
                 "description": g.description,
                 "autonomy_enabled": g.autonomy_enabled,
-                "created_at": g.created_at.isoformat()
-                if g.created_at
-                else None,
-                "updated_at": g.updated_at.isoformat()
-                if g.updated_at
-                else None,
+                "created_at": g.created_at.isoformat() if g.created_at else None,
+                "updated_at": g.updated_at.isoformat() if g.updated_at else None,
             }
             for g in goals
         ],
@@ -569,16 +559,10 @@ async def export_board(
                 "description": t.description,
                 "state": t.state,
                 "priority": t.priority,
-                "sort_order": t.sort_order
-                if hasattr(t, "sort_order")
-                else None,
+                "sort_order": t.sort_order if hasattr(t, "sort_order") else None,
                 "blocked_by_ticket_id": t.blocked_by_ticket_id,
-                "created_at": t.created_at.isoformat()
-                if t.created_at
-                else None,
-                "updated_at": t.updated_at.isoformat()
-                if t.updated_at
-                else None,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "updated_at": t.updated_at.isoformat() if t.updated_at else None,
                 "events": [
                     {
                         "id": e.id,
@@ -603,15 +587,9 @@ async def export_board(
                 "kind": j.kind,
                 "status": j.status,
                 "exit_code": j.exit_code,
-                "created_at": j.created_at.isoformat()
-                if j.created_at
-                else None,
-                "started_at": j.started_at.isoformat()
-                if j.started_at
-                else None,
-                "finished_at": j.finished_at.isoformat()
-                if j.finished_at
-                else None,
+                "created_at": j.created_at.isoformat() if j.created_at else None,
+                "started_at": j.started_at.isoformat() if j.started_at else None,
+                "finished_at": j.finished_at.isoformat() if j.finished_at else None,
             }
             for j in jobs
         ],

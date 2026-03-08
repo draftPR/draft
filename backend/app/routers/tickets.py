@@ -49,7 +49,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 
-async def _broadcast_board_invalidate(board_id: str | None, reason: str = "ticket_mutation") -> None:
+async def _broadcast_board_invalidate(
+    board_id: str | None, reason: str = "ticket_mutation"
+) -> None:
     """Broadcast a board invalidation message via WebSocket if board_id is available."""
     if board_id:
         await connection_manager.broadcast(
@@ -150,10 +152,14 @@ async def list_tickets(
 
     # Apply ordering and pagination
     offset = (page - 1) * limit
-    query = query.order_by(
-        Ticket.priority.desc().nulls_last(),
-        Ticket.created_at.desc(),
-    ).offset(offset).limit(limit)
+    query = (
+        query.order_by(
+            Ticket.priority.desc().nulls_last(),
+            Ticket.created_at.desc(),
+        )
+        .offset(offset)
+        .limit(limit)
+    )
 
     result = await db.execute(query)
     tickets = result.scalars().all()
@@ -562,8 +568,7 @@ async def reorder_ticket(
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Ticket is in '{ticket.state}' state, "
-                f"not '{data.column_state.value}'"
+                f"Ticket is in '{ticket.state}' state, not '{data.column_state.value}'"
             ),
         )
 
@@ -579,9 +584,7 @@ async def reorder_ticket(
     )
     # Scope to same board if ticket has board_id
     if ticket.board_id:
-        column_query = column_query.where(
-            Ticket.board_id == ticket.board_id
-        )
+        column_query = column_query.where(Ticket.board_id == ticket.board_id)
 
     result = await db.execute(column_query)
     column_tickets = list(result.scalars().all())
@@ -604,9 +607,7 @@ async def reorder_ticket(
     await db.commit()
 
     # Broadcast board invalidation
-    await _broadcast_board_invalidate(
-        ticket.board_id, reason="ticket_reordered"
-    )
+    await _broadcast_board_invalidate(ticket.board_id, reason="ticket_reordered")
 
     return TicketResponse.model_validate(ticket)
 

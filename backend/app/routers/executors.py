@@ -93,15 +93,35 @@ async def list_executor_models(executor_name: str):
     # Model options per executor type
     models_by_executor: dict[str, list[dict[str, str]]] = {
         "claude": [
-            {"id": "auto", "name": "Auto (recommended)", "description": "Automatically select the best model"},
-            {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4", "description": "Fast and capable"},
-            {"id": "claude-opus-4-20250514", "name": "Claude Opus 4", "description": "Most capable model"},
+            {
+                "id": "auto",
+                "name": "Auto (recommended)",
+                "description": "Automatically select the best model",
+            },
+            {
+                "id": "claude-sonnet-4-20250514",
+                "name": "Claude Sonnet 4",
+                "description": "Fast and capable",
+            },
+            {
+                "id": "claude-opus-4-20250514",
+                "name": "Claude Opus 4",
+                "description": "Most capable model",
+            },
         ],
         "cursor-agent": [
-            {"id": "auto", "name": "Auto (recommended)", "description": "Automatically select the best model"},
+            {
+                "id": "auto",
+                "name": "Auto (recommended)",
+                "description": "Automatically select the best model",
+            },
         ],
         "cursor": [
-            {"id": "auto", "name": "Auto (recommended)", "description": "Uses Cursor IDE model selection"},
+            {
+                "id": "auto",
+                "name": "Auto (recommended)",
+                "description": "Uses Cursor IDE model selection",
+            },
         ],
     }
 
@@ -168,9 +188,7 @@ async def get_executor_setup(executor_name: str):
         raise HTTPException(status_code=500, detail=f"Failed to check setup: {str(e)}")
 
 
-async def _resolve_board_for_executors(
-    db: AsyncSession, board_id: str | None
-) -> Board:
+async def _resolve_board_for_executors(db: AsyncSession, board_id: str | None) -> Board:
     """Resolve a board by ID, or fall back to the first board."""
     if board_id:
         result = await db.execute(select(Board).where(Board.id == board_id))
@@ -191,7 +209,9 @@ async def _resolve_board_for_executors(
 
 @router.get("/profiles", response_model=list[dict[str, Any]])
 async def list_executor_profiles(
-    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    board_id: str | None = Query(
+        None, description="Board ID (uses first board if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """List all configured executor profiles from board config (DB).
@@ -219,7 +239,9 @@ async def list_executor_profiles(
 @router.get("/profiles/{profile_name}", response_model=dict[str, Any])
 async def get_executor_profile(
     profile_name: str,
-    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    board_id: str | None = Query(
+        None, description="Board ID (uses first board if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific executor profile by name.
@@ -253,7 +275,9 @@ async def get_executor_profile(
 @router.put("/profiles", response_model=list[dict[str, Any]])
 async def save_executor_profiles(
     profiles: list[dict[str, Any]],
-    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    board_id: str | None = Query(
+        None, description="Board ID (uses first board if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Save executor profiles to board config (DB).

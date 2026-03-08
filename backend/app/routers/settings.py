@@ -65,9 +65,7 @@ class PlannerHealthResponse(BaseModel):
     error: str | None = None
 
 
-async def _resolve_board(
-    db: AsyncSession, board_id: str | None
-) -> Board:
+async def _resolve_board(db: AsyncSession, board_id: str | None) -> Board:
     """Resolve a board by ID, or fall back to the first board."""
     if board_id:
         result = await db.execute(select(Board).where(Board.id == board_id))
@@ -88,7 +86,9 @@ async def _resolve_board(
 
 @router.get("", response_model=SettingsResponse)
 async def get_global_settings(
-    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    board_id: str | None = Query(
+        None, description="Board ID (uses first board if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Get execute settings from board config (DB).
@@ -112,7 +112,9 @@ async def get_global_settings(
 @router.put("", response_model=SettingsResponse)
 async def update_global_settings(
     data: SettingsUpdate,
-    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    board_id: str | None = Query(
+        None, description="Board ID (uses first board if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Update execute settings in board config (DB).
@@ -159,7 +161,9 @@ async def update_global_settings(
 
 @router.get("/planner", response_model=PlannerConfigResponse)
 async def get_planner_config(
-    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    board_id: str | None = Query(
+        None, description="Board ID (uses first board if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Get current planner configuration from board config (DB)."""
@@ -178,7 +182,9 @@ async def get_planner_config(
 @router.put("/planner", response_model=PlannerConfigResponse)
 async def update_planner_config(
     data: PlannerConfigUpdate,
-    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    board_id: str | None = Query(
+        None, description="Board ID (uses first board if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Update planner model and agent_path in board config (DB)."""
@@ -212,7 +218,9 @@ async def update_planner_config(
 
 @router.get("/planner/check", response_model=PlannerHealthResponse)
 async def check_planner_health(
-    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    board_id: str | None = Query(
+        None, description="Board ID (uses first board if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Test if the configured planner can work.

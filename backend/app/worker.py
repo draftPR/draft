@@ -687,9 +687,7 @@ def transition_ticket_sync(
         try:
             from_state_enum = TicketState(from_state)
         except ValueError:
-            logger.error(
-                f"Invalid current state '{from_state}' for ticket {ticket_id}"
-            )
+            logger.error(f"Invalid current state '{from_state}' for ticket {ticket_id}")
             return
 
         if not sm_validate(from_state_enum, to_state):
@@ -952,14 +950,18 @@ def run_executor_cli(
 
                 # Check if job was canceled
                 if job_id and check_canceled(job_id):
-                    logger.info(f"Job {job_id} canceled, attempting graceful shutdown of process {process.pid}")
+                    logger.info(
+                        f"Job {job_id} canceled, attempting graceful shutdown of process {process.pid}"
+                    )
                     # Try SIGTERM first for graceful shutdown
                     process.terminate()
                     try:
                         process.wait(timeout=5)
                         logger.info(f"Process {process.pid} terminated gracefully")
                     except subprocess.TimeoutExpired:
-                        logger.warning(f"Process {process.pid} did not terminate gracefully, using SIGKILL")
+                        logger.warning(
+                            f"Process {process.pid} did not terminate gracefully, using SIGKILL"
+                        )
                         process.kill()  # Force kill if still alive
                         process.wait()
                     stdout_lines.append("\n[CANCELED] Job canceled by user")
@@ -968,14 +970,20 @@ def run_executor_cli(
 
                 # Check timeout
                 if time.time() - start_time > timeout:
-                    logger.warning(f"Process {process.pid} exceeded timeout {timeout}s, attempting graceful shutdown")
+                    logger.warning(
+                        f"Process {process.pid} exceeded timeout {timeout}s, attempting graceful shutdown"
+                    )
                     # Try SIGTERM first for graceful shutdown
                     process.terminate()
                     try:
                         process.wait(timeout=5)
-                        logger.info(f"Process {process.pid} terminated gracefully after timeout")
+                        logger.info(
+                            f"Process {process.pid} terminated gracefully after timeout"
+                        )
                     except subprocess.TimeoutExpired:
-                        logger.warning(f"Process {process.pid} did not terminate gracefully, using SIGKILL")
+                        logger.warning(
+                            f"Process {process.pid} did not terminate gracefully, using SIGKILL"
+                        )
                         process.kill()
                         process.wait()
                     stdout_lines.append(
@@ -1031,7 +1039,9 @@ def run_executor_cli(
 
         if threads_stuck:
             # Add warning to output that some logs may be incomplete
-            stdout_lines.append("\n[WARNING] Output streaming threads did not terminate cleanly - some logs may be incomplete")
+            stdout_lines.append(
+                "\n[WARNING] Output streaming threads did not terminate cleanly - some logs may be incomplete"
+            )
 
         # Write captured output to files
         stdout_path.write_text("\n".join(stdout_lines))
@@ -1102,7 +1112,9 @@ def run_executor_cli_with_retry(
     for attempt in range(EXECUTOR_MAX_RETRIES + 1):  # 0, 1, 2 = 3 total attempts
         if attempt > 0:
             # This is a retry - calculate backoff delay
-            delay = EXECUTOR_RETRY_DELAY_BASE * (2 ** (attempt - 1))  # Exponential backoff: 5s, 10s
+            delay = EXECUTOR_RETRY_DELAY_BASE * (
+                2 ** (attempt - 1)
+            )  # Exponential backoff: 5s, 10s
             retry_msg = f"Retry attempt {attempt}/{EXECUTOR_MAX_RETRIES} after {delay}s delay..."
             logger.info(retry_msg)
             if log_path:
@@ -1114,7 +1126,9 @@ def run_executor_cli_with_retry(
             command=command,
             cwd=cwd,
             evidence_dir=evidence_dir,
-            evidence_id=f"{evidence_id}_attempt{attempt}" if attempt > 0 else evidence_id,
+            evidence_id=f"{evidence_id}_attempt{attempt}"
+            if attempt > 0
+            else evidence_id,
             repo_root=repo_root,
             timeout=timeout,
             job_id=job_id,
@@ -1146,7 +1160,9 @@ def run_executor_cli_with_retry(
             stderr_content = ""
 
         if is_retryable_error(exit_code, stderr_content):
-            retry_reason = f"Executor failed with retryable error (exit_code={exit_code})"
+            retry_reason = (
+                f"Executor failed with retryable error (exit_code={exit_code})"
+            )
             logger.warning(retry_reason)
             if log_path:
                 write_log(log_path, retry_reason, job_id)
@@ -1969,7 +1985,9 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 
     # Build prompt bundle
     write_log(log_path, "Building prompt bundle...")
-    prompt_builder = PromptBundleBuilder(worktree_path, job_id, repo_root=main_repo_path)
+    prompt_builder = PromptBundleBuilder(
+        worktree_path, job_id, repo_root=main_repo_path
+    )
     verify_commands = (
         config.verify_config.commands if config.verify_config.commands else None
     )
@@ -2089,17 +2107,19 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     should_normalize = executor_info.executor_type == ExecutorType.CURSOR_AGENT
 
     # Use retry wrapper for improved reliability (handles transient failures)
-    executor_exit_code, executor_stdout_path, executor_stderr_path = run_executor_cli_with_retry(
-        command=executor_command,
-        cwd=worktree_path,
-        evidence_dir=evidence_dir,
-        evidence_id=executor_evidence_id,
-        repo_root=main_repo_path,
-        timeout=execute_config.timeout,
-        job_id=job_id,  # Enable real-time streaming
-        normalize_logs=should_normalize,  # Parse cursor-agent JSON for nice display
-        stdin_content=executor_stdin,  # Pipe prompt via stdin (ARG_MAX safety)
-        log_path=log_path,  # Enable retry logging
+    executor_exit_code, executor_stdout_path, executor_stderr_path = (
+        run_executor_cli_with_retry(
+            command=executor_command,
+            cwd=worktree_path,
+            evidence_dir=evidence_dir,
+            evidence_id=executor_evidence_id,
+            repo_root=main_repo_path,
+            timeout=execute_config.timeout,
+            job_id=job_id,  # Enable real-time streaming
+            normalize_logs=should_normalize,  # Parse cursor-agent JSON for nice display
+            stdin_content=executor_stdin,  # Pipe prompt via stdin (ARG_MAX safety)
+            log_path=log_path,  # Enable retry logging
+        )
     )
 
     # Calculate execution duration

@@ -232,9 +232,7 @@ async def get_agent_metrics(
         .filter(AgentSession.turn_count > 0)
         .label("successful"),
         func.coalesce(func.avg(AgentSession.turn_count), 0).label("avg_turns"),
-        func.coalesce(func.sum(AgentSession.estimated_cost_usd), 0).label(
-            "total_cost"
-        ),
+        func.coalesce(func.sum(AgentSession.estimated_cost_usd), 0).label("total_cost"),
     )
     if goal_id:
         totals_query = totals_query.join(Ticket).where(Ticket.goal_id == goal_id)

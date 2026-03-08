@@ -181,7 +181,9 @@ class TicketGenerationService:
             f"Calling agent CLI for goal '{goal.title}' (streaming={'yes' if stream_callback else 'no'})"
         )
         if stream_callback:
-            stream_callback(f"[DEBUG] Prompt built ({len(prompt)} chars). Calling agent...")
+            stream_callback(
+                f"[DEBUG] Prompt built ({len(prompt)} chars). Calling agent..."
+            )
         agent_response = await asyncio.to_thread(
             self._call_agent_for_tickets,
             prompt,
@@ -416,7 +418,9 @@ class TicketGenerationService:
                 existing_tickets.append((ticket.id, title))  # Add to dedup list
 
             except Exception as e:
-                raw_title = raw.get("title", "") if isinstance(raw, dict) else str(raw)[:50]
+                raw_title = (
+                    raw.get("title", "") if isinstance(raw, dict) else str(raw)[:50]
+                )
                 logger.error(
                     f"Error creating ticket '{raw_title[:50]}': {e}",
                     exc_info=True,
@@ -1331,7 +1335,9 @@ Now analyze the codebase and generate the JSON."""
         llm = self._get_llm_for_api_fallback()
 
         if stream_callback:
-            stream_callback(f"[DEBUG] Using LLM API model: {llm.model if hasattr(llm, 'model') else 'unknown'}")
+            stream_callback(
+                f"[DEBUG] Using LLM API model: {llm.model if hasattr(llm, 'model') else 'unknown'}"
+            )
             stream_callback("[Generating tickets via LLM API...]")
 
         # Gather repo context for the LLM
@@ -1566,9 +1572,7 @@ Now analyze the codebase and generate the JSON."""
             if not Path(cmd[0]).exists() and not shutil.which(cmd[0]):
                 raise ValueError(f"Agent command not found: {cmd[0]}")
             if not repo_root.exists():
-                raise ValueError(
-                    f"Repository directory does not exist: {repo_root}"
-                )
+                raise ValueError(f"Repository directory does not exist: {repo_root}")
             raise ValueError(f"File not found during agent execution: {e}")
 
     def _parse_agent_json_response(self, response: str) -> dict:

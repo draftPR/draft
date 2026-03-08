@@ -631,7 +631,9 @@ class SmartKanbanConfig:
         return _dataclass_to_dict(self)
 
     @classmethod
-    def from_board_config(cls, board_config: dict[str, Any] | None) -> "SmartKanbanConfig":
+    def from_board_config(
+        cls, board_config: dict[str, Any] | None
+    ) -> "SmartKanbanConfig":
         """Create a SmartKanbanConfig from a board's config dict.
 
         This is the primary way to load config at runtime - directly from

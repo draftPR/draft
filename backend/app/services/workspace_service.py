@@ -248,7 +248,9 @@ class WorkspaceService:
         # Use board's repo_root if available, otherwise fall back to env/default
         board_repo_root = None
         if ticket.board_id:
-            board_result = self.db.execute(select(Board).where(Board.id == ticket.board_id))
+            board_result = self.db.execute(
+                select(Board).where(Board.id == ticket.board_id)
+            )
             board = board_result.scalar_one_or_none()
             if board and board.repo_root:
                 board_repo_root = Path(board.repo_root)
@@ -361,6 +363,7 @@ class WorkspaceService:
                     return workspace
                 # Wrong repo — force cleanup and recreate
                 import logging
+
                 logging.getLogger(__name__).warning(
                     f"Worktree {worktree_path} belongs to wrong repo; recreating."
                 )
@@ -373,7 +376,9 @@ class WorkspaceService:
 
         return self.create_worktree(ticket_id, goal_id)
 
-    def _worktree_matches_board_repo(self, worktree_path: Path, board_id: str | None) -> bool:
+    def _worktree_matches_board_repo(
+        self, worktree_path: Path, board_id: str | None
+    ) -> bool:
         """Check that an existing worktree belongs to the board's repo_root."""
         if not board_id:
             return True  # No board — can't verify, assume OK
@@ -414,7 +419,9 @@ class WorkspaceService:
         # Use board's repo_root if available
         repo_path = self.get_repo_path()
         if workspace.board_id:
-            board_result = self.db.execute(select(Board).where(Board.id == workspace.board_id))
+            board_result = self.db.execute(
+                select(Board).where(Board.id == workspace.board_id)
+            )
             board = board_result.scalar_one_or_none()
             if board and board.repo_root:
                 repo_path = Path(board.repo_root)

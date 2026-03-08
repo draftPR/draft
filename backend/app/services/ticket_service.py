@@ -222,15 +222,15 @@ class TicketService:
                     )
                 )
         except Exception:
-            logger.warning("Failed to dispatch webhooks for ticket %s", ticket_id, exc_info=True)
+            logger.warning(
+                "Failed to dispatch webhooks for ticket %s", ticket_id, exc_info=True
+            )
 
         return ticket
 
     async def _get_board_for_ticket(self, ticket: Ticket) -> Board | None:
         """Load the board for a ticket (for webhook config)."""
-        result = await self.db.execute(
-            select(Board).where(Board.id == ticket.board_id)
-        )
+        result = await self.db.execute(select(Board).where(Board.id == ticket.board_id))
         return result.scalar_one_or_none()
 
     async def _enqueue_verify_job_async(self, ticket_id: str) -> str | None:

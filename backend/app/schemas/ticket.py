@@ -194,9 +194,7 @@ class BulkTransitionRequest(BaseModel):
     ticket_ids: list[str] = Field(
         ..., min_length=1, description="List of ticket IDs to transition"
     )
-    target_state: TicketState = Field(
-        ..., description="Target state for all tickets"
-    )
+    target_state: TicketState = Field(..., description="Target state for all tickets")
     reason: str = Field(
         default="Bulk transition",
         description="Reason for the state transition",

@@ -42,7 +42,9 @@ class BoardService:
         full["execute_config"]["timeout"] = 300
         return full
 
-    async def create_board(self, data: BoardCreate, owner_id: str | None = None) -> Board:
+    async def create_board(
+        self, data: BoardCreate, owner_id: str | None = None
+    ) -> Board:
         """Create a new board with sensible default configuration.
 
         CRITICAL: repo_root becomes the authoritative path for all

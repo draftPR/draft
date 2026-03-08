@@ -280,7 +280,9 @@ def _get_max_parallel_jobs() -> int:
         with get_sync_db() as db:
             board = db.execute(select(Board).limit(1)).scalar_one_or_none()
             if board and board.config:
-                return SmartKanbanConfig.from_board_config(board.config).execute_config.max_parallel_jobs
+                return SmartKanbanConfig.from_board_config(
+                    board.config
+                ).execute_config.max_parallel_jobs
         return 1
     except Exception:
         return 1

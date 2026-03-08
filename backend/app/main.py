@@ -206,9 +206,7 @@ async def validation_error_handler(
 
 
 @app.exception_handler(ConflictError)
-async def conflict_error_handler(
-    request: Request, exc: ConflictError
-) -> JSONResponse:
+async def conflict_error_handler(request: Request, exc: ConflictError) -> JSONResponse:
     """Handle conflict errors (e.g., duplicate operations, stale state)."""
     return JSONResponse(
         status_code=409,

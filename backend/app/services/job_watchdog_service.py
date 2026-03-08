@@ -180,7 +180,9 @@ def run_job_watchdog() -> WatchdogResult:
         )
 
         if running_jobs_count == 0:
-            reenqueue_threshold = now_naive - timedelta(seconds=QUEUED_REENQUEUE_SECONDS)
+            reenqueue_threshold = now_naive - timedelta(
+                seconds=QUEUED_REENQUEUE_SECONDS
+            )
             potentially_lost_jobs = (
                 db.query(Job)
                 .filter(

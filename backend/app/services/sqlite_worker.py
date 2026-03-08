@@ -212,9 +212,7 @@ class SQLiteWorker:
                 if now - last >= interval:
                     last_run[name] = now
                     try:
-                        self._periodic_executor.submit(
-                            self._run_periodic, name, func
-                        )
+                        self._periodic_executor.submit(self._run_periodic, name, func)
                     except Exception as e:
                         logger.error(f"Failed to schedule periodic task {name}: {e}")
 

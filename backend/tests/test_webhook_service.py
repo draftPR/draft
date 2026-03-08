@@ -102,7 +102,14 @@ async def test_fire_webhooks_with_secret():
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        webhooks = [{"id": "w1", "url": "https://example.com/hook", "events": ["*"], "secret": "s3cret"}]
+        webhooks = [
+            {
+                "id": "w1",
+                "url": "https://example.com/hook",
+                "events": ["*"],
+                "secret": "s3cret",
+            }
+        ]
         await fire_webhooks(
             webhooks,
             ticket_id="t1",
@@ -130,7 +137,13 @@ async def test_fire_webhooks_event_filter():
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        webhooks = [{"id": "w1", "url": "https://example.com/hook", "events": ["ticket.deleted"]}]
+        webhooks = [
+            {
+                "id": "w1",
+                "url": "https://example.com/hook",
+                "events": ["ticket.deleted"],
+            }
+        ]
         await fire_webhooks(
             webhooks,
             ticket_id="t1",

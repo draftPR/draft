@@ -28,17 +28,13 @@ async def get_evidence_by_id(evidence_id: str, db: AsyncSession) -> Evidence:
     return evidence
 
 
-async def _get_repo_root_for_evidence(
-    evidence: Evidence, db: AsyncSession
-) -> Path:
+async def _get_repo_root_for_evidence(evidence: Evidence, db: AsyncSession) -> Path:
     """Get repo_root from the board associated with this evidence's job.
 
     Falls back to the global ConfigService repo_root if no board is found.
     """
     if evidence.job_id:
-        job_result = await db.execute(
-            select(Job).where(Job.id == evidence.job_id)
-        )
+        job_result = await db.execute(select(Job).where(Job.id == evidence.job_id))
         job = job_result.scalar_one_or_none()
         if job and job.board_id:
             board_result = await db.execute(

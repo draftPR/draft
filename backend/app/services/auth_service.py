@@ -77,9 +77,7 @@ async def create_user(
     return user
 
 
-async def authenticate_user(
-    db: AsyncSession, email: str, password: str
-) -> User | None:
+async def authenticate_user(db: AsyncSession, email: str, password: str) -> User | None:
     """Authenticate a user by email and password. Returns User or None."""
     user = await get_user_by_email(db, email.lower().strip())
     if user is None:

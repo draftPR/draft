@@ -138,9 +138,7 @@ def upgrade() -> None:
     """Seed Board.config for all existing boards."""
     conn = op.get_bind()
 
-    rows = conn.execute(
-        text("SELECT id, repo_root, config FROM boards")
-    ).fetchall()
+    rows = conn.execute(text("SELECT id, repo_root, config FROM boards")).fetchall()
 
     if not rows:
         logger.info("No boards found — nothing to seed.")

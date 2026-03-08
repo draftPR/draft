@@ -96,6 +96,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register
+         * @description Create a new user account and return an access token.
+         */
+        post: operations["register_auth_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login
+         * @description Authenticate with email/password and return an access token.
+         */
+        post: operations["login_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Me
+         * @description Return the authenticated user's profile.
+         */
+        get: operations["get_me_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/goals": {
         parameters: {
             query?: never;
@@ -105,7 +165,11 @@ export interface paths {
         };
         /**
          * List all goals
-         * @description Get all goals.
+         * @description Get all goals, optionally filtered by board_id.
+         *
+         *     **Pagination (optional):**
+         *     - If `page` and `limit` are provided, returns paginated response.
+         *     - If omitted, returns all goals (backward compatible).
          */
         get: operations["list_goals_goals_get"];
         put?: never;
@@ -134,7 +198,11 @@ export interface paths {
         get: operations["get_goal_goals__goal_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a goal and all its tickets
+         * @description Delete a goal and cascade delete all associated tickets, jobs, evidence, etc.
+         */
+        delete: operations["delete_goal_goals__goal_id__delete"];
         options?: never;
         head?: never;
         /**
@@ -194,6 +262,8 @@ export interface paths {
         /**
          * Generate tickets with streaming progress (SSE)
          * @description Generate tickets with real-time streaming feedback using Server-Sent Events (SSE).
+         *
+         *     Uses its own DB session to survive client disconnects (EventSource reconnects).
          *
          *     The stream sends JSON events with the following types:
          *     - status: Progress updates like "Analyzing codebase...", "Generating tickets..."
@@ -282,7 +352,22 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List tickets with optional filtering and pagination
+         * @description List tickets with optional filtering and pagination.
+         *
+         *     **Filters:**
+         *     - `state`: Filter by ticket state (e.g., planned, executing)
+         *     - `priority_min` / `priority_max`: Filter by priority range
+         *     - `goal_id`: Filter by parent goal
+         *     - `board_id`: Filter by board
+         *     - `q`: Full-text search on title and description
+         *
+         *     **Pagination:**
+         *     - `page`: Page number (1-based, default 1)
+         *     - `limit`: Items per page (default 50, max 200)
+         */
+        get: operations["list_tickets_tickets_get"];
         put?: never;
         /**
          * Create a new ticket
@@ -326,7 +411,11 @@ export interface paths {
         delete: operations["delete_ticket_tickets__ticket_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a ticket
+         * @description Update a ticket's title, description, or priority.
+         */
+        patch: operations["update_ticket_tickets__ticket_id__patch"];
         trace?: never;
     };
     "/tickets/accept": {
@@ -362,6 +451,60 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/tickets/bulk-transition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk transition multiple tickets to a new state
+         * @description Transition multiple tickets to a new state in a single request.
+         *
+         *     Each ticket is validated independently against the state machine.
+         *     Tickets that fail validation are skipped (partial success is allowed).
+         *
+         *     **Use cases:**
+         *     - Bulk abandon tickets
+         *     - Bulk move tickets back to planned
+         *     - Bulk mark tickets as done
+         */
+        post: operations["bulk_transition_tickets_tickets_bulk_transition_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tickets/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Reorder a ticket within a state column
+         * @description Reorder a ticket within its state column by updating sort_order.
+         *
+         *     Moves the ticket to `new_index` (0-based) within the specified
+         *     `column_state`. Other tickets in the column are re-indexed to
+         *     maintain a contiguous order.
+         *
+         *     **Note:** The ticket must already be in the specified column_state.
+         */
+        patch: operations["reorder_ticket_tickets_reorder_patch"];
         trace?: never;
     };
     "/tickets/{ticket_id}/transition": {
@@ -562,6 +705,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tickets/{ticket_id}/worktree/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get file tree for a ticket's worktree
+         * @description Return the directory structure of a ticket's worktree.
+         *
+         *     Used by the frontend FileTree component to browse files
+         *     in the ticket's isolated workspace.
+         */
+        get: operations["get_worktree_tree_tickets__ticket_id__worktree_tree_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tickets/{ticket_id}/dependents": {
         parameters: {
             query?: never;
@@ -716,6 +882,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/boards/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List available project templates
+         * @description Get all available project templates.
+         *
+         *     Templates provide pre-configured board settings and starter goals
+         *     for common project types like web apps, APIs, mobile apps, etc.
+         *
+         *     Use the template_id when creating a board to apply a template.
+         */
+        get: operations["get_templates_boards_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/boards": {
         parameters: {
             query?: never;
@@ -726,6 +917,9 @@ export interface paths {
         /**
          * List all boards
          * @description Get all boards.
+         *
+         *     When auth is enabled, returns only boards owned by the authenticated user.
+         *     When auth is disabled, returns all boards (backward compatible).
          */
         get: operations["list_boards_boards_get"];
         put?: never;
@@ -736,6 +930,8 @@ export interface paths {
          *     **Important:** The repo_root must be an absolute path to an existing
          *     git repository. This becomes the authoritative path for all file
          *     operations on this board.
+         *
+         *     When auth is enabled, the board is owned by the authenticated user.
          */
         post: operations["create_board_boards_post"];
         delete?: never;
@@ -816,6 +1012,29 @@ export interface paths {
          *     After this, the board will use settings from smartkanban.yaml only.
          */
         delete: operations["clear_board_config_boards__board_id__config_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/boards/{board_id}/config/import-yaml": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import configuration from smartkanban.yaml
+         * @description One-time import: reads smartkanban.yaml from the board's repo_root,
+         *     deep-merges it with the existing board config, and saves to DB.
+         *
+         *     After this, the board's DB config is the single source of truth.
+         */
+        post: operations["import_yaml_config_boards__board_id__config_import_yaml_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -921,6 +1140,37 @@ export interface paths {
          *     Only tickets belonging to this board are included.
          */
         get: operations["get_board_kanban_boards__board_id__board_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/boards/{board_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export all board data as JSON
+         * @description Export the full board data including goals, tickets, jobs, and events.
+         *
+         *     Returns a JSON object containing:
+         *     - `board`: Board metadata
+         *     - `goals`: All goals for the board
+         *     - `tickets`: All tickets with their events
+         *     - `jobs`: All jobs for this board's tickets
+         *
+         *     **Use cases:**
+         *     - Backup/archive a board
+         *     - Transfer board data between instances
+         *     - Generate reports
+         */
+        get: operations["export_board_boards__board_id__export_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1225,6 +1475,38 @@ export interface paths {
          *     - error_message: Error description if invalid
          */
         post: operations["validate_repo_repos_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List historical jobs with filters
+         * @description List historical jobs with optional filters and pagination.
+         *
+         *     **Filters:**
+         *     - `ticket_id`: Filter by ticket
+         *     - `status`: Filter by status (queued, running, succeeded, failed, canceled)
+         *     - `kind`: Filter by kind (execute, verify, resume)
+         *     - `board_id`: Filter by board
+         *
+         *     **Pagination:**
+         *     - `page`: Page number (1-based, default 1)
+         *     - `limit`: Items per page (default 50, max 200)
+         *
+         *     Results are ordered by creation time descending (newest first).
+         */
+        get: operations["list_jobs_jobs_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1601,6 +1883,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/planner/release-lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Force-release the planner lock (emergency admin action)
+         * @description Force-release the planner lock.
+         *
+         *     **WARNING:** This is an emergency admin action for when the planner gets stuck.
+         *     Only use this if the planner tick is hung and no tick is actually running.
+         *
+         *     Deletes the planner_tick lock row from the planner_locks table.
+         */
+        post: operations["release_planner_lock_planner_release_lock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tickets/{ticket_id}/revisions": {
         parameters: {
             query?: never;
@@ -1718,6 +2025,10 @@ export interface paths {
         /**
          * Get all comments for a revision
          * @description Get all comments for a revision.
+         *
+         *     **Pagination (optional):**
+         *     - If `page` and `limit` are provided, returns paginated response.
+         *     - If omitted, returns all comments (backward compatible).
          */
         get: operations["get_revision_comments_revisions__revision_id__comments_get"];
         put?: never;
@@ -1904,6 +2215,158 @@ export interface paths {
         get: operations["get_merge_status_tickets__ticket_id__merge_status_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tickets/{ticket_id}/conflict-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check if a ticket's worktree has conflicts
+         * @description Check for conflicts in the ticket's worktree.
+         *
+         *     Returns conflict state, affected files, and whether continue/abort is possible.
+         *     Also returns branch divergence info for merge planning.
+         */
+        get: operations["get_conflict_status_tickets__ticket_id__conflict_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tickets/{ticket_id}/rebase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rebase a ticket's branch onto the target branch
+         * @description Rebase the ticket's worktree branch onto the target branch.
+         *
+         *     Use this when the base branch has moved forward (divergence detected).
+         *     If conflicts arise, use continue-rebase or abort-conflict.
+         */
+        post: operations["rebase_ticket_tickets__ticket_id__rebase_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tickets/{ticket_id}/continue-rebase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Continue a paused rebase after resolving conflicts
+         * @description Continue a rebase that paused due to conflicts.
+         *
+         *     Call this after the AI agent (or user) has resolved conflicts in the worktree.
+         */
+        post: operations["continue_rebase_endpoint_tickets__ticket_id__continue_rebase_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tickets/{ticket_id}/abort-conflict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abort the current conflict operation
+         * @description Abort the current conflict operation (rebase, merge, cherry-pick, etc.).
+         *
+         *     Returns the worktree to its pre-operation state.
+         */
+        post: operations["abort_conflict_endpoint_tickets__ticket_id__abort_conflict_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tickets/{ticket_id}/push-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check if a ticket's branch needs to be pushed
+         * @description Check if the ticket's branch is ahead/behind the remote tracking branch.
+         */
+        get: operations["get_push_status_endpoint_tickets__ticket_id__push_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tickets/{ticket_id}/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Push a ticket's branch to remote
+         * @description Push the ticket's worktree branch to the remote origin.
+         */
+        post: operations["push_ticket_branch_tickets__ticket_id__push_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tickets/{ticket_id}/force-push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Force-push a ticket's branch to remote (with lease)
+         * @description Force-push the ticket's branch using --force-with-lease for safety.
+         *
+         *     Use after rebase when the remote branch already exists.
+         */
+        post: operations["force_push_ticket_branch_tickets__ticket_id__force_push_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2417,6 +2880,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/executors/{executor_name}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Executor Models
+         * @description List available models for a given executor type.
+         *
+         *     Returns a list of model options that can be used with this executor.
+         */
+        get: operations["list_executor_models_executors__executor_name__models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/executors/{executor_name}/available": {
         parameters: {
             query?: never;
@@ -2443,6 +2928,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/executors/{executor_name}/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Executor Setup
+         * @description Get setup instructions and availability diagnostics for an executor.
+         *
+         *     Returns detailed information about whether the executor is installed,
+         *     what issues exist, and how to set it up.
+         *
+         *     Args:
+         *         executor_name: Name of the executor
+         *
+         *     Returns:
+         *         Dict with availability diagnostics and setup instructions
+         */
+        get: operations["get_executor_setup_executors__executor_name__setup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/executors/profiles": {
         parameters: {
             query?: never;
@@ -2452,13 +2966,19 @@ export interface paths {
         };
         /**
          * List Executor Profiles
-         * @description List all configured executor profiles from smartkanban.yaml.
+         * @description List all configured executor profiles from board config (DB).
          *
          *     Returns:
          *         List of executor profile configurations
          */
         get: operations["list_executor_profiles_executors_profiles_get"];
-        put?: never;
+        /**
+         * Save Executor Profiles
+         * @description Save executor profiles to board config (DB).
+         *
+         *     Replaces all profiles with the provided list.
+         */
+        put: operations["save_executor_profiles_executors_profiles_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2484,6 +3004,86 @@ export interface paths {
          *         Executor profile configuration
          */
         get: operations["get_executor_profile_executors_profiles__profile_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Global Settings
+         * @description Get execute settings from board config (DB).
+         *
+         *     Returns:
+         *         Current execute_config from the board's config.
+         */
+        get: operations["get_global_settings_settings_get"];
+        /**
+         * Update Global Settings
+         * @description Update execute settings in board config (DB).
+         *
+         *     Args:
+         *         data: Settings to update (partial update supported)
+         *
+         *     Returns:
+         *         Updated settings
+         */
+        put: operations["update_global_settings_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings/planner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Planner Config
+         * @description Get current planner configuration from board config (DB).
+         */
+        get: operations["get_planner_config_settings_planner_get"];
+        /**
+         * Update Planner Config
+         * @description Update planner model and agent_path in board config (DB).
+         */
+        put: operations["update_planner_config_settings_planner_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings/planner/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check Planner Health
+         * @description Test if the configured planner can work.
+         *
+         *     For CLI models (cli/claude): checks if the CLI binary is available.
+         *     For API models: makes a minimal test call to verify credentials.
+         */
+        get: operations["check_planner_health_settings_planner_check_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2561,6 +3161,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pull-requests/{ticket_id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Pr Comments
+         * @description List all comments on a ticket's PR.
+         */
+        get: operations["list_pr_comments_pull_requests__ticket_id__comments_get"];
+        put?: never;
+        /**
+         * Add Pr Comment
+         * @description Add a comment to a ticket's PR.
+         */
+        post: operations["add_pr_comment_pull_requests__ticket_id__comments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pull-requests/{ticket_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge Pr Endpoint
+         * @description Merge a ticket's PR on GitHub with the given strategy.
+         */
+        post: operations["merge_pr_endpoint_pull_requests__ticket_id__merge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Webhooks
+         * @description List all webhooks configured for a board.
+         */
+        get: operations["list_webhooks_webhooks_get"];
+        put?: never;
+        /**
+         * Create Webhook
+         * @description Add a new webhook to a board.
+         */
+        post: operations["create_webhook_webhooks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Webhook
+         * @description Remove a webhook from a board.
+         */
+        delete: operations["delete_webhook_webhooks__webhook_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/version": {
         parameters: {
             query?: never;
@@ -2581,16 +3269,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/{full_path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Serve Spa
+         * @description Serve the SPA index.html for client-side routing.
+         */
+        get: operations["serve_spa__full_path__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AbortResponse
+         * @description Response from an abort operation.
+         */
+        AbortResponse: {
+            /** Success */
+            success: boolean;
+            /** Message */
+            message: string;
+        };
         /**
          * ActorType
          * @description Enum representing who performed an action.
          * @enum {string}
          */
         ActorType: "human" | "planner" | "system" | "executor";
+        /**
+         * AddPRCommentRequest
+         * @description Request to add a comment to a PR.
+         */
+        AddPRCommentRequest: {
+            /** Body */
+            body: string;
+        };
         /**
          * AgentInfo
          * @description Information about an AI agent.
@@ -2754,6 +3480,17 @@ export interface components {
              */
             workspace_head_sha?: string | null;
         };
+        /** AuthResponse */
+        AuthResponse: {
+            /** Access Token */
+            access_token: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            user: components["schemas"]["UserProfile"];
+        };
         /**
          * AuthorType
          * @description Enum representing the type of author for a review comment.
@@ -2880,6 +3617,17 @@ export interface components {
              * @description Default branch (e.g., main, master)
              */
             default_branch?: string | null;
+            /**
+             * Template Id
+             * @description Optional template ID to apply project template configuration and starter goals
+             */
+            template_id?: string | null;
+            /**
+             * Create Starter Goals
+             * @description Whether to create starter goals from the template (default: true)
+             * @default true
+             */
+            create_starter_goals: boolean;
         };
         /**
          * BoardListResponse
@@ -3210,6 +3958,63 @@ export interface components {
             error?: string | null;
         };
         /**
+         * BulkTransitionRequest
+         * @description Schema for bulk state transition of multiple tickets.
+         */
+        BulkTransitionRequest: {
+            /**
+             * Ticket Ids
+             * @description List of ticket IDs to transition
+             */
+            ticket_ids: string[];
+            /** @description Target state for all tickets */
+            target_state: components["schemas"]["TicketState"];
+            /**
+             * Reason
+             * @description Reason for the state transition
+             * @default Bulk transition
+             */
+            reason: string;
+            /**
+             * @description Type of actor performing the transition
+             * @default human
+             */
+            actor_type: components["schemas"]["ActorType"];
+            /**
+             * Actor Id
+             * @description ID of the actor performing the transition
+             */
+            actor_id?: string | null;
+        };
+        /**
+         * BulkTransitionResponse
+         * @description Response for bulk state transition operation.
+         */
+        BulkTransitionResponse: {
+            /** Results */
+            results: components["schemas"]["BulkTransitionResult"][];
+            /** Transitioned Count */
+            transitioned_count: number;
+            /** Failed Count */
+            failed_count: number;
+        };
+        /**
+         * BulkTransitionResult
+         * @description Result for a single ticket in a bulk transition.
+         */
+        BulkTransitionResult: {
+            /** Ticket Id */
+            ticket_id: string;
+            /** Success */
+            success: boolean;
+            /** Error */
+            error?: string | null;
+            /** From State */
+            from_state?: string | null;
+            /** To State */
+            to_state?: string | null;
+        };
+        /**
          * CancelJobResponse
          * @description Schema for job cancellation response.
          */
@@ -3269,6 +4074,38 @@ export interface components {
             bytes_freed: number;
             /** Details */
             details: string[];
+        };
+        /**
+         * ConflictStatusResponse
+         * @description Response for conflict status query.
+         */
+        ConflictStatusResponse: {
+            /** Has Conflict */
+            has_conflict: boolean;
+            /**
+             * Operation
+             * @description Type of conflict operation: rebase, merge, cherry_pick, revert
+             */
+            operation: string | null;
+            /** Conflicted Files */
+            conflicted_files?: string[];
+            /**
+             * Can Continue
+             * @default false
+             */
+            can_continue: boolean;
+            /**
+             * Can Abort
+             * @default false
+             */
+            can_abort: boolean;
+            /**
+             * Divergence
+             * @description Branch divergence info (ahead/behind counts)
+             */
+            divergence?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * ContextStats
@@ -3632,6 +4469,18 @@ export interface components {
             count: number;
         };
         /**
+         * ExecuteConfigUpdate
+         * @description Execute configuration update model.
+         */
+        ExecuteConfigUpdate: {
+            /** Timeout */
+            timeout?: number | null;
+            /** Preferred Executor */
+            preferred_executor?: string | null;
+            /** Executor Model */
+            executor_model?: string | null;
+        };
+        /**
          * FeedbackBundle
          * @description Schema for the feedback bundle sent to the agent.
          *
@@ -3921,7 +4770,7 @@ export interface components {
          * @description Enum representing the kind of job.
          * @enum {string}
          */
-        JobKind: "execute" | "verify";
+        JobKind: "execute" | "verify" | "resume";
         /**
          * JobListResponse
          * @description Schema for list of jobs response.
@@ -3988,6 +4837,27 @@ export interface components {
             reflections_added: number;
             /** Last Tick At */
             last_tick_at: string | null;
+        };
+        /** LoginRequest */
+        LoginRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+        };
+        /**
+         * MergePRRequest
+         * @description Request to merge a PR.
+         */
+        MergePRRequest: {
+            /**
+             * Strategy
+             * @default squash
+             */
+            strategy: string;
         };
         /**
          * MergeRequest
@@ -4115,6 +4985,18 @@ export interface components {
             total: number;
         };
         /**
+         * PRCommentResponse
+         * @description A single PR comment.
+         */
+        PRCommentResponse: {
+            /** Author */
+            author: string;
+            /** Body */
+            body: string;
+            /** Created At */
+            created_at: string;
+        };
+        /**
          * PRStatusResponse
          * @description Response with PR status information.
          */
@@ -4133,6 +5015,86 @@ export interface components {
             pr_head_branch: string | null;
             /** Pr Base Branch */
             pr_base_branch: string | null;
+        };
+        /** PaginatedResponse[GoalResponse] */
+        PaginatedResponse_GoalResponse_: {
+            /** Items */
+            items: components["schemas"]["GoalResponse"][];
+            /**
+             * Total
+             * @description Total number of items matching the query
+             */
+            total: number;
+            /**
+             * Page
+             * @description Current page number (1-based)
+             */
+            page: number;
+            /**
+             * Limit
+             * @description Number of items per page
+             */
+            limit: number;
+        };
+        /** PaginatedResponse[JobResponse] */
+        PaginatedResponse_JobResponse_: {
+            /** Items */
+            items: components["schemas"]["JobResponse"][];
+            /**
+             * Total
+             * @description Total number of items matching the query
+             */
+            total: number;
+            /**
+             * Page
+             * @description Current page number (1-based)
+             */
+            page: number;
+            /**
+             * Limit
+             * @description Number of items per page
+             */
+            limit: number;
+        };
+        /** PaginatedResponse[ReviewCommentResponse] */
+        PaginatedResponse_ReviewCommentResponse_: {
+            /** Items */
+            items: components["schemas"]["ReviewCommentResponse"][];
+            /**
+             * Total
+             * @description Total number of items matching the query
+             */
+            total: number;
+            /**
+             * Page
+             * @description Current page number (1-based)
+             */
+            page: number;
+            /**
+             * Limit
+             * @description Number of items per page
+             */
+            limit: number;
+        };
+        /** PaginatedResponse[TicketResponse] */
+        PaginatedResponse_TicketResponse_: {
+            /** Items */
+            items: components["schemas"]["TicketResponse"][];
+            /**
+             * Total
+             * @description Total number of items matching the query
+             */
+            total: number;
+            /**
+             * Page
+             * @description Current page number (1-based)
+             */
+            page: number;
+            /**
+             * Limit
+             * @description Number of items per page
+             */
+            limit: number;
         };
         /**
          * PlannerAction
@@ -4163,6 +5125,30 @@ export interface components {
             } | null;
         };
         /**
+         * PlannerConfigResponse
+         * @description Planner configuration response.
+         */
+        PlannerConfigResponse: {
+            /** Model */
+            model: string;
+            /** Agent Path */
+            agent_path: string;
+            /** Timeout */
+            timeout: number;
+            /** Preferred Executor */
+            preferred_executor: string;
+        };
+        /**
+         * PlannerConfigUpdate
+         * @description Planner configuration update.
+         */
+        PlannerConfigUpdate: {
+            /** Model */
+            model?: string | null;
+            /** Agent Path */
+            agent_path?: string | null;
+        };
+        /**
          * PlannerFeaturesStatus
          * @description Status of planner feature flags.
          */
@@ -4173,6 +5159,18 @@ export interface components {
             propose_followups: boolean;
             /** Generate Reflections */
             generate_reflections: boolean;
+        };
+        /**
+         * PlannerHealthResponse
+         * @description Planner health check response.
+         */
+        PlannerHealthResponse: {
+            /** Status */
+            status: string;
+            /** Model */
+            model: string;
+            /** Error */
+            error?: string | null;
         };
         /**
          * PlannerStartRequest
@@ -4296,6 +5294,42 @@ export interface components {
             priority_bucket: components["schemas"]["PriorityBucket"];
         };
         /**
+         * PushResponse
+         * @description Response from a push operation.
+         */
+        PushResponse: {
+            /** Success */
+            success: boolean;
+            /** Message */
+            message: string;
+        };
+        /**
+         * PushStatusResponse
+         * @description Response for push status query.
+         */
+        PushStatusResponse: {
+            /**
+             * Ahead
+             * @default 0
+             */
+            ahead: number;
+            /**
+             * Behind
+             * @default 0
+             */
+            behind: number;
+            /**
+             * Remote Exists
+             * @default false
+             */
+            remote_exists: boolean;
+            /**
+             * Needs Push
+             * @default false
+             */
+            needs_push: boolean;
+        };
+        /**
          * QueueMessageRequest
          * @description Request to queue a follow-up message.
          */
@@ -4333,6 +5367,23 @@ export interface components {
             queue_position?: number | null;
         };
         /**
+         * RebaseResponse
+         * @description Response from a rebase operation.
+         */
+        RebaseResponse: {
+            /** Success */
+            success: boolean;
+            /** Message */
+            message: string;
+            /**
+             * Has Conflicts
+             * @default false
+             */
+            has_conflicts: boolean;
+            /** Conflicted Files */
+            conflicted_files?: string[];
+        };
+        /**
          * ReenqueueResponse
          * @description Response from re-enqueue operation.
          */
@@ -4368,6 +5419,28 @@ export interface components {
              * @description Suggested priority adjustments
              */
             suggested_changes?: components["schemas"]["SuggestedPriorityChange"][];
+        };
+        /** RegisterRequest */
+        RegisterRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+            /** Display Name */
+            display_name: string;
+        };
+        /**
+         * ReleaseLockResponse
+         * @description Response from planner lock release.
+         */
+        ReleaseLockResponse: {
+            /** Released */
+            released: boolean;
+            /** Message */
+            message: string;
         };
         /**
          * RepoCreate
@@ -4823,6 +5896,25 @@ export interface components {
             total: number;
         };
         /**
+         * SettingsResponse
+         * @description Global settings response model.
+         */
+        SettingsResponse: {
+            /** Execute Config */
+            execute_config: {
+                [key: string]: unknown;
+            };
+            /** Board Id */
+            board_id: string;
+        };
+        /**
+         * SettingsUpdate
+         * @description Global settings update model.
+         */
+        SettingsUpdate: {
+            execute_config?: components["schemas"]["ExecuteConfigUpdate"] | null;
+        };
+        /**
          * SimilarTicketWarning
          * @description Warning about a ticket that was similar to an existing one.
          */
@@ -4990,6 +6082,11 @@ export interface components {
             /** Priority */
             priority: number | null;
             /**
+             * Sort Order
+             * @description Manual sort order within state column
+             */
+            sort_order?: number | null;
+            /**
              * Blocked By Ticket Id
              * @description UUID of ticket blocking this one
              */
@@ -4999,6 +6096,8 @@ export interface components {
              * @description Title of the ticket blocking this one
              */
             blocked_by_ticket_title?: string | null;
+            /** Goal Title */
+            goal_title?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -5009,8 +6108,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-            /** Goal Title */
-            goal_title?: string | null;
             /** Goal Description */
             goal_description?: string | null;
             /** Priority Label */
@@ -5082,6 +6179,24 @@ export interface components {
             readonly to_state_display: string | null;
         };
         /**
+         * TicketReorderRequest
+         * @description Schema for reordering a ticket within a column.
+         */
+        TicketReorderRequest: {
+            /**
+             * Ticket Id
+             * @description Ticket ID to reorder
+             */
+            ticket_id: string;
+            /**
+             * New Index
+             * @description New position index (0-based) within the column
+             */
+            new_index: number;
+            /** @description State column in which to reorder */
+            column_state: components["schemas"]["TicketState"];
+        };
+        /**
          * TicketResponse
          * @description Schema for ticket response.
          */
@@ -5098,6 +6213,11 @@ export interface components {
             /** Priority */
             priority: number | null;
             /**
+             * Sort Order
+             * @description Manual sort order within state column
+             */
+            sort_order?: number | null;
+            /**
              * Blocked By Ticket Id
              * @description UUID of ticket blocking this one
              */
@@ -5107,6 +6227,11 @@ export interface components {
              * @description Title of the ticket blocking this one (if loaded)
              */
             blocked_by_ticket_title?: string | null;
+            /**
+             * Goal Title
+             * @description Title of the parent goal (if loaded)
+             */
+            goal_title?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -5143,6 +6268,18 @@ export interface components {
              * @description Reason for the state transition
              */
             reason?: string | null;
+        };
+        /**
+         * TicketUpdate
+         * @description Schema for updating an existing ticket.
+         */
+        TicketUpdate: {
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Priority */
+            priority?: number | null;
         };
         /**
          * TicketsByState
@@ -5187,6 +6324,17 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** UserProfile */
+        UserProfile: {
+            /** Id */
+            id: string;
+            /** Email */
+            email: string;
+            /** Display Name */
+            display_name: string;
+            /** Is Active */
+            is_active: boolean;
         };
         /**
          * ValidateRepoRequest
@@ -5255,6 +6403,45 @@ export interface components {
             tickets_blocked: number;
             /** Details */
             details: string[];
+        };
+        /** WebhookCreate */
+        WebhookCreate: {
+            /**
+             * Url
+             * @description URL to POST webhook payloads to
+             */
+            url: string;
+            /**
+             * Events
+             * @description Event filter list. Use ["*"] for all events.
+             * @default [
+             *       "*"
+             *     ]
+             */
+            events: string[];
+            /**
+             * Secret
+             * @description Optional HMAC-SHA256 secret for payload signing
+             */
+            secret?: string | null;
+        };
+        /** WebhookListResponse */
+        WebhookListResponse: {
+            /** Webhooks */
+            webhooks: components["schemas"]["WebhookResponse"][];
+            /** Board Id */
+            board_id: string;
+        };
+        /** WebhookResponse */
+        WebhookResponse: {
+            /** Id */
+            id: string;
+            /** Url */
+            url: string;
+            /** Events */
+            events: string[];
+            /** Has Secret */
+            has_secret: boolean;
         };
         /**
          * AgentLogEntry
@@ -5342,6 +6529,12 @@ export interface components {
             repo_root: string;
             /** Default Branch */
             default_branch: string | null;
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            } | null;
+            /** Owner Id */
+            owner_id?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -5478,7 +6671,73 @@ export interface operations {
             };
         };
     };
-    list_goals_goals_get: {
+    register_auth_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_me_auth_me_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -5493,7 +6752,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GoalListResponse"];
+                    "application/json": components["schemas"]["UserProfile"];
+                };
+            };
+        };
+    };
+    list_goals_goals_get: {
+        parameters: {
+            query?: {
+                board_id?: string | null;
+                /** @description Page number (1-based). Omit for all results. */
+                page?: number | null;
+                /** @description Items per page. Omit for all results. */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalListResponse"] | components["schemas"]["PaginatedResponse_GoalResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5550,6 +6844,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["GoalResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_goal_goals__goal_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                goal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -5756,6 +7079,52 @@ export interface operations {
             };
         };
     };
+    list_tickets_tickets_get: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page */
+                limit?: number;
+                /** @description Filter by ticket state */
+                state?: components["schemas"]["TicketState"] | null;
+                /** @description Minimum priority */
+                priority_min?: number | null;
+                /** @description Maximum priority */
+                priority_max?: number | null;
+                /** @description Filter by goal ID */
+                goal_id?: string | null;
+                /** @description Filter by board ID */
+                board_id?: string | null;
+                /** @description Text search on title/description */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_TicketResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_ticket_tickets_post: {
         parameters: {
             query?: never;
@@ -5849,6 +7218,41 @@ export interface operations {
             };
         };
     };
+    update_ticket_tickets__ticket_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     bulk_accept_tickets_tickets_accept_post: {
         parameters: {
             query?: never;
@@ -5869,6 +7273,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BulkAcceptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_transition_tickets_tickets_bulk_transition_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTransitionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reorder_ticket_tickets_reorder_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketReorderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6136,6 +7606,37 @@ export interface operations {
             };
         };
     };
+    get_worktree_tree_tickets__ticket_id__worktree_tree_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_ticket_dependents_tickets__ticket_id__dependents_get: {
         parameters: {
             query?: never;
@@ -6326,6 +7827,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_templates_boards_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
@@ -6573,6 +8094,37 @@ export interface operations {
             };
         };
     };
+    import_yaml_config_boards__board_id__config_import_yaml_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     initialize_board_config_boards__board_id__config_initialize_post: {
         parameters: {
             query?: never;
@@ -6673,6 +8225,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["app__schemas__ticket__BoardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_board_boards__board_id__export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -7120,6 +8703,48 @@ export interface operations {
             };
         };
     };
+    list_jobs_jobs_get: {
+        parameters: {
+            query?: {
+                /** @description Filter by ticket ID */
+                ticket_id?: string | null;
+                /** @description Filter by job status */
+                status?: components["schemas"]["JobStatus"] | null;
+                /** @description Filter by job kind */
+                kind?: string | null;
+                /** @description Filter by board ID */
+                board_id?: string | null;
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_JobResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_queue_status_jobs_queue_get: {
         parameters: {
             query?: never;
@@ -7523,6 +9148,26 @@ export interface operations {
             };
         };
     };
+    release_planner_lock_planner_release_lock_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseLockResponse"];
+                };
+            };
+        };
+    };
     get_ticket_revisions_tickets__ticket_id__revisions_get: {
         parameters: {
             query?: never;
@@ -7682,6 +9327,10 @@ export interface operations {
         parameters: {
             query?: {
                 include_resolved?: boolean;
+                /** @description Page number (1-based). Omit for all results. */
+                page?: number | null;
+                /** @description Items per page. Omit for all results. */
+                limit?: number | null;
             };
             header?: never;
             path: {
@@ -7697,7 +9346,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReviewCommentListResponse"];
+                    "application/json": components["schemas"]["ReviewCommentListResponse"] | components["schemas"]["PaginatedResponse_ReviewCommentResponse_"];
                 };
             };
             /** @description Validation Error */
@@ -7970,6 +9619,225 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MergeStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conflict_status_tickets__ticket_id__conflict_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConflictStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rebase_ticket_tickets__ticket_id__rebase_post: {
+        parameters: {
+            query?: {
+                onto_branch?: string;
+            };
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RebaseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    continue_rebase_endpoint_tickets__ticket_id__continue_rebase_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RebaseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    abort_conflict_endpoint_tickets__ticket_id__abort_conflict_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AbortResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_push_status_endpoint_tickets__ticket_id__push_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    push_ticket_branch_tickets__ticket_id__push_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    force_push_ticket_branch_tickets__ticket_id__force_push_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8616,7 +10484,71 @@ export interface operations {
             };
         };
     };
+    list_executor_models_executors__executor_name__models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                executor_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     check_executor_available_executors__executor_name__available_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                executor_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_executor_setup_executors__executor_name__setup_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -8649,7 +10581,10 @@ export interface operations {
     };
     list_executor_profiles_executors_profiles_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Board ID (uses first board if omitted) */
+                board_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -8667,11 +10602,63 @@ export interface operations {
                     }[];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_executor_profiles_executors_profiles_put: {
+        parameters: {
+            query?: {
+                /** @description Board ID (uses first board if omitted) */
+                board_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                }[];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_executor_profile_executors_profiles__profile_name__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Board ID (uses first board if omitted) */
+                board_id?: string | null;
+            };
             header?: never;
             path: {
                 profile_name: string;
@@ -8689,6 +10676,174 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_global_settings_settings_get: {
+        parameters: {
+            query?: {
+                /** @description Board ID (uses first board if omitted) */
+                board_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_global_settings_settings_put: {
+        parameters: {
+            query?: {
+                /** @description Board ID (uses first board if omitted) */
+                board_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_planner_config_settings_planner_get: {
+        parameters: {
+            query?: {
+                /** @description Board ID (uses first board if omitted) */
+                board_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannerConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_planner_config_settings_planner_put: {
+        parameters: {
+            query?: {
+                /** @description Board ID (uses first board if omitted) */
+                board_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlannerConfigUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannerConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_planner_health_settings_planner_check_get: {
+        parameters: {
+            query?: {
+                /** @description Board ID (uses first board if omitted) */
+                board_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannerHealthResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8797,6 +10952,208 @@ export interface operations {
             };
         };
     };
+    list_pr_comments_pull_requests__ticket_id__comments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PRCommentResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_pr_comment_pull_requests__ticket_id__comments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddPRCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    merge_pr_endpoint_pull_requests__ticket_id__merge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergePRRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_webhooks_webhooks_get: {
+        parameters: {
+            query?: {
+                board_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_webhook_webhooks_post: {
+        parameters: {
+            query?: {
+                board_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_webhook_webhooks__webhook_id__delete: {
+        parameters: {
+            query?: {
+                board_id?: string | null;
+            };
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_version_version_get: {
         parameters: {
             query?: never;
@@ -8813,6 +11170,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    serve_spa__full_path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                full_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

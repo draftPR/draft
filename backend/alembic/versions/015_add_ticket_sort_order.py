@@ -23,12 +23,8 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     with op.batch_alter_table("tickets") as batch_op:
-        batch_op.add_column(
-            sa.Column("sort_order", sa.Integer(), nullable=True)
-        )
-        batch_op.create_index(
-            "ix_tickets_sort_order", ["sort_order"]
-        )
+        batch_op.add_column(sa.Column("sort_order", sa.Integer(), nullable=True))
+        batch_op.create_index("ix_tickets_sort_order", ["sort_order"])
 
 
 def downgrade() -> None:

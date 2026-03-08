@@ -83,9 +83,7 @@ async def merge_ticket(
     """
     # Load board config for merge settings
     board_config = None
-    ticket_result = await db.execute(
-        select(Ticket).where(Ticket.id == ticket_id)
-    )
+    ticket_result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
     ticket_obj = ticket_result.scalar_one_or_none()
     if ticket_obj and ticket_obj.board_id:
         board_result = await db.execute(

@@ -267,10 +267,14 @@ class RevisionService:
         diff_patch = None
 
         if revision.diff_stat_evidence:
-            diff_stat = await self._read_evidence_content(revision.diff_stat_evidence, repo_root)
+            diff_stat = await self._read_evidence_content(
+                revision.diff_stat_evidence, repo_root
+            )
 
         if revision.diff_patch_evidence:
-            diff_patch = await self._read_evidence_content(revision.diff_patch_evidence, repo_root)
+            diff_patch = await self._read_evidence_content(
+                revision.diff_patch_evidence, repo_root
+            )
 
         return diff_stat, diff_patch
 
@@ -289,7 +293,9 @@ class RevisionService:
         repo_root = await self._get_repo_root_for_ticket(revision.ticket_id)
 
         if revision.diff_stat_evidence:
-            return await self._read_evidence_content(revision.diff_stat_evidence, repo_root)
+            return await self._read_evidence_content(
+                revision.diff_stat_evidence, repo_root
+            )
         return None
 
     async def get_revision_diff_patch(self, revision_id: str) -> str | None:
@@ -307,10 +313,14 @@ class RevisionService:
         repo_root = await self._get_repo_root_for_ticket(revision.ticket_id)
 
         if revision.diff_patch_evidence:
-            return await self._read_evidence_content(revision.diff_patch_evidence, repo_root)
+            return await self._read_evidence_content(
+                revision.diff_patch_evidence, repo_root
+            )
         return None
 
-    async def _read_evidence_content(self, evidence: Evidence, repo_root: "Path | None" = None) -> str | None:
+    async def _read_evidence_content(
+        self, evidence: Evidence, repo_root: "Path | None" = None
+    ) -> str | None:
         """Read the content of an evidence file.
 
         SECURITY: Uses read_artifact() which enforces:

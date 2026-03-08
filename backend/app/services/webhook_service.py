@@ -106,13 +106,19 @@ async def fire_webhooks(
             headers = {"Content-Type": "application/json"}
             secret = wh.get("secret")
             if secret:
-                headers["X-Webhook-Signature"] = f"sha256={_sign_payload(payload_bytes, secret)}"
+                headers["X-Webhook-Signature"] = (
+                    f"sha256={_sign_payload(payload_bytes, secret)}"
+                )
 
             try:
                 resp = await client.post(url, content=payload_bytes, headers=headers)
                 logger.info(
                     "Webhook delivered: url=%s status=%d ticket=%s %s->%s",
-                    url, resp.status_code, ticket_id, from_state, to_state,
+                    url,
+                    resp.status_code,
+                    ticket_id,
+                    from_state,
+                    to_state,
                 )
             except Exception:
                 logger.warning(

@@ -70,11 +70,14 @@ async def auth_client(monkeypatch):
 @pytest.mark.asyncio
 async def test_register_user(auth_client):
     """Test user registration."""
-    resp = await auth_client.post("/auth/register", json={
-        "email": "alice@example.com",
-        "password": "securepass123",
-        "display_name": "Alice",
-    })
+    resp = await auth_client.post(
+        "/auth/register",
+        json={
+            "email": "alice@example.com",
+            "password": "securepass123",
+            "display_name": "Alice",
+        },
+    )
     assert resp.status_code == 201
     data = resp.json()
     assert data["token_type"] == "bearer"
@@ -102,27 +105,36 @@ async def test_register_duplicate_email(auth_client):
 @pytest.mark.asyncio
 async def test_register_short_password(auth_client):
     """Password must be at least 8 characters."""
-    resp = await auth_client.post("/auth/register", json={
-        "email": "short@example.com",
-        "password": "short",
-        "display_name": "Short",
-    })
+    resp = await auth_client.post(
+        "/auth/register",
+        json={
+            "email": "short@example.com",
+            "password": "short",
+            "display_name": "Short",
+        },
+    )
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_login_success(auth_client):
     """Test successful login."""
-    await auth_client.post("/auth/register", json={
-        "email": "carol@example.com",
-        "password": "securepass123",
-        "display_name": "Carol",
-    })
+    await auth_client.post(
+        "/auth/register",
+        json={
+            "email": "carol@example.com",
+            "password": "securepass123",
+            "display_name": "Carol",
+        },
+    )
 
-    resp = await auth_client.post("/auth/login", json={
-        "email": "carol@example.com",
-        "password": "securepass123",
-    })
+    resp = await auth_client.post(
+        "/auth/login",
+        json={
+            "email": "carol@example.com",
+            "password": "securepass123",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
@@ -132,42 +144,54 @@ async def test_login_success(auth_client):
 @pytest.mark.asyncio
 async def test_login_wrong_password(auth_client):
     """Wrong password should be rejected."""
-    await auth_client.post("/auth/register", json={
-        "email": "dave@example.com",
-        "password": "securepass123",
-        "display_name": "Dave",
-    })
+    await auth_client.post(
+        "/auth/register",
+        json={
+            "email": "dave@example.com",
+            "password": "securepass123",
+            "display_name": "Dave",
+        },
+    )
 
-    resp = await auth_client.post("/auth/login", json={
-        "email": "dave@example.com",
-        "password": "wrongpassword",
-    })
+    resp = await auth_client.post(
+        "/auth/login",
+        json={
+            "email": "dave@example.com",
+            "password": "wrongpassword",
+        },
+    )
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_login_nonexistent_email(auth_client):
     """Login with non-existent email should fail."""
-    resp = await auth_client.post("/auth/login", json={
-        "email": "nobody@example.com",
-        "password": "securepass123",
-    })
+    resp = await auth_client.post(
+        "/auth/login",
+        json={
+            "email": "nobody@example.com",
+            "password": "securepass123",
+        },
+    )
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_get_me_authenticated(auth_client):
     """GET /auth/me with valid token returns user profile."""
-    reg = await auth_client.post("/auth/register", json={
-        "email": "eve@example.com",
-        "password": "securepass123",
-        "display_name": "Eve",
-    })
+    reg = await auth_client.post(
+        "/auth/register",
+        json={
+            "email": "eve@example.com",
+            "password": "securepass123",
+            "display_name": "Eve",
+        },
+    )
     token = reg.json()["access_token"]
 
-    resp = await auth_client.get("/auth/me", headers={
-        "Authorization": f"Bearer {token}"
-    })
+    resp = await auth_client.get(
+        "/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
     assert resp.status_code == 200
     assert resp.json()["email"] == "eve@example.com"
 
@@ -182,9 +206,9 @@ async def test_get_me_no_token(auth_client):
 @pytest.mark.asyncio
 async def test_get_me_invalid_token(auth_client):
     """GET /auth/me with invalid token should return 401."""
-    resp = await auth_client.get("/auth/me", headers={
-        "Authorization": "Bearer invalid.token.here"
-    })
+    resp = await auth_client.get(
+        "/auth/me", headers={"Authorization": "Bearer invalid.token.here"}
+    )
     assert resp.status_code == 401
 
 
@@ -192,11 +216,14 @@ async def test_get_me_invalid_token(auth_client):
 async def test_board_owned_by_user(auth_client):
     """Boards created by a user should have owner_id set."""
     # Register and get token
-    reg = await auth_client.post("/auth/register", json={
-        "email": "frank@example.com",
-        "password": "securepass123",
-        "display_name": "Frank",
-    })
+    reg = await auth_client.post(
+        "/auth/register",
+        json={
+            "email": "frank@example.com",
+            "password": "securepass123",
+            "display_name": "Frank",
+        },
+    )
     token = reg.json()["access_token"]
     user_id = reg.json()["user"]["id"]
 
@@ -204,10 +231,14 @@ async def test_board_owned_by_user(auth_client):
     with tempfile.TemporaryDirectory() as tmpdir:
         os.system(f"cd {tmpdir} && git init -q && git commit --allow-empty -m init -q")
 
-        resp = await auth_client.post("/boards", json={
-            "name": "Frank's Board",
-            "repo_root": tmpdir,
-        }, headers={"Authorization": f"Bearer {token}"})
+        resp = await auth_client.post(
+            "/boards",
+            json={
+                "name": "Frank's Board",
+                "repo_root": tmpdir,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
         assert resp.status_code == 201
         data = resp.json()
@@ -218,43 +249,61 @@ async def test_board_owned_by_user(auth_client):
 async def test_boards_scoped_by_user(auth_client):
     """Users should only see their own boards."""
     # Register two users
-    reg1 = await auth_client.post("/auth/register", json={
-        "email": "user1@example.com",
-        "password": "securepass123",
-        "display_name": "User1",
-    })
+    reg1 = await auth_client.post(
+        "/auth/register",
+        json={
+            "email": "user1@example.com",
+            "password": "securepass123",
+            "display_name": "User1",
+        },
+    )
     token1 = reg1.json()["access_token"]
 
-    reg2 = await auth_client.post("/auth/register", json={
-        "email": "user2@example.com",
-        "password": "securepass123",
-        "display_name": "User2",
-    })
+    reg2 = await auth_client.post(
+        "/auth/register",
+        json={
+            "email": "user2@example.com",
+            "password": "securepass123",
+            "display_name": "User2",
+        },
+    )
     token2 = reg2.json()["access_token"]
 
     # Each creates a board with a temp git repo
     with tempfile.TemporaryDirectory() as tmpdir:
         os.system(f"cd {tmpdir} && git init -q && git commit --allow-empty -m init -q")
 
-        await auth_client.post("/boards", json={
-            "name": "User1 Board",
-            "repo_root": tmpdir,
-        }, headers={"Authorization": f"Bearer {token1}"})
+        await auth_client.post(
+            "/boards",
+            json={
+                "name": "User1 Board",
+                "repo_root": tmpdir,
+            },
+            headers={"Authorization": f"Bearer {token1}"},
+        )
 
-        await auth_client.post("/boards", json={
-            "name": "User2 Board",
-            "repo_root": tmpdir,
-        }, headers={"Authorization": f"Bearer {token2}"})
+        await auth_client.post(
+            "/boards",
+            json={
+                "name": "User2 Board",
+                "repo_root": tmpdir,
+            },
+            headers={"Authorization": f"Bearer {token2}"},
+        )
 
     # User1 should only see their board
-    resp1 = await auth_client.get("/boards", headers={"Authorization": f"Bearer {token1}"})
+    resp1 = await auth_client.get(
+        "/boards", headers={"Authorization": f"Bearer {token1}"}
+    )
     assert resp1.status_code == 200
     boards1 = resp1.json()["boards"]
     assert len(boards1) == 1
     assert boards1[0]["name"] == "User1 Board"
 
     # User2 should only see their board
-    resp2 = await auth_client.get("/boards", headers={"Authorization": f"Bearer {token2}"})
+    resp2 = await auth_client.get(
+        "/boards", headers={"Authorization": f"Bearer {token2}"}
+    )
     boards2 = resp2.json()["boards"]
     assert len(boards2) == 1
     assert boards2[0]["name"] == "User2 Board"

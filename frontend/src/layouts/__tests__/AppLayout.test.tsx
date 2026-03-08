@@ -23,7 +23,7 @@ vi.mock("framer-motion", () => ({
       get: (_: object, tag: string) =>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ({ children, ...props }: Record<string, any>) => {
-          const Tag = tag as keyof JSX.IntrinsicElements;
+          const Tag = tag as React.ElementType;
           return <Tag {...props}>{children}</Tag>;
         },
     },

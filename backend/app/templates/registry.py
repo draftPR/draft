@@ -206,7 +206,14 @@ TEMPLATES: list[ProjectTemplate] = [
                 "description": "Create evaluation metrics, validation splits, and model comparison.",
             },
         ],
-        "tags": ["ml", "ai", "machine-learning", "pytorch", "tensorflow", "scikit-learn"],
+        "tags": [
+            "ml",
+            "ai",
+            "machine-learning",
+            "pytorch",
+            "tensorflow",
+            "scikit-learn",
+        ],
     },
     {
         "id": "blank",

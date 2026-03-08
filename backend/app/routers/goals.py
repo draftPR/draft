@@ -375,11 +375,7 @@ async def generate_tickets_stream(
                     yield f"data: {json_lib.dumps({'type': 'status', 'message': f'Created {len(result.tickets)} ticket(s)'})}\n\n"
                     for ticket in result.tickets:
                         desc = ticket.description or ""
-                        desc_short = (
-                            desc[:150] + "..."
-                            if len(desc) > 150
-                            else desc
-                        )
+                        desc_short = desc[:150] + "..." if len(desc) > 150 else desc
                         ticket_data = {
                             "id": ticket.id,
                             "title": ticket.title,
