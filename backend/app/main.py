@@ -477,7 +477,7 @@ if _frontend_dist_path.exists():
     )
 
     # SPA catch-all: serve index.html for all non-API, non-asset routes
-    @app.get("/{full_path:path}")
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
         """Serve the SPA index.html for client-side routing."""
         file_path = _frontend_dist_path / full_path
