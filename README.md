@@ -2,10 +2,21 @@
 
 An AI-powered local-first kanban board that uses AI agents to automatically implement tickets. It creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the results, and manages the workflow through a state machine.
 
-## Demo
+## Screenshots
 
+### Kanban Board
 <p align="center">
-  <img src="docs/demo.gif" alt="Draft Demo" width="900" />
+  <img src="docs/screenshots/board-overview.png" alt="Draft Kanban Board" width="900" />
+</p>
+
+### Ticket Detail & Agent Execution
+<p align="center">
+  <img src="docs/screenshots/ticket-detail.png" alt="Ticket Detail" width="900" />
+</p>
+
+### Code Review
+<p align="center">
+  <img src="docs/screenshots/code-review.png" alt="Code Review" width="900" />
 </p>
 
 ## Tech Stack
