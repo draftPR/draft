@@ -36,12 +36,12 @@ describe("WelcomeWalkthrough", () => {
     render(<WelcomeWalkthrough />);
     // The component returns null when not open, but the Dialog wrapper might still render
     // We check that the dialog content is not visible
-    expect(screen.queryByText("Welcome to Alma Kanban!")).not.toBeInTheDocument();
+    expect(screen.queryByText("Welcome to Draft!")).not.toBeInTheDocument();
   });
 
   it("renders the first step title when open", () => {
     render(<WelcomeWalkthrough />);
-    expect(screen.getByText("Welcome to Alma Kanban!")).toBeInTheDocument();
+    expect(screen.getByText("Welcome to Draft!")).toBeInTheDocument();
   });
 
   it("renders step description", () => {
@@ -93,7 +93,7 @@ describe("WelcomeWalkthrough", () => {
     render(<WelcomeWalkthrough />);
     expect(
       screen.getByText(
-        /Alma Kanban autonomously plans, executes, and verifies/,
+        /Draft autonomously plans, executes, and verifies/,
       ),
     ).toBeInTheDocument();
   });

@@ -23,7 +23,7 @@ from app.models.job import Job, JobKind, JobStatus
 from app.models.planner_lock import PlannerLock
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
-from app.services.config_service import ConfigService, PlannerConfig
+from app.services.config_service import PlannerConfig
 from app.services.llm_service import LLMService
 from app.state_machine import ActorType, EventType, TicketState
 
@@ -58,12 +58,17 @@ def run_planner_tick_sync() -> dict:
     """
     lock_owner_id = str(uuid.uuid4())
 
-    # Load config
-    from pathlib import Path
+    # Load config from DB (first active board's config is the source of truth)
+    from app.models.board import Board
+    from app.services.config_service import SmartKanbanConfig
 
-    kanban_root = Path(__file__).parent.parent.parent.parent
-    config_service = ConfigService(repo_path=kanban_root)
-    config = config_service.get_planner_config()
+    board_config = None
+    with get_sync_db() as config_db:
+        board = config_db.execute(select(Board).limit(1)).scalar_one_or_none()
+        if board and board.config:
+            board_config = board.config
+
+    config = SmartKanbanConfig.from_board_config(board_config).planner_config
 
     executed = 0
     followups_created = 0
@@ -102,27 +107,9 @@ def run_planner_tick_sync() -> dict:
                     jobs_to_enqueue.extend(new_job_ids)
                     executed = len(new_job_ids)
 
-            # 3. Handle blocked tickets (LLM-powered)
-            if config.features.propose_followups:
-                followups_created = _handle_blocked_tickets_sync(db, config)
-                if followups_created:
-                    add_orchestrator_log(
-                        "INFO",
-                        f"Created {followups_created} follow-up ticket(s) for blocked tickets",
-                        {"count": followups_created},
-                    )
-
-            # 4. Generate reflections (LLM-powered)
-            if config.features.generate_reflections:
-                reflections_added = _generate_reflections_sync(db, config)
-                if reflections_added:
-                    add_orchestrator_log(
-                        "INFO",
-                        f"Generated {reflections_added} reflection(s) for done tickets",
-                        {"count": reflections_added},
-                    )
-
-            # Commit all changes
+            # Commit fast DB operations and release lock BEFORE LLM calls.
+            # Steps 3-4 involve LLM API calls (10-60s) which would starve
+            # all other SQLite writers if we held the lock.
             db.commit()
 
         finally:
@@ -132,6 +119,51 @@ def run_planner_tick_sync() -> dict:
     # Enqueue Celery jobs AFTER commit
     for job_id in jobs_to_enqueue:
         _enqueue_celery_job_sync(job_id)
+
+    # LLM-powered operations run OUTSIDE the planner lock to avoid
+    # starving other writers during 10-60s LLM API calls.
+
+    # 3. Handle blocked tickets (LLM-powered)
+    if config.features.propose_followups:
+        try:
+            with get_sync_db() as db:
+                followups_created = _handle_blocked_tickets_sync(db, config)
+                if followups_created:
+                    from app.services.orchestrator_log import add_orchestrator_log
+
+                    add_orchestrator_log(
+                        "INFO",
+                        f"Created {followups_created} follow-up ticket(s) for blocked tickets",
+                        {"count": followups_created},
+                    )
+                db.commit()
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Error in LLM-powered follow-up generation"
+            )
+
+    # 4. Generate reflections (LLM-powered)
+    if config.features.generate_reflections:
+        try:
+            with get_sync_db() as db:
+                reflections_added = _generate_reflections_sync(db, config)
+                if reflections_added:
+                    from app.services.orchestrator_log import add_orchestrator_log
+
+                    add_orchestrator_log(
+                        "INFO",
+                        f"Generated {reflections_added} reflection(s) for done tickets",
+                        {"count": reflections_added},
+                    )
+                db.commit()
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Error in LLM-powered reflection generation"
+            )
 
     return {
         "executed": executed,
@@ -240,10 +272,16 @@ def _has_active_execution_sync(db) -> bool:
 
 
 def _get_max_parallel_jobs() -> int:
-    """Read max_parallel_jobs from config."""
+    """Read max_parallel_jobs from config (DB first, then default)."""
     try:
-        config = ConfigService().load_config()
-        return config.execute_config.max_parallel_jobs
+        from app.models.board import Board
+        from app.services.config_service import SmartKanbanConfig
+
+        with get_sync_db() as db:
+            board = db.execute(select(Board).limit(1)).scalar_one_or_none()
+            if board and board.config:
+                return SmartKanbanConfig.from_board_config(board.config).execute_config.max_parallel_jobs
+        return 1
     except Exception:
         return 1
 
@@ -513,7 +551,19 @@ def _execute_queued_message_sync(db) -> str | None:
             TicketState.DONE: TicketState.EXECUTING,
             TicketState.NEEDS_HUMAN: TicketState.EXECUTING,
             TicketState.BLOCKED: TicketState.EXECUTING,
-        }.get(old_state_enum, TicketState.EXECUTING)
+        }.get(old_state_enum)
+
+        if target_state is None:
+            from app.state_machine import validate_transition
+
+            if not validate_transition(old_state, TicketState.EXECUTING.value):
+                logger.warning(
+                    f"Cannot transition ticket {ticket.id} from {old_state} "
+                    f"to EXECUTING via queued message, skipping"
+                )
+                queued_message_service.queue_message(ticket.id, queued.message)
+                continue
+            target_state = TicketState.EXECUTING
 
         ticket.state = target_state.value
 

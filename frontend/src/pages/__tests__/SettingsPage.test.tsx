@@ -78,7 +78,7 @@ describe("SettingsPage", () => {
   it("renders the description text", () => {
     render(<SettingsPage />);
     expect(
-      screen.getByText("Configure Alma Kanban to match your workflow"),
+      screen.getByText("Configure Draft to match your workflow"),
     ).toBeInTheDocument();
   });
 

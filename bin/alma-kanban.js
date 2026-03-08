@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Alma Kanban launcher for npx distribution.
+ * Telem launcher for npx distribution.
  *
  * Usage:
- *   npx alma-kanban          # Start with default settings
- *   npx alma-kanban --port 9000  # Custom port
+ *   npx telem          # Start with default settings
+ *   npx telem --port 9000  # Custom port
  */
 
 const { execSync, spawn } = require("child_process");

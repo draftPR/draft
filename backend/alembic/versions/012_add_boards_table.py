@@ -4,7 +4,7 @@ Revision ID: 012
 Revises: 011
 Create Date: 2026-01-08
 
-The Board is the primary permission boundary in Alma Kanban:
+The Board is the primary permission boundary in Draft:
 - All goals, tickets, jobs, workspaces belong to a board
 - board_id is the authorization check for all operations
 - repo_root is a property of the board (single repo per board)

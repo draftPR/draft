@@ -2,10 +2,14 @@
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import get_db
 from app.executors.registry import ExecutorRegistry
-from app.services.config_service import ConfigService
+from app.models.board import Board
+from app.services.config_service import SmartKanbanConfig, deep_merge_dicts
 
 router = APIRouter(prefix="/executors", tags=["executors"])
 
@@ -164,15 +168,40 @@ async def get_executor_setup(executor_name: str):
         raise HTTPException(status_code=500, detail=f"Failed to check setup: {str(e)}")
 
 
+async def _resolve_board_for_executors(
+    db: AsyncSession, board_id: str | None
+) -> Board:
+    """Resolve a board by ID, or fall back to the first board."""
+    if board_id:
+        result = await db.execute(select(Board).where(Board.id == board_id))
+        board = result.scalar_one_or_none()
+        if not board:
+            raise HTTPException(status_code=404, detail=f"Board not found: {board_id}")
+        return board
+
+    result = await db.execute(select(Board).limit(1))
+    board = result.scalar_one_or_none()
+    if not board:
+        raise HTTPException(
+            status_code=400,
+            detail="No boards exist. Create a board first.",
+        )
+    return board
+
+
 @router.get("/profiles", response_model=list[dict[str, Any]])
-async def list_executor_profiles():
-    """List all configured executor profiles from smartkanban.yaml.
+async def list_executor_profiles(
+    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all configured executor profiles from board config (DB).
 
     Returns:
         List of executor profile configurations
     """
-    config_service = ConfigService()
-    profiles = config_service.get_executor_profiles()
+    board = await _resolve_board_for_executors(db, board_id)
+    config = SmartKanbanConfig.from_board_config(board.config)
+    profiles = config.executor_profiles
 
     return [
         {
@@ -188,7 +217,11 @@ async def list_executor_profiles():
 
 
 @router.get("/profiles/{profile_name}", response_model=dict[str, Any])
-async def get_executor_profile(profile_name: str):
+async def get_executor_profile(
+    profile_name: str,
+    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    db: AsyncSession = Depends(get_db),
+):
     """Get a specific executor profile by name.
 
     Args:
@@ -197,8 +230,9 @@ async def get_executor_profile(profile_name: str):
     Returns:
         Executor profile configuration
     """
-    config_service = ConfigService()
-    profile = config_service.get_executor_profile(profile_name)
+    board = await _resolve_board_for_executors(db, board_id)
+    config = SmartKanbanConfig.from_board_config(board.config)
+    profile = config.executor_profiles.get(profile_name)
 
     if not profile:
         raise HTTPException(
@@ -217,22 +251,50 @@ async def get_executor_profile(profile_name: str):
 
 
 @router.put("/profiles", response_model=list[dict[str, Any]])
-async def save_executor_profiles(profiles: list[dict[str, Any]]):
-    """Save executor profiles to smartkanban.yaml.
+async def save_executor_profiles(
+    profiles: list[dict[str, Any]],
+    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save executor profiles to board config (DB).
 
     Replaces all profiles with the provided list.
     """
-    config_service = ConfigService()
-    saved = config_service.save_executor_profiles(profiles)
+    board = await _resolve_board_for_executors(db, board_id)
 
+    # Build profiles dict for storage
+    profiles_dict: dict[str, Any] = {}
+    for p in profiles:
+        name = p.get("name", "").strip()
+        if not name:
+            continue
+        entry: dict[str, Any] = {}
+        if p.get("executor_type"):
+            entry["executor_type"] = p["executor_type"]
+        if p.get("timeout"):
+            entry["timeout"] = int(p["timeout"])
+        if p.get("extra_flags"):
+            entry["extra_flags"] = p["extra_flags"]
+        if p.get("model"):
+            entry["model"] = p["model"]
+        if p.get("env"):
+            entry["env"] = p["env"]
+        profiles_dict[name] = entry
+
+    existing = board.config or {}
+    board.config = deep_merge_dicts(existing, {"executor_profiles": profiles_dict})
+    await db.commit()
+    await db.refresh(board)
+
+    config = SmartKanbanConfig.from_board_config(board.config)
     return [
         {
-            "name": p.name,
-            "executor_type": p.executor_type,
-            "timeout": p.timeout,
-            "extra_flags": p.extra_flags,
-            "model": p.model,
-            "env": p.env,
+            "name": prof.name,
+            "executor_type": prof.executor_type,
+            "timeout": prof.timeout,
+            "extra_flags": prof.extra_flags,
+            "model": prof.model,
+            "env": prof.env,
         }
-        for p in saved.values()
+        for prof in config.executor_profiles.values()
     ]

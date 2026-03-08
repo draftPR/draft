@@ -1,6 +1,6 @@
-# Alma Kanban API - Example curl Commands
+# Draft API - Example curl Commands
 
-This document provides example curl commands to interact with the Alma Kanban API.
+This document provides example curl commands to interact with the Draft API.
 
 ## Prerequisites
 

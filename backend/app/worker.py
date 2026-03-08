@@ -1,4 +1,4 @@
-"""Worker task implementations for Alma Kanban.
+"""Worker task implementations for Draft.
 
 These functions are called by the SQLiteWorker (in-process background job runner).
 """
@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from app.services.config_service import PlannerConfig
 
 logger = logging.getLogger(__name__)
+from app.data_dir import get_evidence_dir as central_evidence_dir
+from app.data_dir import get_log_path
 from app.database_sync import get_sync_db
 from app.exceptions import (
     ExecutorNotFoundError,
@@ -33,7 +35,7 @@ from app.models.evidence import Evidence, EvidenceKind
 from app.models.job import Job, JobStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
-from app.services.config_service import ConfigService, YoloStatus
+from app.services.config_service import SmartKanbanConfig, YoloStatus
 from app.services.cursor_log_normalizer import CursorLogNormalizer
 from app.services.executor_service import (
     ExecutorService,
@@ -44,9 +46,6 @@ from app.services.log_stream_service import LogLevel, log_stream_publisher
 from app.services.workspace_service import WorkspaceService
 from app.services.worktree_validator import WorktreeValidator
 from app.state_machine import ActorType, EventType, TicketState
-
-# Fallback logs directory (used when worktree is not available)
-FALLBACK_LOGS_DIR = Path(__file__).parent.parent / "logs"
 
 # Thread-local storage for job context (THREAD-SAFE)
 _job_context = threading.local()
@@ -80,16 +79,6 @@ RETRYABLE_ERROR_PATTERNS = [
     "timeout",
     "timed out",
 ]
-
-
-def ensure_fallback_logs_dir() -> None:
-    """Ensure the fallback logs directory exists."""
-    FALLBACK_LOGS_DIR.mkdir(exist_ok=True)
-
-
-def get_fallback_log_path(job_id: str) -> Path:
-    """Get the fallback log file path for a job."""
-    return FALLBACK_LOGS_DIR / f"{job_id}.log"
 
 
 def get_current_job() -> str | None:
@@ -232,22 +221,14 @@ def ensure_workspace_for_ticket(
 
 def get_log_path_for_job(job_id: str, worktree_path: Path | None) -> tuple[Path, str]:
     """
-    Get the log path for a job, preferring worktree location.
+    Get the log path for a job using central data directory.
 
     Returns:
-        Tuple of (full_log_path, relative_log_path_for_db).
+        Tuple of (full_log_path, path_stored_in_db).
     """
-    if worktree_path:
-        logs_dir = worktree_path / ".smartkanban" / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        full_path = logs_dir / f"{job_id}.log"
-        # Store relative path from repo root
-        relative_path = f".smartkanban/worktrees/{worktree_path.name}/.smartkanban/logs/{job_id}.log"
-        return full_path, relative_path
-    else:
-        ensure_fallback_logs_dir()
-        full_path = get_fallback_log_path(job_id)
-        return full_path, f"logs/{job_id}.log"
+    full_path = get_log_path(job_id)
+    # Store the full path in DB since logs are now in a central location
+    return full_path, str(full_path)
 
 
 def update_job_started(
@@ -313,49 +294,18 @@ def get_evidence_dir(
 ) -> Path:
     """Get the directory for storing evidence files.
 
-    Evidence is stored in a persistent location at {repo_root}/.smartkanban/evidence/{job_id}/
-    so it survives worktree cleanup. Falls back to worktree-relative or FALLBACK_LOGS_DIR
-    if repo_root is not available.
+    Evidence is stored in a central location at ~/.telem/evidence/{job_id}/
+    so it survives worktree cleanup and doesn't pollute target repos.
 
     Args:
-        worktree_path: Path to the worktree (if available)
+        worktree_path: Unused (kept for API compat)
         job_id: UUID of the job
-        repo_root: Path to the main repo root (for persistent storage)
+        repo_root: Unused (kept for API compat)
 
     Returns:
         Path to evidence directory
-
-    Raises:
-        ValueError: If evidence_dir would be outside repo_root/.smartkanban
     """
-    if repo_root:
-        evidence_dir = repo_root / ".smartkanban" / "evidence" / job_id
-    elif worktree_path:
-        evidence_dir = worktree_path / ".smartkanban" / "evidence" / job_id
-    else:
-        evidence_dir = FALLBACK_LOGS_DIR / "evidence" / job_id
-
-    # Hardening: Validate evidence_dir is under repo_root/.smartkanban (if repo_root provided)
-    if repo_root:
-        import os
-
-        allowed_root = (repo_root / ".smartkanban").resolve(strict=False)
-        evidence_canonical = evidence_dir.resolve(strict=False)
-        try:
-            common = os.path.commonpath([str(evidence_canonical), str(allowed_root)])
-            if common != str(allowed_root):
-                raise ValueError(
-                    f"Evidence dir {evidence_dir} is not under {allowed_root}"
-                )
-        except ValueError as e:
-            if "different drives" in str(e).lower() or "Paths don't have" in str(e):
-                raise ValueError(
-                    f"Evidence dir {evidence_dir} is not under {allowed_root}"
-                ) from e
-            raise
-
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    return evidence_dir
+    return central_evidence_dir(job_id)
 
 
 def run_verification_command(
@@ -460,8 +410,8 @@ def run_verification_command(
         stderr_path.write_text(result.stderr or "")
 
         # Return relative paths for DB storage (security: no absolute paths in DB)
-        stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stdout_rel = str(stdout_path)
+        stderr_rel = str(stderr_path)
 
         return result.returncode, stdout_rel, stderr_rel
 
@@ -469,32 +419,32 @@ def run_verification_command(
         # Write partial output if available
         stdout_path.write_text(e.stdout.decode() if e.stdout else "Command timed out")
         stderr_path.write_text(e.stderr.decode() if e.stderr else "")
-        stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stdout_rel = str(stdout_path)
+        stderr_rel = str(stderr_path)
         return -1, stdout_rel, stderr_rel
 
     except ValueError as e:
         # Command validation failed (not in allowlist or empty)
         stdout_path.write_text("")
         stderr_path.write_text(f"Command validation failed: {str(e)}")
-        stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stdout_rel = str(stdout_path)
+        stderr_rel = str(stderr_path)
         return -1, stdout_rel, stderr_rel
 
     except FileNotFoundError:
         # Command not found in PATH
         stdout_path.write_text("")
         stderr_path.write_text(f"Command not found: {cmd_argv[0]}")
-        stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stdout_rel = str(stdout_path)
+        stderr_rel = str(stderr_path)
         return -1, stdout_rel, stderr_rel
 
     except Exception as e:
         stdout_path.write_text("")
         stderr_path.write_text(f"Error running command: {str(e)}")
 
-        stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stdout_rel = str(stdout_path)
+        stderr_rel = str(stderr_path)
         return -1, stdout_rel, stderr_rel
 
 
@@ -1088,8 +1038,8 @@ def run_executor_cli(
         stderr_path.write_text("\n".join(stderr_lines))
 
         # Return relative paths for secure DB storage
-        stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stdout_rel = str(stdout_path)
+        stderr_rel = str(stderr_path)
         return exit_code, stdout_rel, stderr_rel
 
     except subprocess.TimeoutExpired as e:
@@ -1100,22 +1050,22 @@ def run_executor_cli(
             else f"Command timed out after {timeout} seconds"
         )
         stderr_path.write_text(e.stderr.decode() if e.stderr else "")
-        stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stdout_rel = str(stdout_path)
+        stderr_rel = str(stderr_path)
         return -1, stdout_rel, stderr_rel
 
     except FileNotFoundError as e:
         stdout_path.write_text("")
         stderr_path.write_text(f"Executor CLI not found: {str(e)}")
-        stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stdout_rel = str(stdout_path)
+        stderr_rel = str(stderr_path)
         return -1, stdout_rel, stderr_rel
 
     except Exception as e:
         stdout_path.write_text("")
         stderr_path.write_text(f"Error running executor CLI: {str(e)}")
-        stdout_rel = str(stdout_path.relative_to(repo_root))
-        stderr_rel = str(stderr_path.relative_to(repo_root))
+        stdout_rel = str(stdout_path)
+        stderr_rel = str(stderr_path)
         return -1, stdout_rel, stderr_rel
 
 
@@ -1343,24 +1293,24 @@ def capture_git_diff(
         stderr_path.write_text(combined_stderr)
 
         # Return relative paths for secure DB storage
-        diff_stat_rel = str(diff_stat_path.relative_to(repo_root))
-        diff_patch_rel = str(diff_patch_path.relative_to(repo_root))
+        diff_stat_rel = str(diff_stat_path)
+        diff_patch_rel = str(diff_patch_path)
         return 0, diff_stat_rel, diff_patch_rel, final_diff_stat, has_changes
 
     except subprocess.TimeoutExpired:
         diff_stat_path.write_text("Git diff timed out")
         diff_patch_path.write_text("")
         stderr_path.write_text("Git diff command timed out after 60 seconds")
-        diff_stat_rel = str(diff_stat_path.relative_to(repo_root))
-        diff_patch_rel = str(diff_patch_path.relative_to(repo_root))
+        diff_stat_rel = str(diff_stat_path)
+        diff_patch_rel = str(diff_patch_path)
         return -1, diff_stat_rel, diff_patch_rel, "(timeout)", False
 
     except Exception as e:
         diff_stat_path.write_text("")
         diff_patch_path.write_text("")
         stderr_path.write_text(f"Error running git diff: {str(e)}")
-        diff_stat_rel = str(diff_stat_path.relative_to(repo_root))
-        diff_patch_rel = str(diff_patch_path.relative_to(repo_root))
+        diff_stat_rel = str(diff_stat_path)
+        diff_patch_rel = str(diff_patch_path)
         return -1, diff_stat_rel, diff_patch_rel, "(error)", False
 
 
@@ -1843,39 +1793,43 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             db.commit()
             write_log(log_path, "Successfully transitioned to 'executing' state")
         else:
-            # This shouldn't happen for valid workflows, but log and continue
+            # Invalid state transition — abort rather than bypass state machine
             write_log(
                 log_path,
-                f"WARNING: Cannot transition from '{current_state.value}' to 'executing' (invalid transition)",
+                f"ABORTING: Cannot transition from '{current_state.value}' to 'executing' (invalid transition)",
             )
-            write_log(log_path, "Continuing execution anyway...")
+            with get_sync_db() as db:
+                job = db.query(Job).filter(Job.id == job_id).first()
+                if job:
+                    job.status = JobStatus.FAILED.value
+                    job.finished_at = datetime.now()
+                    db.commit()
+            return
 
-    # Load configuration from the worktree (where smartkanban.yaml should be)
-    # Apply board-level overrides if present
-    # Disable cache to ensure we get the latest config
-    config_service = ConfigService(worktree_path)
-
-    # Get board config for overrides
+    # Load configuration from DB (board config is the single source of truth)
     board_config = None
+    board_repo_root = None
     if ticket.board_id:
         with get_sync_db() as db:
             from app.models.board import Board
 
             board = db.query(Board).filter(Board.id == ticket.board_id).first()
-            if board and board.config:
-                board_config = board.config
+            if board:
+                if board.config:
+                    board_config = board.config
+                if board.repo_root:
+                    board_repo_root = board.repo_root
 
-    # Load config with board overrides applied
-    config = config_service.load_config_with_board_overrides(
-        board_config=board_config, use_cache=False
-    )
+    config = SmartKanbanConfig.from_board_config(board_config)
     execute_config = config.execute_config
     planner_config = config.planner_config
 
-    # Get main repo path for validation
-    # Use WorkspaceService.get_repo_path() which knows the actual main repo root
-    # (not derived from worktree, which would be wrong for allowlist checking)
-    main_repo_path = WorkspaceService.get_repo_path()
+    # Use board's repo_root as the authoritative main repo path.
+    # Falls back to GIT_REPO_PATH env var / default only when no board repo_root.
+    if board_repo_root:
+        main_repo_path = Path(board_repo_root)
+    else:
+        main_repo_path = WorkspaceService.get_repo_path()
 
     # =========================================================================
     # WORKTREE SAFETY VALIDATION (enforced, not assumed)
@@ -2165,7 +2119,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     executor_meta_path = evidence_dir / f"{executor_meta_id}.meta.json"
     executor_meta_path.write_text(json.dumps(executor_meta, indent=2))
     # Store relative path for secure DB storage
-    executor_meta_relpath = str(executor_meta_path.relative_to(main_repo_path))
+    executor_meta_relpath = str(executor_meta_path)
     create_evidence_record(
         ticket_id=ticket_id,
         job_id=job_id,
@@ -2558,12 +2512,7 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
         write_log(log_path, "Job canceled, stopping execution.")
         return {"job_id": job_id, "status": "canceled"}
 
-    # Load configuration from the worktree (where smartkanban.yaml should be)
-    # Apply board-level overrides if present
-    # Disable cache to ensure we get the latest config
-    config_service = ConfigService(worktree_path)
-
-    # Get board config for overrides
+    # Load configuration from DB (board config is the single source of truth)
     board_config = None
     if ticket.board_id:
         with get_sync_db() as db:
@@ -2573,15 +2522,12 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
             if board and board.config:
                 board_config = board.config
 
-    # Load config with board overrides applied
-    config = config_service.load_config_with_board_overrides(
-        board_config=board_config, use_cache=False
-    )
+    config = SmartKanbanConfig.from_board_config(board_config)
     verify_config = config.verify_config
     verify_commands = verify_config.commands
 
     # Get repo root for relative path computation
-    repo_root = config_service.get_repo_root()
+    repo_root = WorkspaceService.get_repo_path()
 
     write_log(log_path, f"Loaded {len(verify_commands)} verification command(s)")
     write_log(
@@ -2703,7 +2649,7 @@ def _verify_ticket_task_impl(job_id: str) -> dict:
     verify_meta_path = evidence_dir / f"{verify_meta_id}.meta.json"
     verify_meta_path.write_text(json.dumps(verify_meta, indent=2))
     # Store relative path for secure DB storage
-    verify_meta_relpath = str(verify_meta_path.relative_to(repo_root))
+    verify_meta_relpath = str(verify_meta_path)
     create_evidence_record(
         ticket_id=ticket_id,
         job_id=job_id,
@@ -2965,9 +2911,8 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
     # Get repo root for evidence storage and relative path computation
     repo_root = WorkspaceService.get_repo_path()
 
-    # Get evidence directory (persistent location outside worktree)
-    evidence_dir = repo_root / ".smartkanban" / "evidence" / job_id
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    # Get evidence directory (central location)
+    evidence_dir = central_evidence_dir(job_id)
     evidence_records: list[str] = []
 
     # Capture git diff
@@ -3184,20 +3129,31 @@ def poll_pr_statuses():
 
                 # Auto-transition ticket if PR was merged
                 if ticket_info.get("merged") and old_state != "MERGED":
-                    ticket.state = TicketState.DONE.value
+                    from app.state_machine import validate_transition
+
                     ticket.pr_state = "MERGED"
 
-                    # Create event
-                    event = TicketEvent(
-                        ticket_id=ticket.id,
-                        event_type=EventType.TRANSITIONED.value,
-                        from_state=old_state or "REVIEW",
-                        to_state=TicketState.DONE.value,
-                        actor_type=ActorType.SYSTEM.value,
-                        actor_id="poll_pr_statuses",
-                        reason=f"PR #{ticket.pr_number} was merged",
-                    )
-                    db.add(event)
+                    if validate_transition(ticket.state, TicketState.DONE.value):
+                        ticket.state = TicketState.DONE.value
+
+                        # Create event
+                        event = TicketEvent(
+                            ticket_id=ticket.id,
+                            event_type=EventType.TRANSITIONED.value,
+                            from_state=old_state or "REVIEW",
+                            to_state=TicketState.DONE.value,
+                            actor_type=ActorType.SYSTEM.value,
+                            actor_id="poll_pr_statuses",
+                            reason=f"PR #{ticket.pr_number} was merged",
+                        )
+                        db.add(event)
+                    else:
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            f"Cannot transition ticket {ticket.id} from "
+                            f"{ticket.state} to DONE on PR merge"
+                        )
 
                 updated_count += 1
 

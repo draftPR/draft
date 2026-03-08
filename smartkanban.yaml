@@ -1,5 +1,5 @@
-# Alma Kanban Configuration
-# This file configures execution and verification pipelines for Alma Kanban.
+# Draft Configuration
+# This file configures execution and verification pipelines for Draft.
 
 # =============================================================================
 # PROJECT CONFIGURATION
@@ -67,7 +67,7 @@ execute_config:
   # If yolo_mode is true but this is empty, execution REFUSES for safety.
   # This prevents "I turned on YOLO and forgot" accidents.
   # Example: ["/Users/me/trusted-repo", "/home/ci/project"]
-  yolo_allowlist: ["/Users/ellabaror/Documents/code/test/calculator"]
+  yolo_allowlist: []
 
 # =============================================================================
 # EXECUTOR PROFILES

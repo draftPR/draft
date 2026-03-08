@@ -1,7 +1,7 @@
 [project]
-name = "alma-kanban-backend"
+name = "telem-backend"
 version = "0.1.0"
-description = "Alma Kanban Backend API"
+description = "Draft Backend API"
 requires-python = ">=3.11"
 
 [tool.ruff]

@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -179,6 +180,8 @@ class TicketGenerationService:
         logger.info(
             f"Calling agent CLI for goal '{goal.title}' (streaming={'yes' if stream_callback else 'no'})"
         )
+        if stream_callback:
+            stream_callback(f"[DEBUG] Prompt built ({len(prompt)} chars). Calling agent...")
         agent_response = await asyncio.to_thread(
             self._call_agent_for_tickets,
             prompt,
@@ -279,6 +282,13 @@ class TicketGenerationService:
 
         for _idx, raw in enumerate(raw_tickets[:MAX_TICKETS_PER_GENERATION], 1):
             try:
+                # Skip non-dict items (malformed agent output)
+                if not isinstance(raw, dict):
+                    logger.warning(
+                        f"Skipping non-dict ticket entry (type={type(raw).__name__}): {str(raw)[:100]}"
+                    )
+                    continue
+
                 # Validate required fields
                 title = raw.get("title", "").strip()
                 if not title or len(title) > 255:
@@ -406,8 +416,9 @@ class TicketGenerationService:
                 existing_tickets.append((ticket.id, title))  # Add to dedup list
 
             except Exception as e:
+                raw_title = raw.get("title", "") if isinstance(raw, dict) else str(raw)[:50]
                 logger.error(
-                    f"Error creating ticket '{raw.get('title', '')[:50]}': {e}",
+                    f"Error creating ticket '{raw_title[:50]}': {e}",
                     exc_info=True,
                 )
                 # Don't re-raise, continue with next ticket
@@ -1221,8 +1232,8 @@ Now analyze the codebase and generate the JSON."""
     ) -> str:
         """Call CLI agent or LLM API to generate tickets.
 
-        When model is "cli/claude" (or any cli/* prefix), uses CLI only.
-        Otherwise tries CLI first, then falls back to LLM API.
+        When model starts with "cli/" (e.g. "cli/claude"), uses the CLI executor.
+        Otherwise uses the LLM API directly (no subprocess).
 
         Args:
             prompt: The prompt for ticket generation.
@@ -1235,14 +1246,15 @@ Now analyze the codebase and generate the JSON."""
         Raises:
             ValueError: If neither CLI nor LLM API is available.
         """
-        # Always try CLI first, fall back to LLM API on failure
-        try:
-            return self._call_cli_for_tickets(prompt, repo_root, stream_callback)
-        except (ValueError, FileNotFoundError, subprocess.TimeoutExpired) as e:
-            logger.warning(f"CLI agent failed ({e}), falling back to LLM API")
-            if stream_callback:
-                stream_callback(f"[CLI unavailable: {e}. Using LLM API...]")
+        # API model: skip CLI entirely
+        if not self.config.model.startswith("cli/"):
+            logger.info(
+                f"Model '{self.config.model}' is API-based, using LLM API directly"
+            )
             return self._call_llm_for_tickets(prompt, repo_root, stream_callback)
+
+        # CLI model: use CLI only, no fallback to API
+        return self._call_cli_for_tickets(prompt, repo_root, stream_callback)
 
     def _get_llm_for_api_fallback(self) -> "LLMService":
         """Get an LLM service suitable for API calls.
@@ -1319,6 +1331,7 @@ Now analyze the codebase and generate the JSON."""
         llm = self._get_llm_for_api_fallback()
 
         if stream_callback:
+            stream_callback(f"[DEBUG] Using LLM API model: {llm.model if hasattr(llm, 'model') else 'unknown'}")
             stream_callback("[Generating tickets via LLM API...]")
 
         # Gather repo context for the LLM
@@ -1374,13 +1387,17 @@ Now analyze the codebase and generate the JSON."""
         # Get agent path from config
         agent_path = self.config.get_agent_path()
 
+        # Track whether we're using Claude CLI (for stream-json support)
+        is_claude_cli = False
+
         if os.path.exists(agent_path):
             logger.info(f"Using agent from config: {agent_path}")
             # Determine if it's cursor-agent style (needs --workspace) or claude style
             if "cursor-agent" in agent_path:
                 cmd = [agent_path, "--print", "--workspace", str(repo_root), prompt]
             else:
-                # Claude-style: doesn't need --workspace
+                # Claude-style
+                is_claude_cli = True
                 cmd = [agent_path, "--print", prompt]
         else:
             # Fall back to executor service detection
@@ -1404,6 +1421,7 @@ Now analyze the codebase and generate the JSON."""
 
             # Build command based on executor type
             if executor.executor_type == ExecutorType.CLAUDE:
+                is_claude_cli = True
                 cmd = [executor.command, "--print", prompt]
             elif executor.executor_type == ExecutorType.CURSOR_AGENT:
                 cmd = [
@@ -1420,8 +1438,27 @@ Now analyze the codebase and generate the JSON."""
                     "Need cursor-agent or claude CLI for automated ticket generation."
                 )
 
-        # Run the agent
-        logger.info(f"Running agent command: {cmd[0]} (cwd={repo_root})")
+        # For Claude CLI with streaming: enable structured JSON output
+        # so the normalizer can produce typed entries (thinking, tool_use, etc.)
+        if is_claude_cli and stream_callback:
+            cmd = [
+                cmd[0],  # executable path
+                "--print",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--include-partial-messages",
+                "--no-session-persistence",
+                prompt,
+            ]
+
+        # Run the agent — show executable + flags, truncate prompt arg
+        cmd_display = cmd[0]
+        if len(cmd) > 1:
+            flags = [a for a in cmd[1:] if a.startswith("-")]
+            cmd_display += " " + " ".join(flags) if flags else ""
+            cmd_display += " <prompt>"
+        logger.info(f"Running agent command: {cmd_display} (cwd={repo_root})")
 
         # Strip Claude Code session env vars to avoid "nested session" errors
         # when spawning claude CLI from within a Claude Code session
@@ -1430,6 +1467,13 @@ Now analyze the codebase and generate the JSON."""
             for k, v in os.environ.items()
             if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
         }
+
+        # Validate working directory exists before launching subprocess
+        if not repo_root.exists():
+            raise ValueError(
+                f"Repository directory does not exist: {repo_root}. "
+                "The board's repo_root may point to a deleted or moved directory."
+            )
 
         try:
             if stream_callback:
@@ -1445,6 +1489,8 @@ Now analyze the codebase and generate the JSON."""
                 )
 
                 output_lines = []
+                result_text = None  # Extracted from 'result' JSON line (stream-json)
+
                 # Read stdout line by line
                 while True:
                     line = process.stdout.readline()
@@ -1452,7 +1498,22 @@ Now analyze the codebase and generate the JSON."""
                         break
                     if line:
                         output_lines.append(line)
-                        stream_callback(line.rstrip())
+                        stripped = line.rstrip()
+                        stream_callback(stripped)
+
+                        # For stream-json mode: extract the result text
+                        # from the final {"type":"result",...,"result":"..."} line
+                        if is_claude_cli and stripped.startswith("{"):
+                            try:
+                                parsed = json.loads(stripped)
+                                if (
+                                    isinstance(parsed, dict)
+                                    and parsed.get("type") == "result"
+                                    and isinstance(parsed.get("result"), str)
+                                ):
+                                    result_text = parsed["result"]
+                            except json.JSONDecodeError:
+                                pass
 
                 logger.info(
                     f"Agent subprocess completed. Total lines: {len(output_lines)}"
@@ -1473,6 +1534,10 @@ Now analyze the codebase and generate the JSON."""
                     )
                     raise ValueError(f"Agent failed: {stderr[:500]}")
 
+                # For stream-json mode: return extracted result text
+                # For plain text mode: return raw output
+                if result_text is not None:
+                    return result_text
                 return "".join(output_lines)
             else:
                 # Non-streaming mode (original behavior)
@@ -1496,8 +1561,15 @@ Now analyze the codebase and generate the JSON."""
 
         except subprocess.TimeoutExpired:
             raise ValueError("Agent timed out after 600 seconds")
-        except FileNotFoundError:
-            raise ValueError(f"Agent command not found: {cmd[0]}")
+        except FileNotFoundError as e:
+            # Distinguish between missing command and missing cwd
+            if not Path(cmd[0]).exists() and not shutil.which(cmd[0]):
+                raise ValueError(f"Agent command not found: {cmd[0]}")
+            if not repo_root.exists():
+                raise ValueError(
+                    f"Repository directory does not exist: {repo_root}"
+                )
+            raise ValueError(f"File not found during agent execution: {e}")
 
     def _parse_agent_json_response(self, response: str) -> dict:
         """Parse JSON from agent response.
@@ -1518,7 +1590,7 @@ Now analyze the codebase and generate the JSON."""
         for match in matches:
             try:
                 data = json.loads(match)
-                if "tickets" in data:
+                if "tickets" in data and isinstance(data["tickets"], list):
                     return data
             except json.JSONDecodeError:
                 continue
@@ -1530,7 +1602,7 @@ Now analyze the codebase and generate the JSON."""
         for match in matches:
             try:
                 data = json.loads(match)
-                if "tickets" in data:
+                if "tickets" in data and isinstance(data["tickets"], list):
                     return data
             except json.JSONDecodeError:
                 continue
@@ -1538,7 +1610,7 @@ Now analyze the codebase and generate the JSON."""
         # Fallback: try to parse entire response as JSON
         try:
             data = json.loads(response)
-            if "tickets" in data:
+            if "tickets" in data and isinstance(data["tickets"], list):
                 return data
         except json.JSONDecodeError:
             pass

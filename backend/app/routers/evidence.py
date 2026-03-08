@@ -11,7 +11,6 @@ from app.database import get_db
 from app.models.board import Board
 from app.models.evidence import Evidence
 from app.models.job import Job
-from app.services.config_service import ConfigService
 from app.utils.artifact_reader import read_artifact
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
@@ -49,9 +48,10 @@ async def _get_repo_root_for_evidence(
             if board and board.repo_root:
                 return Path(board.repo_root)
 
-    # Fallback to global config
-    config_service = ConfigService()
-    return config_service.get_repo_root()
+    # Fallback to WorkspaceService
+    from app.services.workspace_service import WorkspaceService
+
+    return WorkspaceService.get_repo_path()
 
 
 @router.get(

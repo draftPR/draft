@@ -21,7 +21,7 @@ test.describe("Navigation", () => {
   test("navigating to unknown route redirects to root", async ({ page }) => {
     await page.goto("/nonexistent");
     await expect(
-      page.locator("header").getByText("Alma Kanban"),
+      page.locator("header").getByText("Draft"),
     ).toBeVisible();
   });
 

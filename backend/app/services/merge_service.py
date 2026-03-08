@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.data_dir import get_evidence_dir, get_worktrees_root
 from app.exceptions import ResourceNotFoundError, ValidationError
 from app.models.enums import ActorType, EventType
 from app.models.evidence import Evidence, EvidenceKind
@@ -20,7 +21,8 @@ from app.models.revision import RevisionStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.models.workspace import Workspace
-from app.services.config_service import ConfigService
+from app.services.config_service import SmartKanbanConfig
+from app.services.workspace_service import WorkspaceService
 from app.state_machine import TicketState
 
 logger = logging.getLogger(__name__)
@@ -67,9 +69,9 @@ class MergeService:
 
     PROTECTED_BRANCHES = {"main", "master", "develop", "production", "staging"}
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, board_config: dict | None = None):
         self.db = db
-        self.config_service = ConfigService()
+        self._config = SmartKanbanConfig.from_board_config(board_config)
 
     async def merge_ticket(
         self,
@@ -132,14 +134,26 @@ class MergeService:
         if not worktree_path.exists():
             raise ValidationError(f"Worktree path does not exist: {worktree_path}")
 
-        # Validate worktree is under .smartkanban/worktrees/
-        repo_path = self.config_service.get_repo_root()
-        smartkanban_worktrees = repo_path / ".smartkanban" / "worktrees"
+        # Validate worktree is under central data dir or legacy .smartkanban/worktrees/
+        repo_path = WorkspaceService.get_repo_path()
+        central_worktrees = get_worktrees_root()
+        legacy_worktrees = repo_path / ".smartkanban" / "worktrees"
+        resolved = worktree_path.resolve()
+        under_central = False
+        under_legacy = False
         try:
-            worktree_path.resolve().relative_to(smartkanban_worktrees.resolve())
+            resolved.relative_to(central_worktrees.resolve())
+            under_central = True
         except ValueError:
+            pass
+        try:
+            resolved.relative_to(legacy_worktrees.resolve())
+            under_legacy = True
+        except ValueError:
+            pass
+        if not under_central and not under_legacy:
             raise ValidationError(
-                f"Worktree must be under .smartkanban/worktrees/: {worktree_path}"
+                f"Worktree must be under a known worktrees directory: {worktree_path}"
             )
 
         # Detect default branch early for event payload
@@ -243,10 +257,10 @@ class MergeService:
         Returns:
             MergeResult with operation outcome
         """
-        repo_path = self.config_service.get_repo_root()
+        repo_path = WorkspaceService.get_repo_path()
         worktree_path = Path(workspace.worktree_path)
         branch_name = workspace.branch_name
-        merge_config = self.config_service.get_merge_config()
+        merge_config = self._config.merge_config
 
         start_time = time.time()
         all_stdout = []
@@ -427,7 +441,6 @@ class MergeService:
                 duration_ms=duration_ms,
                 stdout="\n".join(all_stdout),
                 stderr="\n".join(all_stderr),
-                repo_root=repo_path,
             )
 
             return MergeResult(
@@ -536,7 +549,6 @@ class MergeService:
         duration_ms: int,
         stdout: str,
         stderr: str,
-        repo_root: Path,
     ) -> dict[str, str]:
         """Create evidence records for the merge operation.
 
@@ -554,12 +566,11 @@ class MergeService:
             duration_ms: Duration in milliseconds
             stdout: Combined stdout from git commands
             stderr: Combined stderr from git commands
-            repo_root: Path to repo root
 
         Returns:
             Dict with evidence IDs: {"stdout_id", "stderr_id", "meta_id"}
         """
-        evidence_dir = repo_root / ".smartkanban" / "evidence" / "merge"
+        evidence_dir = get_evidence_dir("merge")
         evidence_dir.mkdir(parents=True, exist_ok=True)
 
         evidence_ids = {}
@@ -568,7 +579,7 @@ class MergeService:
         stdout_id = str(uuid.uuid4())
         stdout_path = evidence_dir / f"{stdout_id}.stdout"
         stdout_path.write_text(stdout, encoding="utf-8")
-        stdout_relpath = str(stdout_path.relative_to(repo_root))
+        stdout_relpath = str(stdout_path)
 
         stdout_evidence = Evidence(
             id=stdout_id,
@@ -588,7 +599,7 @@ class MergeService:
         if stderr.strip():
             stderr_path = evidence_dir / f"{stderr_id}.stderr"
             stderr_path.write_text(stderr, encoding="utf-8")
-            stderr_relpath = str(stderr_path.relative_to(repo_root))
+            stderr_relpath = str(stderr_path)
 
             stderr_evidence = Evidence(
                 id=stderr_id,
@@ -619,7 +630,7 @@ class MergeService:
         }
         meta_path = evidence_dir / f"{meta_id}.meta.json"
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        meta_relpath = str(meta_path.relative_to(repo_root))
+        meta_relpath = str(meta_path)
 
         meta_evidence = Evidence(
             id=meta_id,

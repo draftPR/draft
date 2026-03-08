@@ -3,8 +3,8 @@
 
 This script creates:
 - A demo board pointing to the demo-repo
-- A demo goal with realistic description
-- Pre-configured for immediate evaluation
+- Demo goals with realistic descriptions (no pre-seeded tickets)
+- Ready for live ticket generation demo
 
 Run with: python -m scripts.seed_demo
 """
@@ -14,6 +14,8 @@ import sys
 import uuid
 from pathlib import Path
 
+import yaml
+
 # Add backend to path so we can import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -22,123 +24,152 @@ from sqlalchemy import select
 from app.database import async_session_maker, init_db
 from app.models.board import Board
 from app.models.goal import Goal
+from app.services.config_service import SmartKanbanConfig
+
+BOARD_ID = "demo-board"
+
+
+def _load_demo_config(demo_repo_path: Path) -> dict:
+    """Load demo-repo/smartkanban.yaml and set dynamic paths.
+
+    Reads the YAML config and sets the yolo_allowlist to the actual
+    demo-repo path so it works on any machine.
+    """
+    yaml_path = demo_repo_path / "smartkanban.yaml"
+    if yaml_path.exists():
+        with open(yaml_path) as f:
+            raw = yaml.safe_load(f) or {}
+    else:
+        raw = {}
+
+    # Parse through SmartKanbanConfig for proper defaults, then convert back
+    config = SmartKanbanConfig.from_dict(raw)
+    config_dict = config.to_dict()
+
+    # Set yolo_allowlist dynamically to the resolved demo-repo path
+    config_dict["execute_config"]["yolo_allowlist"] = [str(demo_repo_path)]
+
+    return config_dict
 
 
 async def seed_demo_data():
-    """Seed the database with demo board and goal."""
+    """Seed the database with demo board and goals (no tickets).
 
-    # Initialize database (create tables if needed)
+    Creates a clean board with goals ready for live ticket generation.
+    """
     await init_db()
 
     async with async_session_maker() as session:
         # Check if demo board already exists
-        result = await session.execute(select(Board).where(Board.id == "demo-board"))
+        result = await session.execute(select(Board).where(Board.id == BOARD_ID))
         existing_board = result.scalar_one_or_none()
 
         if existing_board:
-            print("✅ Demo board already exists, skipping seed.")
+            print("Demo board already exists, skipping seed.")
+            print("Run with --clear first to reset.")
             return
 
         # Get the project root (where demo-repo lives)
         project_root = Path(__file__).parent.parent.parent.resolve()
         demo_repo_path = project_root / "demo-repo"
 
+        if not demo_repo_path.exists():
+            print(f"ERROR: demo-repo not found at {demo_repo_path}")
+            return
+
+        # Load demo config from smartkanban.yaml and set dynamic yolo_allowlist
+        board_config = _load_demo_config(demo_repo_path)
+
         # Create demo board
         demo_board = Board(
-            id="demo-board",
-            name="Demo Calculator Project",
+            id=BOARD_ID,
+            name="Calculator Bug Fix",
             description=(
-                "A demonstration board showing Alma Kanban's autonomous delivery system. "
-                "This board contains a simple calculator app with intentional bugs and TODOs."
+                "A simple calculator app with intentional bugs. "
+                "Use the goals below to generate tickets and watch AI fix everything."
             ),
             repo_root=str(demo_repo_path),
             default_branch="main",
+            config=board_config,
         )
         session.add(demo_board)
 
-        # Create demo goal
-        demo_goal = Goal(
-            id=str(uuid.uuid4()),
-            board_id="demo-board",
-            title="Fix the calculator bugs and add missing tests",
-            description="""The demo calculator app has several critical bugs and missing features:
+        # --- Goals (no tickets - generate them live!) ---
 
-**Bugs to Fix:**
-1. **Division by zero crashes** - `divide()` method has no error handling
-2. **Negative square root crashes** - `square_root()` doesn't validate input
-3. **Modulo by zero crashes** - `modulo()` method lacks error handling
+        goals = [
+            Goal(
+                id=str(uuid.uuid4()),
+                board_id=BOARD_ID,
+                title="Fix all calculator bugs",
+                description=(
+                    "The calculator has three critical bugs that crash the app:\n"
+                    "\n"
+                    "1. Division by zero - divide() raises ZeroDivisionError\n"
+                    "2. Negative square root - square_root() raises ValueError\n"
+                    "3. Modulo by zero - modulo() raises ZeroDivisionError\n"
+                    "\n"
+                    "Each bug needs proper error handling that returns a clear\n"
+                    "error message instead of crashing. Add tests for each fix."
+                ),
+            ),
+            Goal(
+                id=str(uuid.uuid4()),
+                board_id=BOARD_ID,
+                title="Add missing calculator features",
+                description=(
+                    "The calculator is missing several features marked as TODOs:\n"
+                    "\n"
+                    "- percentage(value, percent) - calculate percentage of a value\n"
+                    "- factorial(n) - compute n! iteratively\n"
+                    "- logarithm(x, base) - compute log with given base\n"
+                    "\n"
+                    "Each new method needs input validation and tests."
+                ),
+            ),
+        ]
 
-**Test Coverage Gaps:**
-- No tests for division by zero edge case
-- No tests for negative square root input
-- No tests for modulo by zero
-- Missing tests for error messages
+        for goal in goals:
+            session.add(goal)
 
-**TODOs to Implement:**
-- Add percentage calculation method
-- Add factorial calculation method
-- Add logarithm calculation method
-- Improve input parsing in utils.py
-
-**Acceptance Criteria:**
-- All division operations properly handle zero divisor
-- Square root validates non-negative input
-- Comprehensive test coverage (>90%)
-- All existing tests continue to pass
-- Error messages are user-friendly
-
-**Codebase Context:**
-- Main calculator logic: `src/calculator.py`
-- Utility functions: `src/utils.py`
-- Test suite: `tests/test_calculator.py`
-- Python project with pytest for testing
-
-This is a realistic but constrained problem - perfect for demonstrating Alma Kanban's end-to-end autonomous delivery pipeline!
-""",
-        )
-        session.add(demo_goal)
-
-        # Commit the demo data
         await session.commit()
 
-        print("✅ Demo data seeded successfully!")
+        print("Demo data seeded successfully!")
         print()
-        print("Demo Board Details:")
-        print(f"  ID: {demo_board.id}")
-        print(f"  Name: {demo_board.name}")
-        print(f"  Repo: {demo_board.repo_root}")
-        print()
-        print("Demo Goal Details:")
-        print(f"  ID: {demo_goal.id}")
-        print(f"  Title: {demo_goal.title}")
+        print(f"  Board: {demo_board.name} (ID: {BOARD_ID})")
+        print(f"  Repo:  {demo_board.repo_root}")
+        print(f"  Goals: {len(goals)}")
+        for g in goals:
+            print(f"    - {g.title}")
         print()
         print("Next Steps:")
-        print("  1. Start Alma Kanban: docker compose up")
-        print("  2. Open UI: http://localhost:3000")
-        print("  3. Look for the demo goal and click 'Generate Tickets'")
-        print("  4. Watch autonomous execution!")
+        print("  1. make run")
+        print("  2. Open http://localhost:5173")
+        print("  3. Select the 'Calculator Bug Fix' board")
+        print("  4. Click a goal -> 'Generate Tickets'")
         print()
 
 
 async def clear_demo_data():
     """Clear demo data (useful for resetting)."""
+    await init_db()
+
     async with async_session_maker() as session:
-        result = await session.execute(select(Board).where(Board.id == "demo-board"))
+        result = await session.execute(select(Board).where(Board.id == BOARD_ID))
         demo_board = result.scalar_one_or_none()
 
         if demo_board:
             await session.delete(demo_board)
             await session.commit()
-            print("✅ Demo data cleared.")
+            print("Demo data cleared.")
         else:
-            print("ℹ️  No demo data found.")
+            print("No demo data found.")
 
 
 def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Seed demo data for Alma Kanban")
+    parser = argparse.ArgumentParser(description="Seed demo data for Draft")
     parser.add_argument(
         "--clear",
         action="store_true",

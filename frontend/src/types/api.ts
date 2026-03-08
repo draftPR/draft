@@ -138,6 +138,7 @@ export type GoalListResponse = components["schemas"]["GoalListResponse"];
 // --- Ticket types ---
 // Ticket extends TicketResponse with optional PR fields and is_blocked flag
 export type Ticket = components["schemas"]["TicketResponse"] & {
+  goal_title?: string | null;
   is_blocked?: boolean;
   pr_number?: number | null;
   pr_url?: string | null;
@@ -559,6 +560,7 @@ export interface PlannerConfigResponse {
   model: string;
   agent_path: string;
   timeout: number;
+  preferred_executor: string;
 }
 
 export interface PlannerConfigUpdate {

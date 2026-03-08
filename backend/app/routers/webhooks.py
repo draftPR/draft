@@ -2,16 +2,14 @@
 
 import logging
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.board import Board
-from app.services.config_service import deep_merge_dicts
 
 logger = logging.getLogger(__name__)
 

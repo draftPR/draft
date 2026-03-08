@@ -1,22 +1,22 @@
-# Alma Kanban Configuration for Demo Calculator
+# Draft Configuration for Demo Calculator
 
 project:
   name: "Demo Calculator App"
-  description: "A simple calculator with bugs - perfect for demonstrating Alma Kanban"
+  description: "A simple calculator with bugs - perfect for demonstrating Draft"
 
 execute_config:
   timeout: 300
   preferred_executor: "claude"
-  yolo_mode: false  # Safe mode for demo
-  yolo_allowlist: []
+  yolo_mode: true
+  # yolo_allowlist is set dynamically by seed_demo.py based on actual demo-repo path
 
 verify_config:
   commands:
     # Check Python syntax
-    - "python -m py_compile src/calculator.py"
-    - "python -m py_compile src/utils.py"
+    - "python3 -m py_compile src/calculator.py"
+    - "python3 -m py_compile src/utils.py"
     # Run tests
-    - "python -m pytest tests/ -v --tb=short"
+    - "python3 -m pytest tests/ -v --tb=short"
   on_failure: "blocked"
 
 cleanup_config:
@@ -30,7 +30,7 @@ merge_config:
   require_approval: true
 
 planner_config:
-  model: "bedrock/anthropic.claude-sonnet-4-20250514-v1:0"
+  model: "cli/claude"
   max_followups_per_ticket: 2
   max_followups_per_tick: 3
   validate_tickets: true

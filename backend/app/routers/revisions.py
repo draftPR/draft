@@ -781,11 +781,15 @@ async def submit_review(
             await db.flush()
             await db.refresh(job)
 
-            # Enqueue the execute task
+            # Commit BEFORE enqueue_task to release the SQLite write lock.
+            # enqueue_task opens a separate sqlite3 connection which would
+            # deadlock if this session still holds the write lock.
+            await db.commit()
+
+            # Enqueue the execute task (outside write lock)
             task = enqueue_task("execute_ticket", args=[job.id])
             job.celery_task_id = task.id
-
-        await db.commit()
+            await db.commit()
 
     except ResourceNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)

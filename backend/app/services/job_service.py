@@ -69,6 +69,21 @@ def _safe_read_file(base_path: Path, allowed_root: Path, relpath: str) -> str | 
         return None
 
 
+def _safe_read_absolute(target: Path) -> str | None:
+    """Safely read an absolute file path with size cap."""
+    if not target.is_file():
+        return None
+    try:
+        size = target.stat().st_size
+        if size > MAX_LOG_BYTES:
+            with target.open("rb") as f:
+                data = f.read(MAX_LOG_BYTES)
+            return data.decode("utf-8", errors="replace") + "\n\n[truncated]"
+        return target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
 class JobService:
     """Service class for Job business logic."""
 
@@ -280,24 +295,39 @@ class JobService:
         Read the log content for a job (synchronous version).
 
         Security:
-            - Only reads files under <repo_root>/.smartkanban/ or backend/logs/
-            - Rejects absolute paths
+            - Reads from central data dir, legacy .smartkanban/, or backend/logs/
             - Validates canonical path is under allowed directory
             - Caps file size to prevent memory exhaustion
 
         Args:
-            log_path: The relative path to the log file
+            log_path: The path to the log file (absolute or relative)
 
         Returns:
             The log content as a string, or None if no logs available
-
-        Note:
-            For async endpoints, prefer read_job_logs_async() to avoid blocking.
         """
         if not log_path:
             return None
 
-        # Try repo root first (for worktree logs under .smartkanban/)
+        from app.data_dir import get_data_dir
+
+        # If it's an absolute path under the central data dir, read directly
+        log_p = Path(log_path)
+        if log_p.is_absolute():
+            data_dir = get_data_dir()
+            try:
+                log_p.resolve().relative_to(data_dir.resolve())
+                if log_p.is_file():
+                    return _safe_read_absolute(log_p)
+            except ValueError:
+                pass
+
+        # Try central data dir (for new logs)
+        data_dir = get_data_dir()
+        content = _safe_read_file(data_dir, data_dir / "logs", log_path)
+        if content is not None:
+            return content
+
+        # Try repo root (legacy .smartkanban/ logs)
         repo_path = WorkspaceService.get_repo_path()
         smartkanban_root = repo_path / ".smartkanban"
         content = _safe_read_file(repo_path, smartkanban_root, log_path)

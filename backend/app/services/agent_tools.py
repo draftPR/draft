@@ -1,6 +1,6 @@
 """LangChain tools for UDAR agent.
 
-These tools wrap existing Alma Kanban services to make them accessible
+These tools wrap existing Draft services to make them accessible
 to the LangGraph agent. All tools are designed to be deterministic and
 minimize LLM calls where possible.
 """

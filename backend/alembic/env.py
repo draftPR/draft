@@ -1,4 +1,4 @@
-"""Alembic environment configuration for Alma Kanban."""
+"""Alembic environment configuration for Draft."""
 
 from logging.config import fileConfig
 

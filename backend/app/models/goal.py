@@ -1,4 +1,4 @@
-"""Goal model for Alma Kanban."""
+"""Goal model for Draft."""
 
 import uuid
 from datetime import datetime

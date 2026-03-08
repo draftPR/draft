@@ -1,4 +1,4 @@
-"""Ticket model for Alma Kanban."""
+"""Ticket model for Draft."""
 
 import json
 import uuid

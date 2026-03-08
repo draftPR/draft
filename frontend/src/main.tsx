@@ -6,6 +6,10 @@ import * as Sentry from "@sentry/react";
 import { router } from "./router";
 import "./i18n";
 import "./index.css";
+import { applyTheme, getCurrentTheme } from "./styles/themes";
+
+// Apply theme immediately to prevent flash of wrong theme
+applyTheme(getCurrentTheme());
 
 // Initialize Sentry only if DSN is configured
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN;

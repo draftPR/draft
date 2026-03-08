@@ -2,7 +2,7 @@
 
 ## AWS Bedrock Configuration
 
-To use AWS Bedrock models with the Alma Kanban planner, add these variables to your `.env` file in the `backend/` directory:
+To use AWS Bedrock models with the Draft planner, add these variables to your `.env` file in the `backend/` directory:
 
 ```bash
 # Required AWS Credentials

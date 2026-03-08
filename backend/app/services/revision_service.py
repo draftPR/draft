@@ -11,7 +11,7 @@ from app.exceptions import ResourceNotFoundError
 from app.models.evidence import Evidence, EvidenceKind
 from app.models.revision import Revision, RevisionStatus
 from app.models.ticket import Ticket
-from app.services.config_service import ConfigService
+from app.services.workspace_service import WorkspaceService
 from app.utils.artifact_reader import read_artifact
 
 logger = logging.getLogger(__name__)
@@ -246,9 +246,8 @@ class RevisionService:
             if repo_root:
                 return Path(repo_root)
 
-        # Fallback to ConfigService default
-        config_service = ConfigService()
-        return config_service.get_repo_root()
+        # Fallback to WorkspaceService
+        return WorkspaceService.get_repo_path()
 
     async def get_revision_diff(
         self, revision_id: str
@@ -331,8 +330,7 @@ class RevisionService:
 
         try:
             if repo_root is None:
-                config_service = ConfigService()
-                repo_root = config_service.get_repo_root()
+                repo_root = WorkspaceService.get_repo_path()
             return read_artifact(repo_root, evidence.stdout_path)
         except Exception as e:
             logger.warning(

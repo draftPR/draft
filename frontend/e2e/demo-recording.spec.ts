@@ -1,5 +1,5 @@
 /**
- * Demo recording script — walks through key Alma Kanban features
+ * Demo recording script — walks through key Draft features
  * with human-like pacing for a README video/GIF.
  *
  * Run with:
@@ -322,7 +322,7 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- Demo scenario ----------
 
-test("Alma Kanban — demo walkthrough", async ({ page }) => {
+test("Draft — demo walkthrough", async ({ page }) => {
   test.setTimeout(120_000);
   await setupDemoMocks(page);
 

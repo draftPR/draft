@@ -3,7 +3,7 @@ import { Draggable } from "@hello-pangea/dnd";
 import type { Ticket } from "@/types/api";
 import { TicketState } from "@/types/api";
 import { cn } from "@/lib/utils";
-import { Play, Loader2, X, Lock } from "lucide-react";
+import { Play, Loader2, X, Lock, Target } from "lucide-react";
 import { toast } from "sonner";
 import { deleteTicket } from "@/services/api";
 import { BlockingIndicator } from "@/components/BlockingIndicator";
@@ -94,8 +94,8 @@ export const TicketCard = memo(function TicketCard({ ticket, index, onClick, onE
           <div
             className={cn(
               "cursor-pointer transition-all duration-300 ease-in-out",
-              "bg-card border border-border rounded",
-              "px-2 py-2 text-xs",
+              "bg-card border border-border rounded overflow-hidden",
+              "px-2 py-2 text-xs break-words",
               "hover:shadow-md hover:border-foreground/20 hover:scale-[1.02] hover:-translate-y-0.5",
               "transform-gpu",
               isBlocked && "opacity-70 border-amber-500/50",
@@ -114,8 +114,13 @@ export const TicketCard = memo(function TicketCard({ ticket, index, onClick, onE
               </div>
             )}
 
+            {ticket.goal_title && (
+              <div className="text-[10px] text-muted-foreground flex items-center gap-1 mb-1">
+                <Target className="h-2.5 w-2.5" /> {ticket.goal_title}
+              </div>
+            )}
             <div className="flex items-start justify-between gap-2">
-              <div className="font-normal leading-relaxed text-foreground flex-1 min-w-0">
+              <div className="font-normal leading-relaxed text-foreground flex-1 min-w-0 break-words">
                 {ticket.title}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -199,6 +204,7 @@ export const TicketCard = memo(function TicketCard({ ticket, index, onClick, onE
   prev.ticket.state === next.ticket.state &&
   prev.ticket.priority === next.ticket.priority &&
   prev.ticket.blocked_by_ticket_id === next.ticket.blocked_by_ticket_id &&
+  prev.ticket.goal_title === next.ticket.goal_title &&
   prev.index === next.index
 );
 

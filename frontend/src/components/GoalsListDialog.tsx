@@ -6,9 +6,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { GoalDetailDialog } from "@/components/GoalDetailDialog";
-import { fetchGoals } from "@/services/api";
+import { fetchGoals, deleteGoal } from "@/services/api";
 import type { Goal } from "@/types/api";
 import { useBoard } from "@/contexts/BoardContext";
 import { toast } from "sonner";
@@ -21,6 +31,7 @@ import {
   ChevronRight,
   Sparkles,
   Zap,
+  Trash2,
 } from "lucide-react";
 
 interface GoalsListDialogProps {
@@ -48,6 +59,8 @@ export function GoalsListDialog({
   const [error, setError] = useState<string | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [goalToDelete, setGoalToDelete] = useState<Goal | null>(null);
+  const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
 
   const loadGoals = useCallback(async () => {
     setLoading(true);
@@ -79,8 +92,8 @@ export function GoalsListDialog({
     setDetailOpen(false);
     setSelectedGoalId(null);
     onBoardRefresh?.();
-    // Optionally close the goals list too
-    // onOpenChange(false);
+    // Close the goals list dialog too — user goes straight to the board
+    onOpenChange(false);
   };
 
   const handleGoalDeleted = () => {
@@ -88,6 +101,23 @@ export function GoalsListDialog({
     setSelectedGoalId(null);
     loadGoals();
     onBoardRefresh?.();
+  };
+
+  const handleInlineDelete = async () => {
+    if (!goalToDelete) return;
+    setDeletingGoalId(goalToDelete.id);
+    try {
+      await deleteGoal(goalToDelete.id);
+      toast.success("Goal deleted successfully");
+      setGoalToDelete(null);
+      loadGoals();
+      onBoardRefresh?.();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to delete goal";
+      toast.error(message);
+    } finally {
+      setDeletingGoalId(null);
+    }
   };
 
   return (
@@ -165,6 +195,21 @@ export function GoalsListDialog({
                           <Sparkles className="h-3.5 w-3.5" />
                           <span>AI</span>
                         </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setGoalToDelete(goal);
+                          }}
+                          disabled={deletingGoalId === goal.id}
+                          className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          title="Delete goal"
+                        >
+                          {deletingGoalId === goal.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </button>
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </div>
                     </div>
@@ -184,6 +229,29 @@ export function GoalsListDialog({
         onTicketsAccepted={handleTicketsAccepted}
         onGoalDeleted={handleGoalDeleted}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!goalToDelete} onOpenChange={(open) => !open && setGoalToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete goal</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete &quot;{goalToDelete?.title}&quot;? This will also delete all tickets,
+              jobs, and data associated with this goal. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleInlineDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingGoalId ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

@@ -164,6 +164,8 @@ export function AgentSettingsCard({
 }
 
 export function ExecutorProfilesCard() {
+  const { currentBoard } = useBoard();
+  const boardId = currentBoard?.id;
   const [profiles, setProfiles] = useState<
     { name: string; executor_type: string; timeout: number; extra_flags: string[]; model: string | null; env: Record<string, string> }[]
   >([]);
@@ -172,11 +174,11 @@ export function ExecutorProfilesCard() {
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
-    fetchExecutorProfiles()
+    fetchExecutorProfiles(boardId)
       .then((p) => setProfiles(p))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [boardId]);
 
   const addProfile = () => {
     setProfiles((prev) => [
@@ -203,6 +205,7 @@ export function ExecutorProfilesCard() {
     try {
       const saved = await saveExecutorProfiles(
         profiles.filter((p) => p.name.trim()),
+        boardId,
       );
       setProfiles(saved);
       setDirty(false);
@@ -589,8 +592,11 @@ export function PlannerSettingsCard({
 }: {
   onDirty?: () => void;
 }) {
+  const { currentBoard } = useBoard();
+  const boardId = currentBoard?.id;
   const [model, setModel] = useState("");
   const [agentPath, setAgentPath] = useState("");
+  const [preferredExecutor, setPreferredExecutor] = useState("claude");
   const [health, setHealth] = useState<PlannerHealthResponse | null>(null);
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -600,44 +606,45 @@ export function PlannerSettingsCard({
 
   // Load planner config on mount
   useEffect(() => {
-    fetchPlannerConfig()
+    fetchPlannerConfig(boardId)
       .then((cfg) => {
         setModel(cfg.model);
         setAgentPath(cfg.agent_path);
+        if (cfg.preferred_executor) setPreferredExecutor(cfg.preferred_executor);
         setLoaded(true);
       })
       .catch((err) => {
         console.error("Failed to load planner config:", err);
         setLoaded(true);
       });
-  }, []);
+  }, [boardId]);
 
   // Auto-check health on load
   useEffect(() => {
     if (loaded && model) {
-      checkPlannerHealth()
+      checkPlannerHealth(boardId)
         .then(setHealth)
         .catch(() => setHealth({ status: "offline", model, error: "Failed to connect" }));
     }
-  }, [loaded]);
+  }, [loaded, boardId]);
 
   const runHealthCheck = useCallback(async () => {
     setChecking(true);
     setHealth(null);
     try {
-      const result = await checkPlannerHealth();
+      const result = await checkPlannerHealth(boardId);
       setHealth(result);
     } catch (err) {
       setHealth({ status: "offline", model, error: String(err) });
     } finally {
       setChecking(false);
     }
-  }, [model]);
+  }, [model, boardId]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      const updated = await updatePlannerConfig({ model, agent_path: agentPath });
+      const updated = await updatePlannerConfig({ model, agent_path: agentPath }, boardId);
       setModel(updated.model);
       setAgentPath(updated.agent_path);
       playSound("success");
@@ -648,18 +655,19 @@ export function PlannerSettingsCard({
     } finally {
       setSaving(false);
     }
-  }, [model, agentPath, runHealthCheck]);
+  }, [model, agentPath, boardId, runHealthCheck]);
 
   const handleToggle = useCallback((useSameAsExecutor: boolean) => {
     if (useSameAsExecutor) {
-      setModel("cli/claude");
+      // Use the same CLI as the configured executor (e.g., cli/claude, cli/cursor-agent)
+      setModel(`cli/${preferredExecutor}`);
     } else {
       // Default to first API preset
       setModel(API_MODEL_PRESETS[0].value);
     }
     setHealth(null);
     onDirty?.();
-  }, [onDirty]);
+  }, [onDirty, preferredExecutor]);
 
   const provider = getProviderFromModel(model);
   const selectedPreset = API_MODEL_PRESETS.find((p) => p.value === model);
@@ -684,7 +692,7 @@ export function PlannerSettingsCard({
           <div>
             <Label htmlFor="same-as-executor">Same as executor</Label>
             <p className="text-xs text-muted-foreground">
-              Use the same Claude Code CLI as your execution agent
+              Use the same CLI agent ({preferredExecutor}) as your execution agent
             </p>
           </div>
           <Switch
@@ -721,7 +729,7 @@ export function PlannerSettingsCard({
                 </Badge>
               )}
               <span className="text-muted-foreground">
-                Uses the same Claude Code CLI as ticket execution — no extra API key needed
+                Uses the same {preferredExecutor} CLI as ticket execution — no extra API key needed
               </span>
             </div>
 
@@ -1036,7 +1044,7 @@ export function SettingsPanel() {
             Settings
           </h1>
           <p className="text-muted-foreground">
-            Configure Alma Kanban to match your workflow
+            Configure Draft to match your workflow
           </p>
         </div>
         {hasChanges && (

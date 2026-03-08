@@ -1,12 +1,16 @@
-"""Router for global project settings (smartkanban.yaml)."""
+"""Router for project settings (DB-backed via Board.config)."""
 
 import logging
-from pathlib import Path
 from typing import Any
 
-import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.models.board import Board
+from app.services.config_service import SmartKanbanConfig, deep_merge_dicts
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +35,7 @@ class SettingsResponse(BaseModel):
     """Global settings response model."""
 
     execute_config: dict[str, Any]
-    config_path: str
+    board_id: str
 
 
 # --- Planner config models ---
@@ -43,6 +47,7 @@ class PlannerConfigResponse(BaseModel):
     model: str
     agent_path: str
     timeout: int
+    preferred_executor: str  # From execute_config, so frontend knows the CLI type
 
 
 class PlannerConfigUpdate(BaseModel):
@@ -60,44 +65,57 @@ class PlannerHealthResponse(BaseModel):
     error: str | None = None
 
 
+async def _resolve_board(
+    db: AsyncSession, board_id: str | None
+) -> Board:
+    """Resolve a board by ID, or fall back to the first board."""
+    if board_id:
+        result = await db.execute(select(Board).where(Board.id == board_id))
+        board = result.scalar_one_or_none()
+        if not board:
+            raise HTTPException(status_code=404, detail=f"Board not found: {board_id}")
+        return board
+
+    result = await db.execute(select(Board).limit(1))
+    board = result.scalar_one_or_none()
+    if not board:
+        raise HTTPException(
+            status_code=400,
+            detail="No boards exist. Create a board first.",
+        )
+    return board
+
+
 @router.get("", response_model=SettingsResponse)
-async def get_global_settings():
-    """Get global project settings from smartkanban.yaml.
+async def get_global_settings(
+    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get execute settings from board config (DB).
 
     Returns:
-        Current settings from smartkanban.yaml
+        Current execute_config from the board's config.
     """
-    try:
-        # Look for smartkanban.yaml in parent directory (project root)
-        config_path = Path.cwd().parent / "smartkanban.yaml"
+    board = await _resolve_board(db, board_id)
+    config = SmartKanbanConfig.from_board_config(board.config)
 
-        # If not found, try current directory (when running from project root)
-        if not config_path.exists():
-            config_path = Path.cwd() / "smartkanban.yaml"
-
-        if not config_path.exists():
-            raise HTTPException(status_code=404, detail="smartkanban.yaml not found")
-
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-
-        execute_config = config.get("execute_config", {})
-
-        return SettingsResponse(
-            execute_config=execute_config, config_path=str(config_path)
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to read settings: {str(e)}"
-        )
+    return SettingsResponse(
+        execute_config={
+            "timeout": config.execute_config.timeout,
+            "preferred_executor": config.execute_config.preferred_executor,
+            "executor_model": config.execute_config.executor_model,
+        },
+        board_id=board.id,
+    )
 
 
 @router.put("", response_model=SettingsResponse)
-async def update_global_settings(data: SettingsUpdate):
-    """Update global project settings in smartkanban.yaml.
+async def update_global_settings(
+    data: SettingsUpdate,
+    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update execute settings in board config (DB).
 
     Args:
         data: Settings to update (partial update supported)
@@ -105,131 +123,98 @@ async def update_global_settings(data: SettingsUpdate):
     Returns:
         Updated settings
     """
-    try:
-        # Look for smartkanban.yaml in parent directory (project root)
-        config_path = Path.cwd().parent / "smartkanban.yaml"
+    board = await _resolve_board(db, board_id)
 
-        # If not found, try current directory (when running from project root)
-        if not config_path.exists():
-            config_path = Path.cwd() / "smartkanban.yaml"
+    update_dict: dict[str, Any] = {}
+    if data.execute_config:
+        ec: dict[str, Any] = {}
+        if data.execute_config.timeout is not None:
+            ec["timeout"] = data.execute_config.timeout
+        if data.execute_config.preferred_executor is not None:
+            ec["preferred_executor"] = data.execute_config.preferred_executor
+        if data.execute_config.executor_model is not None:
+            ec["executor_model"] = data.execute_config.executor_model
+        if ec:
+            update_dict["execute_config"] = ec
 
-        if not config_path.exists():
-            raise HTTPException(status_code=404, detail="smartkanban.yaml not found")
+    if update_dict:
+        existing = board.config or {}
+        board.config = deep_merge_dicts(existing, update_dict)
+        await db.commit()
+        await db.refresh(board)
 
-        # Read current config
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-
-        # Update execute_config fields if provided
-        if data.execute_config:
-            if "execute_config" not in config:
-                config["execute_config"] = {}
-
-            if data.execute_config.timeout is not None:
-                config["execute_config"]["timeout"] = data.execute_config.timeout
-
-            if data.execute_config.preferred_executor is not None:
-                config["execute_config"]["preferred_executor"] = (
-                    data.execute_config.preferred_executor
-                )
-
-            if data.execute_config.executor_model is not None:
-                config["execute_config"]["executor_model"] = (
-                    data.execute_config.executor_model
-                )
-
-        # Write back to file
-        with open(config_path, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-        return SettingsResponse(
-            execute_config=config.get("execute_config", {}),
-            config_path=str(config_path),
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to update settings: {str(e)}"
-        )
+    config = SmartKanbanConfig.from_board_config(board.config)
+    return SettingsResponse(
+        execute_config={
+            "timeout": config.execute_config.timeout,
+            "preferred_executor": config.execute_config.preferred_executor,
+            "executor_model": config.execute_config.executor_model,
+        },
+        board_id=board.id,
+    )
 
 
 # ==================== Planner Config Endpoints ====================
 
 
-def _find_config_path() -> Path:
-    """Find the smartkanban.yaml config file path."""
-    config_path = Path.cwd().parent / "smartkanban.yaml"
-    if not config_path.exists():
-        config_path = Path.cwd() / "smartkanban.yaml"
-    return config_path
-
-
 @router.get("/planner", response_model=PlannerConfigResponse)
-async def get_planner_config():
-    """Get current planner configuration from smartkanban.yaml."""
-    try:
-        from app.services.config_service import ConfigService
+async def get_planner_config(
+    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current planner configuration from board config (DB)."""
+    board = await _resolve_board(db, board_id)
+    config = SmartKanbanConfig.from_board_config(board.config)
+    planner = config.planner_config
 
-        config_service = ConfigService()
-        planner = config_service.get_planner_config()
-
-        return PlannerConfigResponse(
-            model=planner.model,
-            agent_path=planner.agent_path,
-            timeout=planner.timeout,
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to read planner config: {str(e)}"
-        )
+    return PlannerConfigResponse(
+        model=planner.model,
+        agent_path=planner.agent_path,
+        timeout=planner.timeout,
+        preferred_executor=config.execute_config.preferred_executor,
+    )
 
 
 @router.put("/planner", response_model=PlannerConfigResponse)
-async def update_planner_config(data: PlannerConfigUpdate):
-    """Update planner model and agent_path in smartkanban.yaml."""
-    try:
-        config_path = _find_config_path()
-        if not config_path.exists():
-            raise HTTPException(status_code=404, detail="smartkanban.yaml not found")
+async def update_planner_config(
+    data: PlannerConfigUpdate,
+    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update planner model and agent_path in board config (DB)."""
+    board = await _resolve_board(db, board_id)
 
-        with open(config_path) as f:
-            config = yaml.safe_load(f) or {}
+    update_dict: dict[str, Any] = {}
+    if data.model is not None:
+        update_dict["model"] = data.model
+        # When setting cli/<executor>, auto-sync agent_path to the executor name
+        if data.model.startswith("cli/") and data.agent_path is None:
+            update_dict["agent_path"] = data.model.removeprefix("cli/")
+    if data.agent_path is not None:
+        update_dict["agent_path"] = data.agent_path
 
-        if "planner_config" not in config:
-            config["planner_config"] = {}
+    if update_dict:
+        existing = board.config or {}
+        board.config = deep_merge_dicts(existing, {"planner_config": update_dict})
+        await db.commit()
+        await db.refresh(board)
 
-        if data.model is not None:
-            config["planner_config"]["model"] = data.model
+    config = SmartKanbanConfig.from_board_config(board.config)
+    planner = config.planner_config
 
-        if data.agent_path is not None:
-            config["planner_config"]["agent_path"] = data.agent_path
-
-        with open(config_path, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-        # Re-read to return current state
-        from app.services.config_service import ConfigService
-
-        config_service = ConfigService()
-        planner = config_service.get_planner_config()
-
-        return PlannerConfigResponse(
-            model=planner.model,
-            agent_path=planner.agent_path,
-            timeout=planner.timeout,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to update planner config: {str(e)}"
-        )
+    return PlannerConfigResponse(
+        model=planner.model,
+        agent_path=planner.agent_path,
+        timeout=planner.timeout,
+        preferred_executor=config.execute_config.preferred_executor,
+    )
 
 
 @router.get("/planner/check", response_model=PlannerHealthResponse)
-async def check_planner_health():
+async def check_planner_health(
+    board_id: str | None = Query(None, description="Board ID (uses first board if omitted)"),
+    db: AsyncSession = Depends(get_db),
+):
     """Test if the configured planner can work.
 
     For CLI models (cli/claude): checks if the CLI binary is available.
@@ -237,10 +222,9 @@ async def check_planner_health():
     """
     import shutil
 
-    from app.services.config_service import ConfigService
-
-    config_service = ConfigService()
-    planner = config_service.get_planner_config()
+    board = await _resolve_board(db, board_id)
+    config = SmartKanbanConfig.from_board_config(board.config)
+    planner = config.planner_config
     model = planner.model
 
     # CLI mode: check if the agent binary exists

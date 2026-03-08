@@ -1,4 +1,4 @@
-"""Telem Backend - FastAPI Application."""
+"""Draft Backend - FastAPI Application."""
 
 import logging
 import os
@@ -43,8 +43,8 @@ from app.routers import (
     revisions_router,
     tickets_router,
 )
-from app.routers.auth import router as auth_router
 from app.routers.agents import router as agents_router
+from app.routers.auth import router as auth_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.executors import router as executors_router
 from app.routers.pull_requests import router as pull_requests_router
@@ -71,7 +71,7 @@ if _sentry_dsn:
     except ImportError:
         pass  # sentry-sdk not installed, skip
 
-APP_NAME = "Telem"
+APP_NAME = "Draft"
 APP_VERSION = "0.1.0"
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=APP_NAME,
     version=APP_VERSION,
-    description="A local-first Telem application with state machine workflow",
+    description="A local-first Draft application with state machine workflow",
     lifespan=lifespan,
 )
 
@@ -250,7 +250,7 @@ async def llm_api_error_handler(request: Request, exc: LLMAPIError) -> JSONRespo
 async def smart_kanban_error_handler(
     request: Request, exc: SmartKanbanError
 ) -> JSONResponse:
-    """Handle generic Telem errors."""
+    """Handle generic Draft errors."""
     return JSONResponse(
         status_code=500,
         content={

@@ -24,7 +24,8 @@ from app.models.goal import Goal
 from app.models.revision import Revision
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
-from app.services.config_service import AutonomyConfig, ConfigService
+from app.services.config_service import AutonomyConfig, SmartKanbanConfig
+from app.services.workspace_service import WorkspaceService
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class AutonomyService:
 
     def __init__(self, config: AutonomyConfig | None = None):
         if config is None:
-            config = ConfigService().get_autonomy_config()
+            config = SmartKanbanConfig().autonomy_config
         self.config = config
 
     # ── Async methods (for FastAPI routes and planner) ──
@@ -287,9 +288,10 @@ class AutonomyService:
          N files changed, X insertions(+), Y deletions(-)
         """
         try:
-            config_service = ConfigService()
-            repo_root = config_service.get_repo_root()
-            content_path = repo_root / evidence.stdout_path
+            content_path = Path(evidence.stdout_path)
+            if not content_path.is_absolute():
+                repo_root = WorkspaceService.get_repo_path()
+                content_path = repo_root / evidence.stdout_path
             if not content_path.exists():
                 return 0
             content = content_path.read_text()
@@ -315,9 +317,10 @@ class AutonomyService:
     def _check_sensitive_files(self, evidence: Evidence) -> list[str]:
         """Check if any files in a diff patch match sensitive file patterns."""
         try:
-            config_service = ConfigService()
-            repo_root = config_service.get_repo_root()
-            content_path = repo_root / evidence.stdout_path
+            content_path = Path(evidence.stdout_path)
+            if not content_path.is_absolute():
+                repo_root = WorkspaceService.get_repo_path()
+                content_path = repo_root / evidence.stdout_path
             if not content_path.exists():
                 return []
             content = content_path.read_text()

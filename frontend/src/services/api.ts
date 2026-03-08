@@ -128,14 +128,17 @@ export interface ExecutorProfile {
   env: Record<string, string>;
 }
 
-export async function fetchExecutorProfiles(): Promise<ExecutorProfile[]> {
-  return apiFetch<ExecutorProfile[]>("/executors/profiles");
+export async function fetchExecutorProfiles(boardId?: string): Promise<ExecutorProfile[]> {
+  const params = boardId ? `?board_id=${boardId}` : "";
+  return apiFetch<ExecutorProfile[]>(`/executors/profiles${params}`);
 }
 
 export async function saveExecutorProfiles(
   profiles: ExecutorProfile[],
+  boardId?: string,
 ): Promise<ExecutorProfile[]> {
-  return apiFetch<ExecutorProfile[]>("/executors/profiles", {
+  const params = boardId ? `?board_id=${boardId}` : "";
+  return apiFetch<ExecutorProfile[]>(`/executors/profiles${params}`, {
     method: "PUT",
     body: JSON.stringify(profiles),
   });
@@ -155,12 +158,14 @@ export async function deleteAllTickets(boardId: string): Promise<{ message: stri
 
 // ==================== Global Settings API ====================
 
-export async function getGlobalSettings(): Promise<{ config_path: string; execute_config: any }> {
-  return apiFetch<{ config_path: string; execute_config: any }>("/settings");
+export async function getGlobalSettings(boardId?: string): Promise<{ board_id: string; execute_config: any }> {
+  const params = boardId ? `?board_id=${boardId}` : "";
+  return apiFetch<{ board_id: string; execute_config: any }>(`/settings${params}`);
 }
 
-export async function updateGlobalSettings(settings: Record<string, any>): Promise<void> {
-  return apiFetch<void>("/settings", {
+export async function updateGlobalSettings(settings: Record<string, any>, boardId?: string): Promise<void> {
+  const params = boardId ? `?board_id=${boardId}` : "";
+  return apiFetch<void>(`/settings${params}`, {
     method: "PUT",
     body: JSON.stringify(settings),
   });
@@ -168,19 +173,22 @@ export async function updateGlobalSettings(settings: Record<string, any>): Promi
 
 // ==================== Planner Config API ====================
 
-export async function fetchPlannerConfig(): Promise<PlannerConfigResponse> {
-  return apiFetch<PlannerConfigResponse>("/settings/planner");
+export async function fetchPlannerConfig(boardId?: string): Promise<PlannerConfigResponse> {
+  const params = boardId ? `?board_id=${boardId}` : "";
+  return apiFetch<PlannerConfigResponse>(`/settings/planner${params}`);
 }
 
-export async function updatePlannerConfig(data: PlannerConfigUpdate): Promise<PlannerConfigResponse> {
-  return apiFetch<PlannerConfigResponse>("/settings/planner", {
+export async function updatePlannerConfig(data: PlannerConfigUpdate, boardId?: string): Promise<PlannerConfigResponse> {
+  const params = boardId ? `?board_id=${boardId}` : "";
+  return apiFetch<PlannerConfigResponse>(`/settings/planner${params}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
-export async function checkPlannerHealth(): Promise<PlannerHealthResponse> {
-  return apiFetch<PlannerHealthResponse>("/settings/planner/check");
+export async function checkPlannerHealth(boardId?: string): Promise<PlannerHealthResponse> {
+  const params = boardId ? `?board_id=${boardId}` : "";
+  return apiFetch<PlannerHealthResponse>(`/settings/planner/check${params}`);
 }
 
 const API_BASE = config.backendBaseUrl;

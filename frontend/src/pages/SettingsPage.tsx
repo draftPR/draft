@@ -110,7 +110,7 @@ export function SettingsPage() {
             Settings
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure Alma Kanban to match your workflow
+            Configure Draft to match your workflow
           </p>
         </div>
         {hasChanges && (

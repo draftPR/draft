@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Starting Alma Kanban..."
+echo "🚀 Starting Draft..."
 
 # Run database migrations
 cd /workspace/backend

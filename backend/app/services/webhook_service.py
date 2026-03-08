@@ -13,7 +13,7 @@ import hashlib
 import hmac
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -43,7 +43,7 @@ def _build_payload(
     """Build the webhook JSON payload."""
     return {
         "event": event,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "ticket": {
             "id": ticket_id,
             "title": ticket_title,

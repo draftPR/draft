@@ -9,20 +9,19 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.data_dir import get_logs_dir, get_worktree_dir, get_worktrees_root
 from app.exceptions import (
     BranchNotFoundError,
     NotAGitRepositoryError,
     ResourceNotFoundError,
     WorktreeCreationError,
 )
+from app.models.board import Board
 from app.models.ticket import Ticket
 from app.models.workspace import Workspace
 
 # Default workspace root (parent of backend directory)
 DEFAULT_REPO_PATH = Path(__file__).parent.parent.parent.parent
-
-# Worktree base directory
-WORKTREES_BASE = ".smartkanban/worktrees"
 
 
 class WorkspaceService:
@@ -152,18 +151,20 @@ class WorkspaceService:
         raise BranchNotFoundError(base_branch)
 
     @classmethod
-    def _get_worktree_dir(cls, ticket_id: str) -> Path:
+    def _get_worktree_dir(cls, ticket_id: str, board_id: str | None = None) -> Path:
         """
         Get the worktree directory path for a ticket.
 
+        Uses central data dir: ~/.telem/worktrees/{board_id}/{ticket_id}/
+
         Args:
             ticket_id: The ticket UUID.
+            board_id: The board UUID (used for directory grouping).
 
         Returns:
             Path to the worktree directory.
         """
-        repo_path = cls.get_repo_path()
-        return repo_path / WORKTREES_BASE / ticket_id
+        return get_worktree_dir(board_id or "default", ticket_id)
 
     @classmethod
     def _get_branch_name(cls, goal_id: str, ticket_id: str) -> str:
@@ -244,14 +245,28 @@ class WorkspaceService:
         if ticket is None:
             raise ResourceNotFoundError("Ticket", ticket_id)
 
+        # Use board's repo_root if available, otherwise fall back to env/default
+        board_repo_root = None
+        if ticket.board_id:
+            board_result = self.db.execute(select(Board).where(Board.id == ticket.board_id))
+            board = board_result.scalar_one_or_none()
+            if board and board.repo_root:
+                board_repo_root = Path(board.repo_root)
+
         # Validate git repo
-        repo_path = self.ensure_repo_is_git()
+        if board_repo_root:
+            git_dir = board_repo_root / ".git"
+            if not git_dir.exists():
+                raise NotAGitRepositoryError(str(board_repo_root))
+            repo_path = board_repo_root
+        else:
+            repo_path = self.ensure_repo_is_git()
 
         # Validate base branch
         base_branch = self._validate_base_branch(repo_path)
 
         # Generate paths and names
-        worktree_dir = self._get_worktree_dir(ticket_id)
+        worktree_dir = self._get_worktree_dir(ticket_id, board_id=ticket.board_id)
         branch_name = self._get_branch_name(goal_id, ticket_id)
 
         # Create parent directories
@@ -265,12 +280,12 @@ class WorkspaceService:
                     f"Worktree path is a symlink (potential security issue): {worktree_dir}",
                     git_error="symlink_detected",
                 )
-            # Security: ensure resolved path stays within the repo boundary
+            # Security: ensure resolved path stays within the central data dir
             resolved = worktree_dir.resolve()
-            repo_resolved = repo_path.resolve()
-            if not str(resolved).startswith(str(repo_resolved) + os.sep):
+            worktrees_root = get_worktrees_root().resolve()
+            if not str(resolved).startswith(str(worktrees_root) + os.sep):
                 raise WorktreeCreationError(
-                    f"Worktree path escapes repo boundary: {resolved}",
+                    f"Worktree path escapes data dir boundary: {resolved}",
                     git_error="path_traversal_detected",
                 )
             shutil.rmtree(worktree_dir)
@@ -340,12 +355,47 @@ class WorkspaceService:
             # Verify the worktree directory still exists
             worktree_path = Path(workspace.worktree_path)
             if worktree_path.exists():
-                return workspace
-            # Worktree was deleted externally, recreate it
-            workspace.cleaned_up_at = datetime.now(UTC)
-            self.db.flush()
+                # Verify the worktree belongs to the board's repo (not a stale worktree
+                # from a different repo, e.g. after GIT_REPO_PATH was changed).
+                if self._worktree_matches_board_repo(worktree_path, workspace.board_id):
+                    return workspace
+                # Wrong repo — force cleanup and recreate
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Worktree {worktree_path} belongs to wrong repo; recreating."
+                )
+                workspace.cleaned_up_at = datetime.now(UTC)
+                self.db.flush()
+            else:
+                # Worktree was deleted externally, recreate it
+                workspace.cleaned_up_at = datetime.now(UTC)
+                self.db.flush()
 
         return self.create_worktree(ticket_id, goal_id)
+
+    def _worktree_matches_board_repo(self, worktree_path: Path, board_id: str | None) -> bool:
+        """Check that an existing worktree belongs to the board's repo_root."""
+        if not board_id:
+            return True  # No board — can't verify, assume OK
+        board_result = self.db.execute(select(Board).where(Board.id == board_id))
+        board = board_result.scalar_one_or_none()
+        if not board or not board.repo_root:
+            return True  # No repo_root configured — assume OK
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-common-dir"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return False
+            common_dir = Path(result.stdout.strip()).resolve()
+            board_git_dir = (Path(board.repo_root) / ".git").resolve()
+            return str(common_dir).startswith(str(board_git_dir))
+        except Exception:
+            return True  # Can't verify, assume OK
 
     def cleanup_worktree(self, ticket_id: str) -> bool:
         """
@@ -361,7 +411,13 @@ class WorkspaceService:
         if not workspace or not workspace.is_active:
             return False
 
+        # Use board's repo_root if available
         repo_path = self.get_repo_path()
+        if workspace.board_id:
+            board_result = self.db.execute(select(Board).where(Board.id == workspace.board_id))
+            board = board_result.scalar_one_or_none()
+            if board and board.repo_root:
+                repo_path = Path(board.repo_root)
         worktree_dir = Path(workspace.worktree_path)
 
         # Remove the worktree using git
@@ -387,18 +443,16 @@ class WorkspaceService:
 
     def get_logs_dir(self, ticket_id: str) -> Path | None:
         """
-        Get the logs directory path within a ticket's worktree.
+        Get the central logs directory.
 
         Args:
-            ticket_id: The ticket UUID.
+            ticket_id: The ticket UUID (unused, kept for API compat).
 
         Returns:
-            Path to the logs directory, or None if no active workspace.
+            Path to the central logs directory, or None if no active workspace.
         """
         worktree_path = self.get_worktree_path(ticket_id)
         if worktree_path is None:
             return None
 
-        logs_dir = worktree_path / ".smartkanban" / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        return logs_dir
+        return get_logs_dir()

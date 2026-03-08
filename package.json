@@ -1,9 +1,9 @@
 {
-  "name": "alma-kanban",
+  "name": "telem",
   "version": "0.1.0",
   "description": "AI-powered local-first kanban board that uses AI agents to automatically implement tickets",
   "bin": {
-    "alma-kanban": "bin/alma-kanban.js"
+    "telem": "bin/alma-kanban.js"
   },
   "keywords": [
     "kanban",
@@ -13,11 +13,11 @@
     "claude",
     "autopilot"
   ],
-  "author": "Alma Kanban Contributors",
+  "author": "Draft Contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/alma-kanban/alma-kanban"
+    "url": "https://github.com/doramirdor/alma-kanban"
   },
   "engines": {
     "node": ">=18"

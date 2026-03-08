@@ -1,11 +1,11 @@
-# Alma Kanban
+# Draft
 
 An AI-powered local-first kanban board that uses AI agents to automatically implement tickets. It creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the results, and manages the workflow through a state machine.
 
 ## Demo
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Alma Kanban Demo" width="900" />
+  <img src="docs/demo.gif" alt="Draft Demo" width="900" />
 </p>
 
 ## Screenshots
@@ -148,14 +148,14 @@ curl http://localhost:8000/health
 # {"status":"ok"}
 
 curl http://localhost:8000/version
-# {"app":"Alma Kanban","version":"0.1.0"}
+# {"app":"Draft","version":"0.1.0"}
 ```
 
 Open http://localhost:5173 in your browser to see the frontend.
 
 ## Workspace Isolation
 
-Alma Kanban uses git worktrees to provide isolated workspaces for each ticket. This enables safe parallel execution of multiple tickets without interference.
+Draft uses git worktrees to provide isolated workspaces for each ticket. This enables safe parallel execution of multiple tickets without interference.
 
 ### How It Works
 
@@ -186,7 +186,7 @@ If the directory is not a git repository, jobs will run without workspace isolat
 
 ## Verification Pipeline
 
-Alma Kanban includes a verification pipeline that runs configurable commands to verify ticket implementations.
+Draft includes a verification pipeline that runs configurable commands to verify ticket implementations.
 
 ### Configuration
 
@@ -233,7 +233,7 @@ Evidence is displayed in the ticket detail drawer in the UI:
 
 ## Background Jobs
 
-Alma Kanban uses an in-process SQLiteWorker (ThreadPoolExecutor + SQLite job queue) to run background jobs. No external services like Redis or Celery are required.
+Draft uses an in-process SQLiteWorker (ThreadPoolExecutor + SQLite job queue) to run background jobs. No external services like Redis or Celery are required.
 
 ### Job Workflow Example
 

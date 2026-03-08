@@ -181,7 +181,7 @@ describe("SettingsPanel", () => {
     render(<SettingsPanel />);
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(
-      screen.getByText(/Configure Alma Kanban/),
+      screen.getByText(/Configure Draft/),
     ).toBeInTheDocument();
   });
 });

@@ -243,7 +243,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
 }
 
 /**
- * Default commands for common Alma Kanban actions.
+ * Default commands for common Draft actions.
  * Build this array in App.tsx, passing callbacks from App state.
  */
 export const exampleCommands: CommandAction[] = [

@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.models.board import Board
 from app.models.ticket import Ticket
 from app.schemas.merge import (
     AbortResponse,
@@ -21,7 +22,6 @@ from app.schemas.merge import (
     PushStatusResponse,
     RebaseResponse,
 )
-from app.services.config_service import ConfigService
 from app.services.merge_service import MergeService, MergeStrategy
 
 router = APIRouter(prefix="/tickets", tags=["merge"])
@@ -81,7 +81,21 @@ async def merge_ticket(
     If the merge fails due to conflicts, the merge is aborted and the
     worktree is left intact for manual resolution.
     """
-    service = MergeService(db)
+    # Load board config for merge settings
+    board_config = None
+    ticket_result = await db.execute(
+        select(Ticket).where(Ticket.id == ticket_id)
+    )
+    ticket_obj = ticket_result.scalar_one_or_none()
+    if ticket_obj and ticket_obj.board_id:
+        board_result = await db.execute(
+            select(Board).where(Board.id == ticket_obj.board_id)
+        )
+        board_obj = board_result.scalar_one_or_none()
+        if board_obj:
+            board_config = board_obj.config
+
+    service = MergeService(db, board_config=board_config)
 
     try:
         # Convert schema enum to service enum
@@ -176,8 +190,9 @@ async def get_conflict_status(
     state = await asyncio.to_thread(detect_conflict_state, worktree_path)
 
     # Get divergence info
-    config = ConfigService()
-    repo_path = config.get_repo_root()
+    from app.services.workspace_service import WorkspaceService
+
+    repo_path = WorkspaceService.get_repo_path()
     branch_name = ticket.workspace.branch_name
     divergence = await asyncio.to_thread(get_divergence_info, repo_path, branch_name)
 

@@ -1,4 +1,4 @@
-"""API routers for Alma Kanban."""
+"""API routers for Draft."""
 
 from app.routers.board import legacy_router as board_legacy_router
 from app.routers.board import router as boards_router

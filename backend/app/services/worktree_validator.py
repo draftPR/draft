@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from app.data_dir import LEGACY_WORKTREES_DIR, get_worktrees_root
+
 
 class WorktreeValidationError(StrEnum):
     """Types of worktree validation failures."""
@@ -71,8 +73,9 @@ class WorktreeValidator:
     # Protected branches that should never be modified by automated execution
     PROTECTED_BRANCHES = {"main", "master", "develop", "production", "staging"}
 
-    # Required path component for worktrees
-    WORKTREE_PATH_MARKER = ".smartkanban/worktrees"
+    # Required path component for worktrees (central dir or legacy)
+    WORKTREE_PATH_MARKER = str(get_worktrees_root())
+    LEGACY_WORKTREE_PATH_MARKER = LEGACY_WORKTREES_DIR
 
     def __init__(self, main_repo_path: Path | str):
         """
@@ -96,12 +99,15 @@ class WorktreeValidator:
         worktree = Path(worktree_path).resolve()
         worktree_str = str(worktree)
 
-        # Check 1: Path must be under .smartkanban/worktrees/
-        if self.WORKTREE_PATH_MARKER not in worktree_str:
+        # Check 1: Path must be under central data dir or legacy .smartkanban/worktrees/
+        in_central = worktree_str.startswith(str(get_worktrees_root()))
+        in_legacy = self.LEGACY_WORKTREE_PATH_MARKER in worktree_str
+        if not in_central and not in_legacy:
             return WorktreeValidationResult.failure(
                 error=WorktreeValidationError.NOT_IN_SMARTKANBAN_DIR,
                 message=(
-                    f"Worktree path must be under {self.WORKTREE_PATH_MARKER}/. "
+                    f"Worktree path must be under {self.WORKTREE_PATH_MARKER}/ "
+                    f"or legacy {self.LEGACY_WORKTREE_PATH_MARKER}/. "
                     f"Got: {worktree_str}"
                 ),
                 worktree_path=worktree_str,

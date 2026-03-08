@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * alma-kanban CLI — one-command launcher for Alma Kanban.
+ * telem CLI — one-command launcher for Telem.
  *
  * Usage:
- *   npx alma-kanban          # launch in current directory
- *   npx alma-kanban --port 9000
- *   npx alma-kanban --help
+ *   npx telem          # launch in current directory
+ *   npx telem --port 9000
+ *   npx telem --help
  */
 
 const { execSync, spawn } = require("child_process");
@@ -16,8 +16,8 @@ const os = require("os");
 const http = require("http");
 
 // ── Config ──────────────────────────────────────────────────────────
-const ALMA_HOME = path.join(os.homedir(), ".alma-kanban");
-const VENV_DIR = path.join(ALMA_HOME, "venv");
+const TELEM_HOME = path.join(os.homedir(), ".telem");
+const VENV_DIR = path.join(TELEM_HOME, "venv");
 const DEFAULT_PORT = 8000;
 
 const PKG_ROOT = path.resolve(__dirname, "..");
@@ -172,7 +172,7 @@ function ensureVenv(pythonCmd) {
   }
 
   log("Creating Python virtual environment...");
-  fs.mkdirSync(ALMA_HOME, { recursive: true });
+  fs.mkdirSync(TELEM_HOME, { recursive: true });
   execSync(`${pythonCmd} -m venv "${VENV_DIR}"`, { stdio: "inherit" });
 }
 
@@ -279,7 +279,7 @@ function startProductionMode(appRoot, port) {
   fs.mkdirSync(backendFrontendDir, { recursive: true });
   fs.symlinkSync(sourceDist, backendFrontendDist);
 
-  logSuccess("Starting Alma Kanban (production mode — single process)");
+  logSuccess("Starting Telem (production mode — single process)");
   logSuccess(`  App:      http://localhost:${port}`);
   logSuccess(`  API Docs: http://localhost:${port}/docs`);
   console.log("");
@@ -337,7 +337,7 @@ function startDevMode(appRoot, backendPort, frontendPort) {
   const backendDir = path.join(appRoot, "backend");
   const frontendDir = path.join(appRoot, "frontend");
 
-  logSuccess("Starting Alma Kanban (development mode — two processes)");
+  logSuccess("Starting Telem (development mode — two processes)");
   logSuccess(`  Backend:  http://localhost:${backendPort}`);
   logSuccess(`  Frontend: http://localhost:${frontendPort}`);
   logSuccess(`  API Docs: http://localhost:${backendPort}/docs`);
@@ -441,10 +441,10 @@ function parseArgs() {
 
 function showHelp() {
   console.log(`
-\x1b[1mAlma Kanban\x1b[0m — AI-powered local-first kanban board
+\x1b[1mTelem\x1b[0m — AI-powered local-first kanban board
 
 \x1b[1mUsage:\x1b[0m
-  npx alma-kanban [options]
+  npx telem [options]
 
 \x1b[1mOptions:\x1b[0m
   -p, --port <port>          Server port (default: 8000)
@@ -472,7 +472,7 @@ function main() {
 
   if (opts.version) {
     const pkg = require(path.join(PKG_ROOT, "package.json"));
-    console.log(`alma-kanban v${pkg.version}`);
+    console.log(`telem v${pkg.version}`);
     process.exit(0);
   }
 
@@ -485,7 +485,7 @@ function main() {
 
   console.log("");
   console.log("  \x1b[1m\x1b[36m╔═══════════════════════════════════╗\x1b[0m");
-  console.log(`  \x1b[1m\x1b[36m║      Alma Kanban v${pkg.version.padEnd(15)}║\x1b[0m`);
+  console.log(`  \x1b[1m\x1b[36m║      Telem v${pkg.version.padEnd(15)}║\x1b[0m`);
   console.log("  \x1b[1m\x1b[36m║   AI-Powered Local Kanban Board   ║\x1b[0m");
   console.log("  \x1b[1m\x1b[36m╚═══════════════════════════════════╝\x1b[0m");
   console.log("");
@@ -494,7 +494,7 @@ function main() {
   if (!appRoot) {
     logError("Could not find backend/ and frontend/ directories.");
     logError("If installed via npm, the package may be incomplete.");
-    logError("Try reinstalling: npm install -g alma-kanban");
+    logError("Try reinstalling: npm install -g telem");
     process.exit(1);
   }
   log(`App root: ${appRoot}`);

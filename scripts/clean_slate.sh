@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Alma Kanban - Clean Slate Script
+# Draft - Clean Slate Script
 # =============================================================================
 # This script:
 #   1. Deletes all existing boards (cascades to goals, tickets, jobs, workspaces)

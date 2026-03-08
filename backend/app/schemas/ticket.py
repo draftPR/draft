@@ -53,6 +53,9 @@ class TicketResponse(BaseModel):
     blocked_by_ticket_title: str | None = Field(
         None, description="Title of the ticket blocking this one (if loaded)"
     )
+    goal_title: str | None = Field(
+        None, description="Title of the parent goal (if loaded)"
+    )
     created_at: datetime
     updated_at: datetime
 

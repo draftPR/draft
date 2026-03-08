@@ -1,4 +1,4 @@
-"""Shared enumerations for Alma Kanban models.
+"""Shared enumerations for Draft models.
 
 This file contains event types and other enums that are NOT part of the
 ticket state machine. The state machine (TicketState, transitions) lives

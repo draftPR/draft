@@ -1,5 +1,5 @@
 # =============================================================================
-# Alma Kanban - Development Docker Compose Override
+# Draft - Development Docker Compose Override
 # =============================================================================
 # Usage:
 #   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up

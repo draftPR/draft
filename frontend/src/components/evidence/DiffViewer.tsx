@@ -111,7 +111,7 @@ export function DiffViewer({ diffs, diffStat }: DiffViewerProps) {
       <div className="space-y-2">
         {diffs.map((diff, idx) => {
           const isExpanded = expandedFiles.has(diff.file_path);
-          const patchLines = diff.patch.split('\n');
+          const patchLines = (diff.patch ?? '').split('\n');
 
           return (
             <Card key={idx}>

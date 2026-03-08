@@ -258,6 +258,8 @@ async def delete_ticket(
     # Delete the ticket (cascade will handle related records)
     await db.execute(sql_delete(Ticket).where(Ticket.id == ticket_id))
 
+    await db.commit()
+
     # Broadcast board invalidation
     await _broadcast_board_invalidate(board_id, reason="ticket_deleted")
 
@@ -285,6 +287,7 @@ async def update_ticket(
 
     await db.flush()
     await db.refresh(ticket)
+    await db.commit()
 
     # Broadcast board invalidation
     await _broadcast_board_invalidate(ticket.board_id, reason="ticket_updated")
@@ -598,6 +601,7 @@ async def reorder_ticket(
 
     await db.flush()
     await db.refresh(ticket)
+    await db.commit()
 
     # Broadcast board invalidation
     await _broadcast_board_invalidate(
@@ -1689,25 +1693,37 @@ def parse_cursor_json_output(
     return entries
 
 
+def _strip_worktree_prefix(path: str) -> str:
+    """Strip worktree path prefixes for cleaner display.
+
+    Handles both central (~/.telem/worktrees/) and legacy (.smartkanban/worktrees/) paths.
+    """
+    import re
+
+    # Match central data dir pattern: .../.telem/worktrees/{board_id}/{ticket_id}/...
+    m = re.search(r"\.telem/worktrees/[^/]+/[^/]+/(.+)", path)
+    if m:
+        return m.group(1)
+    # Match legacy pattern: .../.smartkanban/worktrees/{ticket_id}/...
+    m = re.search(r"\.smartkanban/worktrees/[^/]+/(.+)", path)
+    if m:
+        return m.group(1)
+    return path
+
+
 def _parse_cursor_tool_call(tool_call: dict) -> tuple[str, str]:
     """Parse cursor-agent tool call to extract name and display content."""
     if "readToolCall" in tool_call:
         args = tool_call["readToolCall"].get("args", {})
         path = args.get("path", "unknown")
         # Strip common worktree prefixes for cleaner display
-        if "/.smartkanban/worktrees/" in path:
-            path = path.split("/.smartkanban/worktrees/")[1]
-            if "/" in path:
-                path = path.split("/", 1)[1]  # Remove UUID prefix
+        path = _strip_worktree_prefix(path)
         return "read_file", f"📖 Read: {path}"
 
     if "editToolCall" in tool_call:
         args = tool_call["editToolCall"].get("args", {})
         path = args.get("path", "unknown")
-        if "/.smartkanban/worktrees/" in path:
-            path = path.split("/.smartkanban/worktrees/")[1]
-            if "/" in path:
-                path = path.split("/", 1)[1]
+        path = _strip_worktree_prefix(path)
         return "edit_file", f"✏️ Edit: {path}"
 
     if "lsToolCall" in tool_call:

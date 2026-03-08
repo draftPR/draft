@@ -20,11 +20,15 @@ import { Button } from "@/components/ui/button";
 import { ProposedTicketsReview } from "@/components/ProposedTicketsReview";
 import { ReflectionDialog } from "@/components/ReflectionDialog";
 import { TicketGenerationProgress } from "@/components/TicketGenerationProgress";
-import { fetchGoal, deleteGoal, fetchDashboard } from "@/services/api";
+import { fetchGoal, deleteGoal, updateGoal, fetchDashboard } from "@/services/api";
 import type { Goal, ProposedTicket, DashboardResponse } from "@/types/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Loader2, Sparkles, AlertCircle, Calendar, Lightbulb, Zap, Trash2, DollarSign } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Loader2, Sparkles, AlertCircle, Calendar, Lightbulb, Zap, Trash2, DollarSign, Pencil, Save, X } from "lucide-react";
 
 interface GoalDetailDialogProps {
   goalId: string | null;
@@ -62,6 +66,10 @@ export function GoalDetailDialog({
   const [deleting, setDeleting] = useState(false);
   const [costData, setCostData] = useState<DashboardResponse | null>(null);
   const [costLoading, setCostLoading] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const loadGoal = useCallback(async (id: string) => {
     setLoading(true);
@@ -118,6 +126,37 @@ export function GoalDetailDialog({
     }
   };
 
+  const handleStartEdit = () => {
+    if (!goal) return;
+    setEditTitle(goal.title);
+    setEditDescription(goal.description || "");
+    setEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setEditing(false);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!goalId || !editTitle.trim()) return;
+    setSaving(true);
+    try {
+      await updateGoal(goalId, {
+        title: editTitle.trim(),
+        description: editDescription.trim() || null,
+      });
+      await loadGoal(goalId);
+      setEditing(false);
+      toast.success("Goal updated");
+      onTicketsAccepted?.(); // refresh board in case title changed
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update goal";
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleGenerateTickets = () => {
     if (!goalId) return;
     // Show the streaming progress dialog
@@ -128,6 +167,13 @@ export function GoalDetailDialog({
     // Refresh the board to show new tickets
     onTicketsAccepted?.();
     loadGoal(goalId!);
+  };
+
+  const handleShowTickets = () => {
+    // Close progress dialog, goal detail dialog, and signal parent to close goals list
+    setShowProgress(false);
+    onOpenChange(false);
+    onTicketsAccepted?.();
   };
 
   const handleReviewClose = () => {
@@ -154,8 +200,28 @@ export function GoalDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-lg">
-            {loading ? "Loading..." : goal?.title || "Goal Details"}
+          <DialogTitle className="text-lg flex items-center gap-2">
+            {loading ? "Loading..." : editing ? (
+              <Input
+                value={editTitle}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTitle(e.target.value)}
+                className="text-lg font-semibold h-auto py-1"
+                autoFocus
+              />
+            ) : (
+              <>
+                {goal?.title || "Goal Details"}
+                {goal && (
+                  <button
+                    onClick={handleStartEdit}
+                    className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    title="Edit goal"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </>
+            )}
           </DialogTitle>
           <DialogDescription className="sr-only">
             Goal details and ticket generation
@@ -182,13 +248,41 @@ export function GoalDetailDialog({
           <div className="space-y-6">
             {/* Goal Info */}
             <div className="space-y-4">
-              {goal.description && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">
-                    Description
-                  </h3>
-                  <p className="text-sm leading-relaxed">{goal.description}</p>
+              {editing ? (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Description
+                    </h3>
+                    <Textarea
+                      value={editDescription}
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setEditDescription(e.target.value)}
+                      placeholder="Describe the goal... (optional)"
+                      rows={3}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={handleSaveEdit} disabled={saving || !editTitle.trim()}>
+                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={handleCancelEdit} disabled={saving}>
+                      <X className="h-3.5 w-3.5 mr-1" />
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  {goal.description && (
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium text-muted-foreground">
+                        Description
+                      </h3>
+                      <p className="text-sm leading-relaxed whitespace-pre-line">{goal.description}</p>
+                    </div>
+                  )}
+                </>
               )}
 
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -198,24 +292,98 @@ export function GoalDetailDialog({
             </div>
 
             {/* Autonomy Settings */}
-            {goal.autonomy_enabled && (
-              <div className="border rounded-lg p-3 bg-amber-50/50 dark:bg-amber-950/20">
-                <div className="flex items-center gap-2 mb-2">
-                  <Zap className="h-4 w-4 text-amber-500" />
-                  <span className="text-sm font-medium">Autonomy Active</span>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    {goal.auto_approval_count} auto-actions
-                    {goal.max_auto_approvals ? ` / ${goal.max_auto_approvals} max` : ""}
-                  </span>
+            <div className="border rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className={cn("h-4 w-4", goal.autonomy_enabled ? "text-amber-500" : "text-muted-foreground")} />
+                  <span className="text-sm font-medium">Autonomy</span>
                 </div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span>{goal.auto_approve_tickets ? "v" : "x"} Tickets</span>
-                  <span>{goal.auto_approve_revisions ? "v" : "x"} Revisions</span>
-                  <span>{goal.auto_merge ? "v" : "x"} Merge</span>
-                  <span>{goal.auto_approve_followups ? "v" : "x"} Follow-ups</span>
+                <div className="flex items-center gap-2">
+                  {goal.autonomy_enabled && (
+                    <span className="text-xs text-muted-foreground">
+                      {goal.auto_approval_count} auto-actions
+                      {goal.max_auto_approvals ? ` / ${goal.max_auto_approvals} max` : ""}
+                    </span>
+                  )}
+                  <Switch
+                    checked={goal.autonomy_enabled}
+                    onCheckedChange={async (checked) => {
+                      try {
+                        const updates = checked
+                          ? { autonomy_enabled: true, auto_approve_tickets: true, auto_approve_revisions: true, auto_merge: true, auto_approve_followups: true }
+                          : { autonomy_enabled: false, auto_approve_tickets: false, auto_approve_revisions: false, auto_merge: false, auto_approve_followups: false };
+                        await updateGoal(goalId!, updates);
+                        await loadGoal(goalId!);
+                        toast.success(checked ? "Autonomy enabled" : "Autonomy disabled");
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Failed to update");
+                      }
+                    }}
+                  />
                 </div>
               </div>
-            )}
+
+              {goal.autonomy_enabled && (
+                <div className="space-y-2.5 pl-3 border-l-2 border-amber-500/30">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Auto-approve tickets</Label>
+                    <Switch
+                      checked={goal.auto_approve_tickets}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await updateGoal(goalId!, { auto_approve_tickets: checked });
+                          await loadGoal(goalId!);
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Failed to update");
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Auto-approve revisions</Label>
+                    <Switch
+                      checked={goal.auto_approve_revisions}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await updateGoal(goalId!, { auto_approve_revisions: checked });
+                          await loadGoal(goalId!);
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Failed to update");
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Auto-merge on completion</Label>
+                    <Switch
+                      checked={goal.auto_merge}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await updateGoal(goalId!, { auto_merge: checked });
+                          await loadGoal(goalId!);
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Failed to update");
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Auto-approve follow-ups</Label>
+                    <Switch
+                      checked={goal.auto_approve_followups}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await updateGoal(goalId!, { auto_approve_followups: checked });
+                          await loadGoal(goalId!);
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Failed to update");
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Cost Tracking */}
             {costLoading ? (
@@ -384,6 +552,7 @@ export function GoalDetailDialog({
                 onOpenChange={setShowProgress}
                 goalId={goalId}
                 onComplete={handleGenerationComplete}
+                onShowTickets={handleShowTickets}
               />
             )}
 

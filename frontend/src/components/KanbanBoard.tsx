@@ -6,12 +6,13 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd";
 import { TicketCard } from "@/components/TicketCard";
-import { runPlannerStart, fetchPlannerStatus } from "@/services/api";
+import { runPlannerStart, fetchPlannerStatus, fetchGoals } from "@/services/api";
 import { useTransitionTicket, useExecuteTicket } from "@/hooks/useMutations";
 import { usePlannerStatusQuery } from "@/hooks/useQueries";
 import { useTicketSelectionStore } from "@/stores/ticketStore";
 import {
   type Ticket,
+  type Goal,
   type PlannerStartResponse,
   TicketState,
   ActorType,
@@ -30,6 +31,13 @@ import { useUIStore } from "@/stores/uiStore";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface KanbanBoardProps {
   refreshTrigger?: number;
@@ -49,6 +57,8 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [boardSearch, setBoardSearch] = useState("");
   const [collapsedColumns, setCollapsedColumns] = useState<Set<TicketState>>(new Set());
+  const [selectedGoalId, setSelectedGoalId] = useState<string>("all");
+  const [goals, setGoals] = useState<Goal[]>([]);
 
   // Use React Query for board data with auto-refetch
   const {
@@ -61,6 +71,18 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
 
   const error = boardError ? (boardError instanceof Error ? boardError.message : "Failed to load board") : null;
   const lastRefreshTime = new Date(dataUpdatedAt || Date.now());
+
+  // Fetch goals for the filter dropdown
+  useEffect(() => {
+    if (currentBoard?.id) {
+      setSelectedGoalId("all");
+      fetchGoals(currentBoard.id)
+        .then((res) => setGoals(res.goals))
+        .catch(() => setGoals([]));
+    } else {
+      setGoals([]);
+    }
+  }, [currentBoard?.id]);
 
   // Refetch when refreshTrigger changes
   useEffect(() => {
@@ -196,10 +218,13 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
     }
   };
 
-  // Get tickets for a specific state column, filtered by search
+  // Get tickets for a specific state column, filtered by search and goal
   const getColumnTickets = useCallback((state: TicketState): Ticket[] => {
     const column = board?.columns.find((col) => col.state === state);
-    const tickets = column?.tickets || [];
+    let tickets = column?.tickets || [];
+    if (selectedGoalId !== "all") {
+      tickets = tickets.filter((t) => t.goal_id === selectedGoalId);
+    }
     if (!boardSearch) return tickets;
     const q = boardSearch.toLowerCase();
     return tickets.filter(
@@ -207,7 +232,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
         t.title.toLowerCase().includes(q) ||
         t.description?.toLowerCase().includes(q)
     );
-  }, [board, boardSearch]);
+  }, [board, boardSearch, selectedGoalId]);
 
   const toggleColumn = useCallback((state: TicketState) => {
     setCollapsedColumns((prev) => {
@@ -304,6 +329,24 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
         </div>
         
         <div className="flex items-center gap-3">
+          {/* Goal filter */}
+          {goals.length > 1 && (
+            <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
+              <SelectTrigger className="h-8 w-40 text-xs">
+                <Target className="h-3 w-3 mr-1 flex-shrink-0" />
+                <SelectValue placeholder="All goals" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All goals</SelectItem>
+                {goals.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
           {/* Board search */}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -418,7 +461,7 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
               <div className="text-[10px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1.5 leading-relaxed border border-amber-200 dark:border-amber-800">
                 <strong>Why?</strong> The planner uses LLM for follow-ups &amp; reflections.
                 Set <code className="font-mono">ANTHROPIC_API_KEY</code> or <code className="font-mono">OPENAI_API_KEY</code> in your <code className="font-mono">.env</code>,
-                or switch the model to <code className="font-mono">cli/claude</code> in <code className="font-mono">smartkanban.yaml</code> to use the Claude CLI instead.
+                or switch the model to <code className="font-mono">cli/claude</code> in the planner settings to use the Claude CLI instead.
                 Auto-execute still works without this.
               </div>
             )}

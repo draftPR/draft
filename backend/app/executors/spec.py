@@ -1,7 +1,7 @@
 """
-Alma Kanban Executor Adapter Specification v1.0
+Draft Executor Adapter Specification v1.0
 
-This defines the interface for adding new AI coding agents to Alma Kanban.
+This defines the interface for adding new AI coding agents to Draft.
 Implement this interface to create a new executor plugin.
 """
 
@@ -70,7 +70,7 @@ class ExecutorAdapter(ABC):
     """
     Abstract base class for executor adapters.
 
-    Implement this to add a new AI coding agent to Alma Kanban.
+    Implement this to add a new AI coding agent to Draft.
     """
 
     @abstractmethod

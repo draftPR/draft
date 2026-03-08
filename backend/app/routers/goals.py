@@ -21,7 +21,6 @@ from app.schemas.planner import (
     GenerateTicketsResponse,
     ReflectionResult,
 )
-from app.services.config_service import ConfigService
 from app.services.goal_service import GoalService
 from app.services.ticket_generation_service import TicketGenerationService
 from app.services.udar_planner_service import UDARPlannerService
@@ -201,10 +200,11 @@ async def get_autonomy_status(
 )
 async def generate_tickets_stream(
     goal_id: str,
-    db: AsyncSession = Depends(get_db),
 ):
     """
     Generate tickets with real-time streaming feedback using Server-Sent Events (SSE).
+
+    Uses its own DB session to survive client disconnects (EventSource reconnects).
 
     The stream sends JSON events with the following types:
     - status: Progress updates like "Analyzing codebase...", "Generating tickets..."
@@ -219,6 +219,8 @@ async def generate_tickets_stream(
 
     from fastapi.responses import StreamingResponse
 
+    from app.database import async_session_maker
+
     logger = logging.getLogger(__name__)
 
     async def event_generator():
@@ -229,43 +231,129 @@ async def generate_tickets_stream(
             yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Starting ticket generation...'})}\n\n"
             await asyncio.sleep(0.05)
 
-            # Load config for validate_tickets setting
-            config_service = ConfigService()
-            config = config_service.load_config()
+            # Use our own DB session (not request-scoped) so it survives SSE disconnects
+            async with async_session_maker() as db:
+                # Load config from goal's board (DB is source of truth)
+                from sqlalchemy import select as sa_select
 
-            service = TicketGenerationService(db)
+                from app.models.board import Board
+                from app.models.goal import Goal
+                from app.services.config_service import SmartKanbanConfig
 
-            # Create a queue for streaming agent output
-            output_queue: asyncio.Queue = asyncio.Queue()
-            loop = asyncio.get_running_loop()
+                yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Loading goal and board configuration...'})}\n\n"
 
-            # Normalizer to parse CLI JSON output into structured entries
-            normalizer = CursorLogNormalizer()
-
-            def stream_callback(line: str):
-                """Called from subprocess thread when agent outputs a line."""
-                try:
-                    loop.call_soon_threadsafe(
-                        output_queue.put_nowait, ("agent_output", line)
-                    )
-                except Exception:
-                    pass
-
-            # Start generation task - repo_root resolved inside service from goal's board
-            generation_task = asyncio.create_task(
-                service.generate_from_goal(
-                    goal_id=goal_id,
-                    include_readme=False,
-                    validate_tickets=config.planner_config.features.validate_tickets,
-                    stream_callback=stream_callback,
+                goal_result = await db.execute(
+                    sa_select(Goal).where(Goal.id == goal_id)
                 )
-            )
+                goal_obj = goal_result.scalar_one_or_none()
+                if not goal_obj:
+                    yield f"data: {json_lib.dumps({'type': 'error', 'message': f'Goal not found: {goal_id}'})}\n\n"
+                    return
 
-            def _normalize_and_yield(line: str):
-                """Parse a raw CLI line into normalized entries."""
-                entries = normalizer.process_line(line)
-                results = []
-                for entry in entries:
+                board_config_dict = None
+                if goal_obj and goal_obj.board_id:
+                    board_result = await db.execute(
+                        sa_select(Board).where(Board.id == goal_obj.board_id)
+                    )
+                    board_obj = board_result.scalar_one_or_none()
+                    if board_obj and board_obj.config:
+                        board_config_dict = board_obj.config
+
+                config = SmartKanbanConfig.from_board_config(board_config_dict)
+
+                yield f"data: {json_lib.dumps({'type': 'status', 'message': f'Using model: {config.planner_config.model}'})}\n\n"
+
+                service = TicketGenerationService(db, config=config.planner_config)
+
+                # Create a queue for streaming agent output
+                output_queue: asyncio.Queue = asyncio.Queue()
+                loop = asyncio.get_running_loop()
+
+                # Normalizer to parse CLI JSON output into structured entries
+                normalizer = CursorLogNormalizer()
+
+                def stream_callback(line: str):
+                    """Called from subprocess thread when agent outputs a line."""
+                    try:
+                        loop.call_soon_threadsafe(
+                            output_queue.put_nowait, ("agent_output", line)
+                        )
+                    except Exception:
+                        pass
+
+                yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Launching agent subprocess...'})}\n\n"
+
+                # Start generation task
+                generation_task = asyncio.create_task(
+                    service.generate_from_goal(
+                        goal_id=goal_id,
+                        include_readme=False,
+                        validate_tickets=config.planner_config.features.validate_tickets,
+                        stream_callback=stream_callback,
+                    )
+                )
+
+                def _normalize_and_yield(line: str):
+                    """Parse a raw CLI line into normalized entries."""
+                    entries = normalizer.process_line(line)
+                    results = []
+                    for entry in entries:
+                        entry_data = {
+                            "entry_type": entry.entry_type.value,
+                            "content": entry.content,
+                            "sequence": entry.sequence,
+                            "tool_name": entry.tool_name,
+                            "action_type": entry.action_type.value
+                            if entry.action_type
+                            else None,
+                            "tool_status": entry.tool_status.value
+                            if entry.tool_status
+                            else None,
+                            "metadata": entry.metadata or {},
+                            "timestamp": None,
+                        }
+                        results.append(
+                            f"data: {json_lib.dumps({'type': 'agent_normalized', 'entry': entry_data})}\n\n"
+                        )
+                    return results
+
+                # Stream agent output as it comes in
+                while not generation_task.done():
+                    try:
+                        msg_type, data = await asyncio.wait_for(
+                            output_queue.get(), timeout=0.1
+                        )
+                        if msg_type == "agent_output":
+                            normalized_chunks = _normalize_and_yield(data)
+                            if normalized_chunks:
+                                for chunk in normalized_chunks:
+                                    yield chunk
+                            else:
+                                yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+                    except TimeoutError:
+                        continue
+
+                # Get final result
+                try:
+                    result = await generation_task
+                except Exception as e:
+                    logger.error(f"Ticket generation failed: {e}", exc_info=True)
+                    yield f"data: {json_lib.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                    return
+
+                # Drain any remaining messages
+                while not output_queue.empty():
+                    msg_type, data = await output_queue.get()
+                    if msg_type == "agent_output":
+                        normalized_chunks = _normalize_and_yield(data)
+                        if normalized_chunks:
+                            for chunk in normalized_chunks:
+                                yield chunk
+                        else:
+                            yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+
+                # Flush any remaining buffered entries from normalizer
+                for entry in normalizer.finalize():
                     entry_data = {
                         "entry_type": entry.entry_type.value,
                         "content": entry.content,
@@ -280,77 +368,34 @@ async def generate_tickets_stream(
                         "metadata": entry.metadata or {},
                         "timestamp": None,
                     }
-                    results.append(
-                        f"data: {json_lib.dumps({'type': 'agent_normalized', 'entry': entry_data})}\n\n"
-                    )
-                return results
+                    yield f"data: {json_lib.dumps({'type': 'agent_normalized', 'entry': entry_data})}\n\n"
 
-            # Stream agent output as it comes in
-            while not generation_task.done():
-                try:
-                    msg_type, data = await asyncio.wait_for(
-                        output_queue.get(), timeout=0.1
-                    )
-                    if msg_type == "agent_output":
-                        # Try to parse into structured entries
-                        normalized_chunks = _normalize_and_yield(data)
-                        if normalized_chunks:
-                            for chunk in normalized_chunks:
-                                yield chunk
-                        else:
-                            # Fallback: emit raw line if normalizer didn't produce entries
-                            yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
-                except TimeoutError:
-                    continue
+                # Stream each created ticket
+                if result.tickets:
+                    yield f"data: {json_lib.dumps({'type': 'status', 'message': f'Created {len(result.tickets)} ticket(s)'})}\n\n"
+                    for ticket in result.tickets:
+                        desc = ticket.description or ""
+                        desc_short = (
+                            desc[:150] + "..."
+                            if len(desc) > 150
+                            else desc
+                        )
+                        ticket_data = {
+                            "id": ticket.id,
+                            "title": ticket.title,
+                            "priority": ticket.priority,
+                            "description": desc_short,
+                            "blocked_by_title": getattr(
+                                ticket, "blocked_by_title", None
+                            ),
+                        }
+                        yield f"data: {json_lib.dumps({'type': 'ticket', 'ticket': ticket_data})}\n\n"
+                        await asyncio.sleep(0.05)
+                else:
+                    yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Agent finished but generated no tickets.'})}\n\n"
 
-            # Get final result
-            try:
-                result = await generation_task
-            except Exception as e:
-                logger.error(f"Ticket generation failed: {e}", exc_info=True)
-                yield f"data: {json_lib.dumps({'type': 'error', 'message': str(e)})}\n\n"
-                return
-
-            # Drain any remaining messages
-            while not output_queue.empty():
-                msg_type, data = await output_queue.get()
-                if msg_type == "agent_output":
-                    normalized_chunks = _normalize_and_yield(data)
-                    if normalized_chunks:
-                        for chunk in normalized_chunks:
-                            yield chunk
-                    else:
-                        yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
-
-            # Flush any remaining buffered entries from normalizer
-            for entry in normalizer.finalize():
-                entry_data = {
-                    "entry_type": entry.entry_type.value,
-                    "content": entry.content,
-                    "sequence": entry.sequence,
-                    "tool_name": entry.tool_name,
-                    "action_type": entry.action_type.value
-                    if entry.action_type
-                    else None,
-                    "tool_status": entry.tool_status.value
-                    if entry.tool_status
-                    else None,
-                    "metadata": entry.metadata or {},
-                    "timestamp": None,
-                }
-                yield f"data: {json_lib.dumps({'type': 'agent_normalized', 'entry': entry_data})}\n\n"
-
-            # Stream each created ticket
-            if result.tickets:
-                yield f"data: {json_lib.dumps({'type': 'status', 'message': f'Created {len(result.tickets)} ticket(s)'})}\n\n"
-                for ticket in result.tickets:
-                    yield f"data: {json_lib.dumps({'type': 'ticket', 'ticket': {'id': ticket.id, 'title': ticket.title, 'priority': ticket.priority}})}\n\n"
-                    await asyncio.sleep(0.05)
-            else:
-                yield f"data: {json_lib.dumps({'type': 'error', 'message': 'No tickets generated. Check backend logs.'})}\n\n"
-
-            # Send completion
-            yield f"data: {json_lib.dumps({'type': 'complete', 'count': len(result.tickets)})}\n\n"
+                # Send completion (always — even for 0 tickets so frontend gets onComplete)
+                yield f"data: {json_lib.dumps({'type': 'complete', 'count': len(result.tickets)})}\n\n"
 
         except ValueError as e:
             yield f"data: {json_lib.dumps({'type': 'error', 'message': str(e)})}\n\n"
@@ -411,15 +456,36 @@ async def generate_tickets(
         **{k: v for k, v in raw_body.items() if k in allowed_fields}
     )
 
-    # Get repo root from config - DO NOT accept arbitrary paths from client
-    config_service = ConfigService()
-    config = config_service.load_config()
-    repo_root = Path(config.project.repo_root).resolve()
+    # Get config from goal's board (DB is source of truth)
+    from sqlalchemy import select as sa_select
 
-    if not repo_root.exists():
+    from app.models.board import Board
+    from app.models.goal import Goal
+    from app.services.config_service import SmartKanbanConfig
+
+    goal_result = await db.execute(sa_select(Goal).where(Goal.id == goal_id))
+    goal_obj = goal_result.scalar_one_or_none()
+    if not goal_obj:
+        raise HTTPException(status_code=404, detail=f"Goal not found: {goal_id}")
+
+    board_config_dict = None
+    repo_root = None
+    if goal_obj.board_id:
+        board_result = await db.execute(
+            sa_select(Board).where(Board.id == goal_obj.board_id)
+        )
+        board_obj = board_result.scalar_one_or_none()
+        if board_obj:
+            if board_obj.config:
+                board_config_dict = board_obj.config
+            repo_root = Path(board_obj.repo_root).resolve()
+
+    config = SmartKanbanConfig.from_board_config(board_config_dict)
+
+    if not repo_root or not repo_root.exists():
         raise HTTPException(
             status_code=500,
-            detail=f"Configured repo_root does not exist: {repo_root}",
+            detail=f"Board repo_root does not exist: {repo_root}",
         )
 
     # Check if UDAR agent is enabled (Phase 2 feature flag)
@@ -443,8 +509,8 @@ async def generate_tickets(
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
     else:
-        # Use legacy ticket generation service
-        service = TicketGenerationService(db)
+        # Use ticket generation service with board config
+        service = TicketGenerationService(db, config=config.planner_config)
         try:
             result = await service.generate_from_goal(
                 goal_id=goal_id,

@@ -474,9 +474,26 @@ class ExecutorProfile:
         )
 
 
+def _dataclass_to_dict(obj: Any) -> Any:
+    """Recursively convert a dataclass to a dict, handling nested dataclasses."""
+    from dataclasses import fields, is_dataclass
+
+    if is_dataclass(obj) and not isinstance(obj, type):
+        result = {}
+        for f in fields(obj):
+            value = getattr(obj, f.name)
+            result[f.name] = _dataclass_to_dict(value)
+        return result
+    elif isinstance(obj, dict):
+        return {k: _dataclass_to_dict(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_dataclass_to_dict(v) for v in obj]
+    return obj
+
+
 @dataclass
 class SmartKanbanConfig:
-    """Root configuration for Alma Kanban.
+    """Root configuration for Draft.
 
     Structure:
         project:
@@ -604,6 +621,31 @@ class SmartKanbanConfig:
             autonomy_config=autonomy_config,
             executor_profiles=executor_profiles,
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the config to a plain dict suitable for JSON storage.
+
+        Handles nested dataclasses (ExecutorProfile, PlannerConfig, etc.)
+        by recursively converting them.
+        """
+        return _dataclass_to_dict(self)
+
+    @classmethod
+    def from_board_config(cls, board_config: dict[str, Any] | None) -> "SmartKanbanConfig":
+        """Create a SmartKanbanConfig from a board's config dict.
+
+        This is the primary way to load config at runtime - directly from
+        the board's DB-stored config, without reading any YAML file.
+
+        Args:
+            board_config: The board.config JSON dict, or None for defaults.
+
+        Returns:
+            SmartKanbanConfig with all sections populated.
+        """
+        if not board_config:
+            return cls()
+        return cls.from_dict(board_config)
 
     # Convenience properties for backwards compatibility
     @property

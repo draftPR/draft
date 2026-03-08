@@ -57,7 +57,7 @@ from app.models.ticket_event import TicketEvent
 # Deferred import to avoid circular dependency with async database
 # from app.services.orchestrator_log import add_orchestrator_log  # imported inside methods
 from app.schemas.planner import PlannerAction, PlannerActionType, PlannerTickResponse
-from app.services.config_service import ConfigService, PlannerConfig
+from app.services.config_service import PlannerConfig
 from app.services.llm_service import LLMService
 from app.state_machine import ActorType, EventType, TicketState
 
@@ -132,12 +132,7 @@ class PlannerService:
         self._lock_owner_id = str(uuid.uuid4())  # Unique ID for this tick instance
 
         if config is None:
-            # Use the kanban project root (parent of backend) for config
-            from pathlib import Path
-
-            kanban_root = Path(__file__).parent.parent.parent.parent
-            config_service = ConfigService(repo_path=kanban_root)
-            config = config_service.get_planner_config()
+            config = PlannerConfig()
 
         self.config = config
 
@@ -1372,24 +1367,37 @@ Generate a follow-up ticket proposal as JSON."""
                         f"Auto-merged ticket {ticket.id}: {merge_result.message}"
                     )
                 else:
-                    # Transition to BLOCKED on merge failure
-                    ticket.state = TicketState.BLOCKED.value
-                    blocked_event = TicketEvent(
-                        ticket_id=ticket.id,
-                        event_type=EventType.TRANSITIONED.value,
-                        from_state=TicketState.DONE.value,
-                        to_state=TicketState.BLOCKED.value,
-                        actor_type=ActorType.SYSTEM.value,
-                        actor_id="autonomy_service",
-                        reason=f"Auto-merge failed: {merge_result.message}",
-                        payload_json=json.dumps(
-                            {
-                                "autonomy_action": "auto_merge_failed",
-                                "merge_error": merge_result.message,
-                            }
-                        ),
-                    )
-                    self.db.add(blocked_event)
+                    # Auto-merge failed — guard with state machine validation
+                    from app.state_machine import validate_transition
+
+                    if validate_transition(
+                        TicketState.DONE.value, TicketState.BLOCKED.value
+                    ):
+                        ticket.state = TicketState.BLOCKED.value
+                        blocked_event = TicketEvent(
+                            ticket_id=ticket.id,
+                            event_type=EventType.TRANSITIONED.value,
+                            from_state=TicketState.DONE.value,
+                            to_state=TicketState.BLOCKED.value,
+                            actor_type=ActorType.SYSTEM.value,
+                            actor_id="autonomy_service",
+                            reason=f"Auto-merge failed: {merge_result.message}",
+                            payload_json=json.dumps(
+                                {
+                                    "autonomy_action": "auto_merge_failed",
+                                    "merge_error": merge_result.message,
+                                }
+                            ),
+                        )
+                        self.db.add(blocked_event)
+                    else:
+                        # DONE → BLOCKED is not a valid transition;
+                        # leave ticket in DONE, log warning for manual merge
+                        logger.warning(
+                            f"Auto-merge failed for ticket {ticket.id}: "
+                            f"{merge_result.message}. Cannot transition "
+                            f"DONE → BLOCKED. Manual merge required."
+                        )
                     logger.warning(
                         f"Auto-merge failed for ticket {ticket.id}: {merge_result.message}"
                     )

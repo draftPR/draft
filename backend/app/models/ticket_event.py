@@ -1,4 +1,4 @@
-"""TicketEvent model for Alma Kanban - append-only event log."""
+"""TicketEvent model for Draft - append-only event log."""
 
 import uuid
 from datetime import datetime

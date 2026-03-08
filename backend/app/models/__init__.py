@@ -1,4 +1,4 @@
-"""SQLAlchemy models for Telem."""
+"""SQLAlchemy models for Draft."""
 
 from app.models.agent_conversation_history import AgentConversationHistory
 from app.models.agent_session import AgentMessage, AgentSession

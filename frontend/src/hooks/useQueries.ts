@@ -27,7 +27,7 @@ export function useBoardsQuery() {
 }
 
 /** Active ticket states that warrant fast polling */
-const ACTIVE_STATES = new Set(['executing', 'verifying']);
+const ACTIVE_STATES = new Set(['executing', 'verifying', 'EXECUTING', 'VERIFYING']);
 
 /** Fetch board view (columns + tickets) with optional auto-refetch */
 export function useBoardViewQuery(boardId: string | null | undefined, autoRefresh = true) {

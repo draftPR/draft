@@ -99,6 +99,10 @@ class CursorLogNormalizer:
 
         Returns a list because some lines may produce multiple entries
         (e.g., flushing buffers when switching message types).
+
+        Supports both Cursor Agent stream-json format AND Claude CLI
+        stream-json format (with --output-format stream-json --verbose
+        --include-partial-messages).
         """
         if not line.strip():
             return []
@@ -106,12 +110,19 @@ class CursorLogNormalizer:
         try:
             data = json.loads(line)
         except json.JSONDecodeError:
-            # Non-JSON line - treat as system message
-            if line.strip():
+            data = None
+
+        if not isinstance(data, dict):
+            # Non-JSON line or JSON non-object (string, array, etc.) - treat as system message
+            stripped = line.strip()
+            if stripped:
+                # Filter out [DEBUG] lines — they are internal diagnostics
+                if stripped.startswith("[DEBUG]"):
+                    return []
                 return [
                     NormalizedEntry(
                         entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
-                        content=line.strip(),
+                        content=stripped,
                         sequence=self._next_sequence(),
                     )
                 ]
@@ -128,15 +139,25 @@ class CursorLogNormalizer:
                 self.session_id_reported = True
 
         # Check if we need to flush buffers (switching message types)
+        # stream_event with text deltas counts as "assistant-like"
         is_thinking = msg_type == "thinking"
         is_assistant = msg_type == "assistant"
+        is_stream_delta = msg_type == "stream_event"
 
-        if not is_thinking and self.current_thinking_sequence is not None:
+        if (
+            not is_thinking
+            and not is_stream_delta
+            and self.current_thinking_sequence is not None
+        ):
             # Flush thinking buffer
             self.current_thinking_sequence = None
             self.current_thinking_buffer = ""
 
-        if not is_assistant and self.current_assistant_sequence is not None:
+        if (
+            not is_assistant
+            and not is_stream_delta
+            and self.current_assistant_sequence is not None
+        ):
             # Flush assistant buffer
             self.current_assistant_sequence = None
             self.current_assistant_buffer = ""
@@ -155,6 +176,12 @@ class CursorLogNormalizer:
             entries.extend(self._process_tool_call(data))
         elif msg_type == "result":
             entries.extend(self._process_result(data))
+        elif msg_type == "stream_event":
+            # Claude CLI streaming events (--include-partial-messages)
+            entries.extend(self._process_stream_event(data))
+        elif msg_type == "rate_limit_event":
+            # Skip rate limit events — not useful for display
+            pass
         else:
             # Unknown type - log as system message
             entries.append(
@@ -356,10 +383,92 @@ class CursorLogNormalizer:
                     return f"❌ {result['error'][:50]}"
         return ""
 
+    def _process_stream_event(self, data: dict) -> list[NormalizedEntry]:
+        """Process Claude CLI stream events (from --include-partial-messages).
+
+        These are Anthropic API streaming events wrapped in Claude CLI's format:
+        - content_block_delta with text_delta → streaming assistant text
+        - content_block_delta with thinking_delta → streaming thinking text
+        - message_start, content_block_start/stop, message_delta/stop → lifecycle events (skip)
+        """
+        event = data.get("event", {})
+        event_type = event.get("type", "")
+
+        if event_type == "content_block_delta":
+            delta = event.get("delta", {})
+            delta_type = delta.get("type", "")
+
+            if delta_type == "text_delta":
+                text = delta.get("text", "")
+                if text:
+                    self.current_assistant_buffer += text
+                    if self.current_assistant_sequence is None:
+                        self.current_assistant_sequence = self._next_sequence()
+                    return [
+                        NormalizedEntry(
+                            entry_type=NormalizedEntryType.ASSISTANT_MESSAGE,
+                            content=self.current_assistant_buffer,
+                            sequence=self.current_assistant_sequence,
+                        )
+                    ]
+
+            elif delta_type == "thinking_delta":
+                text = delta.get("thinking", "")
+                if text:
+                    self.current_thinking_buffer += text
+                    if self.current_thinking_sequence is None:
+                        self.current_thinking_sequence = self._next_sequence()
+                    return [
+                        NormalizedEntry(
+                            entry_type=NormalizedEntryType.THINKING,
+                            content=self.current_thinking_buffer,
+                            sequence=self.current_thinking_sequence,
+                            metadata={"collapsed": True},
+                        )
+                    ]
+
+        elif event_type == "content_block_start":
+            # Check if this is a thinking block start
+            block = event.get("content_block", {})
+            if block.get("type") == "thinking":
+                # Reset thinking buffer for a new thinking block
+                self.current_thinking_buffer = ""
+                self.current_thinking_sequence = None
+
+        # Skip other lifecycle events (message_start, content_block_stop, etc.)
+        return []
+
     def _process_result(self, data: dict) -> list[NormalizedEntry]:
-        """Process final result message."""
+        """Process final result message.
+
+        Handles both Cursor Agent format (result is dict with 'outcome')
+        and Claude CLI format (result is the response text string).
+        """
         result = data.get("result", {})
-        if isinstance(result, dict):
+        subtype = data.get("subtype", "")
+        is_error = data.get("is_error", False)
+
+        if isinstance(result, str):
+            # Claude CLI format: result is the text response
+            if is_error:
+                return [
+                    NormalizedEntry(
+                        entry_type=NormalizedEntryType.ERROR_MESSAGE,
+                        content=f"Agent error: {result[:200]}",
+                        sequence=self._next_sequence(),
+                        metadata={"outcome": subtype or "error"},
+                    )
+                ]
+            else:
+                return [
+                    NormalizedEntry(
+                        entry_type=NormalizedEntryType.SYSTEM_MESSAGE,
+                        content=f"✅ Agent finished ({subtype or 'success'})",
+                        sequence=self._next_sequence(),
+                        metadata={"outcome": subtype or "success"},
+                    )
+                ]
+        elif isinstance(result, dict):
             outcome = result.get("outcome", "unknown")
             return [
                 NormalizedEntry(

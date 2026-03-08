@@ -1,10 +1,10 @@
-# Alma Kanban Demo Walkthrough
+# Draft Demo Walkthrough
 
-Welcome! This guide will walk you through your first experience with Alma Kanban's autonomous code delivery system.
+Welcome! This guide will walk you through your first experience with Draft's autonomous code delivery system.
 
 ## What You'll Learn
 
-By the end of this walkthrough, you'll understand how Alma Kanban:
+By the end of this walkthrough, you'll understand how Draft:
 1. Analyzes codebases and understands goals
 2. Generates concrete, actionable tickets
 3. Executes changes autonomously
@@ -28,12 +28,12 @@ You've inherited a calculator codebase with several bugs:
 
 ### Step 1: View the Goal (30 seconds)
 
-1. Open Alma Kanban at http://localhost:3000
+1. Open Draft at http://localhost:5173
 2. You'll see a pre-created goal: **"Fix the calculator bugs and add missing tests"**
 3. Click on the goal to see the full description
 4. Notice it references the specific bugs in the codebase
 
-**What's happening:** Alma Kanban has already been set up with a realistic goal.
+**What's happening:** Draft has already been set up with a realistic goal.
 
 ---
 
@@ -44,7 +44,7 @@ You've inherited a calculator codebase with several bugs:
 3. Wait for ticket proposals to appear (usually 15-30 seconds)
 4. Review the generated tickets
 
-**What's happening:** Alma Kanban's planner is:
+**What's happening:** Draft's planner is:
 - Reading your code files
 - Finding TODOs and bugs
 - Understanding dependencies
@@ -65,7 +65,7 @@ You've inherited a calculator codebase with several bugs:
 3. Click **"Accept All"** or individually accept tickets you like
 4. Watch tickets move to PLANNED state
 
-**What's happening:** Alma Kanban requires human approval before executing anything. You're in control!
+**What's happening:** Draft requires human approval before executing anything. You're in control!
 
 ---
 
@@ -76,7 +76,7 @@ You've inherited a calculator codebase with several bugs:
 3. Watch the real-time log stream as the AI agent works
 4. See the ticket transition: PLANNED → EXECUTING → VERIFYING
 
-**What's happening:** Alma Kanban:
+**What's happening:** Draft:
 - Creates an isolated git worktree for this ticket
 - Runs the AI executor (Claude Code) with the ticket context
 - Makes code changes
@@ -123,7 +123,7 @@ You've inherited a calculator codebase with several bugs:
    - ✅ Changes reviewed
 4. Confirm the merge
 
-**What's happening:** Alma Kanban merges all the isolated worktrees back to your main branch and cleans up.
+**What's happening:** Draft merges all the isolated worktrees back to your main branch and cleans up.
 
 ---
 
@@ -165,13 +165,13 @@ A: Install Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
 A: That's okay for a demo! The AI should handle it on retry or you can request changes.
 
 **Q: Nothing is happening**
-A: Check that Redis is running (or you're in local mode). Look at backend logs.
+A: Check that the backend is running (`make dev-backend`). Look at backend logs for errors.
 
 ---
 
 ## Ready to Use It for Real?
 
-Alma Kanban works on **any git repository**. Just:
+Draft works on **any git repository**. Just:
 
 1. Create a board pointing to your repo
 2. Define your goals

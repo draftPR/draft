@@ -1,4 +1,4 @@
-"""Project templates for Alma Kanban boards."""
+"""Project templates for Draft boards."""
 
 from .registry import TEMPLATES, get_template, list_templates
 

@@ -2,7 +2,7 @@
 
 # Default target
 help:
-	@echo "Alma Kanban - Development Commands"
+	@echo "Telem - Development Commands"
 	@echo ""
 	@echo "Setup:"
 	@echo "  make setup          - Install all dependencies (frontend + backend)"
@@ -56,7 +56,7 @@ setup-frontend:
 
 # Quick start - backend + frontend (2 processes, no Redis needed)
 run:
-	@echo "Starting Alma Kanban..."
+	@echo "Starting Telem..."
 	@python3 run.py
 
 # Development targets (manual)

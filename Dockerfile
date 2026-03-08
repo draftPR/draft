@@ -1,5 +1,5 @@
 # =============================================================================
-# Alma Kanban - Multi-stage Docker build
+# Telem - Multi-stage Docker build
 # =============================================================================
 # Stage 1: Python dependencies
 # Stage 2: Frontend build

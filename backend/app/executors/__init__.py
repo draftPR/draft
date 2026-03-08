@@ -1,1 +1,1 @@
-"""Executor plugin system for Alma Kanban."""
+"""Executor plugin system for Draft."""

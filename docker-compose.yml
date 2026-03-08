@@ -1,12 +1,12 @@
 version: '3.8'
 
 services:
-  # All-in-one Alma Kanban service for local/demo mode
-  alma-kanban:
+  # All-in-one Draft service for local/demo mode
+  draft:
     build:
       context: .
       dockerfile: Dockerfile.local
-    container_name: alma-kanban
+    container_name: draft
     ports:
       - "3000:3000"   # Frontend UI
       - "8000:8000"   # Backend API
@@ -14,7 +14,7 @@ services:
       # Mount demo-repo for execution
       - ./demo-repo:/workspace/demo-repo
       # Persistent data (database, logs)
-      - alma-kanban-data:/workspace/data
+      - draft-data:/workspace/data
       # Optional: Mount your own repo for real use
       # - /path/to/your/repo:/workspace/your-repo
     environment:
@@ -45,7 +45,7 @@ services:
   # Uncomment this and set SMART_KANBAN_MODE=production to use real Redis
   # redis:
   #   image: redis:7-alpine
-  #   container_name: alma-kanban-redis
+  #   container_name: draft-redis
   #   ports:
   #     - "6379:6379"
   #   volumes:
@@ -58,11 +58,11 @@ services:
   #     retries: 3
 
 volumes:
-  alma-kanban-data:
-    name: alma-kanban-data
+  draft-data:
+    name: draft-data
   # redis-data:
-  #   name: alma-kanban-redis-data
+  #   name: draft-redis-data
 
 networks:
   default:
-    name: alma-kanban-network
+    name: draft-network

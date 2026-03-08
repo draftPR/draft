@@ -30,23 +30,9 @@ def _get_log_file() -> Path | None:
         return _LOG_FILE
 
     try:
-        # Detect repo root via git
-        import subprocess
+        from app.data_dir import get_logs_dir
 
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            repo_root = Path(result.stdout.strip())
-        else:
-            # Fallback: use backend parent dir
-            repo_root = Path(__file__).parent.parent.parent
-
-        log_dir = repo_root / ".smartkanban" / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir = get_logs_dir()
         _LOG_FILE = log_dir / "orchestrator.jsonl"
         return _LOG_FILE
     except Exception as e:

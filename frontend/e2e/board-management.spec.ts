@@ -9,7 +9,7 @@ test.describe("Board Management", () => {
   test("loads the app and shows board name", async ({ page }) => {
     await page.goto("/");
     await expect(
-      page.locator("header").getByText("Alma Kanban"),
+      page.locator("header").getByText("Draft"),
     ).toBeVisible();
   });
 

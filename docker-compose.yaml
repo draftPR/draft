@@ -1,5 +1,5 @@
 # =============================================================================
-# Alma Kanban - Production Docker Compose
+# Draft - Production Docker Compose
 # =============================================================================
 # Usage:
 #   docker compose up              # SQLite backend (default, no Redis needed)

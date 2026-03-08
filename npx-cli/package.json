@@ -1,9 +1,9 @@
 {
-  "name": "alma-kanban",
+  "name": "draft",
   "version": "0.1.0",
   "description": "AI-powered local-first kanban board that uses AI agents to automatically implement tickets",
   "bin": {
-    "alma-kanban": "./bin/cli.js"
+    "draft": "./bin/cli.js"
   },
   "keywords": [
     "kanban",
@@ -21,7 +21,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/user/alma-kanban"
+    "url": "https://github.com/doramirdor/alma-kanban"
   },
   "scripts": {
     "prepublishOnly": "bash build.sh",

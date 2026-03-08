@@ -16,8 +16,8 @@ from app.models.board import Board
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
 from app.schemas.ticket import TicketCreate, TicketResponse, TicketsByState
-from app.services.workspace_service import WorkspaceService
 from app.services.webhook_service import fire_webhooks
+from app.services.workspace_service import WorkspaceService
 from app.state_machine import (
     ActorType,
     EventType,

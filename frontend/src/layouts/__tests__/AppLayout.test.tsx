@@ -63,7 +63,7 @@ vi.mock("@/contexts/BoardContext", () => ({
 
 // Mock config
 vi.mock("@/config", () => ({
-  config: { appName: "Alma Kanban", backendBaseUrl: "http://localhost:8000" },
+  config: { appName: "Draft", backendBaseUrl: "http://localhost:8000" },
 }));
 
 // Mock all heavy child components
@@ -164,12 +164,12 @@ describe("AppLayout", () => {
   it("renders without crashing", () => {
     render(<AppLayout />);
     // The layout should render a header and main area
-    expect(screen.getByText("Alma Kanban")).toBeInTheDocument();
+    expect(screen.getByText("Draft")).toBeInTheDocument();
   });
 
   it("renders the app name in the header", () => {
     render(<AppLayout />);
-    expect(screen.getByText("Alma Kanban")).toBeInTheDocument();
+    expect(screen.getByText("Draft")).toBeInTheDocument();
   });
 
   it("renders the Goals button", () => {

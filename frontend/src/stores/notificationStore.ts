@@ -56,7 +56,7 @@ export const useNotificationStore = create<NotificationState>()(
       unreadCount: () => get().notifications.filter((n) => !n.read).length,
     }),
     {
-      name: "alma-notifications",
+      name: "telem-notifications",
     },
   ),
 );

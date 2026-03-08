@@ -1,6 +1,6 @@
-# Alma Kanban Scripts
+# Draft Scripts
 
-This directory contains utility scripts for managing the Alma Kanban system.
+This directory contains utility scripts for managing the Draft system.
 
 ## Ticket Generation Scripts
 
@@ -34,7 +34,7 @@ Generates a JSON file containing 4 pre-defined tickets for the `~/Documents/code
 
 ### create_test_tickets.sh
 
-Automatically creates 4 tickets for the `~/Documents/code/tests/` project via the Alma Kanban API.
+Automatically creates 4 tickets for the `~/Documents/code/tests/` project via the Draft API.
 
 **Prerequisites:**
 - Backend server must be running: `cd backend && uvicorn app.main:app --reload`

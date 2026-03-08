@@ -364,10 +364,12 @@ class PromptBundleBuilder:
             job_id: UUID of the job.
             repo_root: Path to the main repo root (for persistent evidence storage).
         """
+        from app.data_dir import get_jobs_dir
+
         self.worktree_path = worktree_path
         self.job_id = job_id
         self.repo_root = repo_root
-        self.job_dir = worktree_path / ".smartkanban" / "jobs" / job_id
+        self.job_dir = get_jobs_dir(job_id)
 
     @property
     def prompt_file(self) -> Path:
@@ -622,17 +624,11 @@ class PromptBundleBuilder:
 
     def get_evidence_dir(self) -> Path:
         """
-        Get the evidence directory for this job.
-
-        Evidence is stored in a persistent location outside the worktree
-        so it survives worktree cleanup.
+        Get the evidence directory for this job (central location).
 
         Returns:
             Path to the evidence directory.
         """
-        if self.repo_root:
-            evidence_dir = self.repo_root / ".smartkanban" / "evidence" / self.job_id
-        else:
-            evidence_dir = self.job_dir / "evidence"
-        evidence_dir.mkdir(parents=True, exist_ok=True)
-        return evidence_dir
+        from app.data_dir import get_evidence_dir as _get_evidence_dir
+
+        return _get_evidence_dir(self.job_id)
