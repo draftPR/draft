@@ -1,0 +1,59 @@
+{
+  "tickets": [
+    {
+      "title": "Add comprehensive API endpoint test coverage",
+      "description": "Create integration tests for all API endpoints across routers (boards, tickets, goals, jobs, revisions, etc.). Currently only 6 test files exist covering limited functionality. Tests should cover:\n- CRUD operations for all resources\n- State transitions and validation\n- Error cases and edge cases\n- Board-scoped authorization checks\n- Bulk operations (accept, priority updates)\n\nAcceptance criteria:\n- Test coverage >80% for all routers\n- All endpoints have at least happy path and error case tests\n- Tests use pytest fixtures from conftest.py\n- Tests verify database state changes correctly",
+      "priority_bucket": "P1",
+      "priority_rationale": "High priority - tests are essential for maintaining code quality and preventing regressions as the codebase grows. Current test coverage is minimal.",
+      "verification": [
+        "pytest tests/ --cov=app --cov-report=term-missing",
+        "pytest tests/ -v --tb=short"
+      ],
+      "notes": "Focus on testing routers/ directory first. Use async test patterns with AsyncSession fixtures. Consider using httpx.AsyncClient for API endpoint testing."
+    },
+    {
+      "title": "Add comprehensive API documentation and README",
+      "description": "Create detailed documentation for the Smart Kanban backend API including:\n- README.md with setup instructions, architecture overview, and development guide\n- API endpoint documentation (OpenAPI/Swagger is auto-generated but needs enhancement)\n- Database schema documentation\n- Environment variable reference\n- Deployment guide\n- Contributing guidelines\n\nAcceptance criteria:\n- README.md exists with clear setup instructions\n- All environment variables documented in ENV_SETUP.md or README\n- API endpoint examples provided\n- Architecture diagram or description included\n- Database migration guide documented",
+      "priority_bucket": "P2",
+      "priority_rationale": "Medium priority - documentation improves developer onboarding and maintainability, but doesn't block functionality.",
+      "verification": [
+        "test -f README.md && grep -q 'setup\\|installation' README.md",
+        "grep -r 'DATABASE_URL\\|FRONTEND_URL' .env.example README.md ENV_SETUP.md"
+      ],
+      "notes": "Reference existing ENV_SETUP.md. Include examples from CURL_EXAMPLES.md. Document the board-scoped architecture and permission model."
+    },
+    {
+      "title": "Add database migration validation and rollback tests",
+      "description": "Implement validation for Alembic migrations to prevent data loss and ensure migrations are reversible:\n- Add migration tests that verify up/down migrations work correctly\n- Validate that migrations don't drop columns without data migration\n- Test migration rollback scenarios\n- Add pre-migration checks for critical schema changes\n- Document migration best practices\n\nAcceptance criteria:\n- Test suite validates all migrations can be applied and rolled back\n- Migrations include data migration steps where needed\n- Pre-migration validation catches dangerous operations\n- Migration guide documents rollback procedures",
+      "priority_bucket": "P1",
+      "priority_rationale": "High priority - database migrations can cause data loss if not properly tested. Current 12 migration files need validation.",
+      "verification": [
+        "alembic upgrade head && alembic downgrade -1 && alembic upgrade head",
+        "pytest tests/test_migrations.py -v"
+      ],
+      "notes": "Create tests/test_migrations.py. Use Alembic's testing utilities. Focus on migrations that modify or drop columns (especially in ticket, job, goal tables)."
+    },
+    {
+      "title": "Implement structured logging and request tracing",
+      "description": "Enhance logging throughout the application with structured logging and request tracing:\n- Replace print statements and basic logger calls with structured logging\n- Add request ID tracking for tracing requests through the system\n- Implement correlation IDs for Celery tasks\n- Add performance logging for slow operations\n- Create log aggregation configuration (JSON format for production)\n\nAcceptance criteria:\n- All services use structured logging with context\n- Request IDs propagate through FastAPI → services → Celery tasks\n- Slow operations (>1s) are logged with timing\n- Logs include board_id, ticket_id, goal_id for traceability\n- Production logging uses JSON format",
+      "priority_bucket": "P2",
+      "priority_rationale": "Medium priority - improves debugging and observability but doesn't block core functionality. Current logging is basic.",
+      "verification": [
+        "grep -r 'print(' app/ | wc -l",
+        "python -c 'import logging; logging.basicConfig(); logging.info({\"test\": \"structured\"})'"
+      ],
+      "notes": "Use structlog or python-json-logger. Add middleware for request ID generation. Update worker.py to include correlation IDs in Celery tasks."
+    },
+    {
+      "title": "Add health check endpoints and monitoring metrics",
+      "description": "Enhance the existing /health endpoint and add monitoring capabilities:\n- Expand /health to check database connectivity, Redis availability, Celery worker status\n- Add /metrics endpoint for Prometheus-style metrics\n- Track key metrics: job queue depth, ticket state distribution, error rates\n- Add readiness and liveness probes for Kubernetes deployment\n- Implement health check for board repo_root accessibility\n\nAcceptance criteria:\n- /health endpoint returns detailed status of all dependencies\n- /metrics endpoint exposes Prometheus-compatible metrics\n- Health checks fail fast if critical dependencies unavailable\n- Metrics track: active jobs, tickets by state, API request rates, error rates",
+      "priority_bucket": "P2",
+      "priority_rationale": "Medium priority - monitoring improves production reliability and debugging, but basic health check already exists.",
+      "verification": [
+        "curl http://localhost:8000/health | jq '.status'",
+        "curl http://localhost:8000/metrics | grep -q 'ticket_state_total'"
+      ],
+      "notes": "Use prometheus-fastapi-instrumentator or similar. Check database, Redis, and Celery broker connectivity. Validate board repo_root paths are accessible."
+    }
+  ]
+}

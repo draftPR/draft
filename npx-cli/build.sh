@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MONO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="$SCRIPT_DIR/app"
 
-echo "[alma-build] Bundling app into $APP_DIR ..."
+echo "[draft-build] Bundling app into $APP_DIR ..."
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR"
@@ -22,11 +22,11 @@ rsync -a --exclude='venv/' --exclude='__pycache__/' --exclude='*.pyc' \
 # Copy draft.yaml (default config)
 if [ -f "$MONO_ROOT/draft.yaml" ]; then
   cp "$MONO_ROOT/draft.yaml" "$APP_DIR/draft.yaml"
-  echo "[alma-build] Copied draft.yaml"
+  echo "[draft-build] Copied draft.yaml"
 fi
 
 # Build frontend for production
-echo "[alma-build] Building frontend for production..."
+echo "[draft-build] Building frontend for production..."
 cd "$MONO_ROOT/frontend"
 npm install --legacy-peer-deps
 npm run build
@@ -36,5 +36,5 @@ mkdir -p "$APP_DIR/frontend"
 cp -r "$MONO_ROOT/frontend/dist" "$APP_DIR/frontend/dist"
 cp "$MONO_ROOT/frontend/package.json" "$APP_DIR/frontend/package.json"
 
-echo "[alma-build] Done. Contents:"
+echo "[draft-build] Done. Contents:"
 du -sh "$APP_DIR/backend" "$APP_DIR/frontend"

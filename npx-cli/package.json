@@ -1,9 +1,9 @@
 {
-  "name": "draft",
-  "version": "0.1.0",
+  "name": "draft-board",
+  "version": "0.1.0-beta.0",
   "description": "AI-powered local-first kanban board that uses AI agents to automatically implement tickets",
   "bin": {
-    "draft": "./bin/cli.js"
+    "draft-board": "./bin/cli.js"
   },
   "keywords": [
     "kanban",
@@ -18,7 +18,7 @@
     "automation",
     "local-first"
   ],
-  "license": "MIT",
+  "license": "BSL-1.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/doramirdor/draft"

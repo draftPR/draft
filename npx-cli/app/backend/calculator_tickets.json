@@ -1,0 +1,40 @@
+{
+  "tickets": [
+    {
+      "title": "Implement calculator module with scientific operations",
+      "description": "Create app/utils/calculator.py with six scientific calculator functions:\n\n1. multiply(a, b) - multiply two numbers\n2. divide(a, b) - divide with ZeroDivisionError handling when b is 0\n3. power(base, exp) - raise base to exponent power\n4. sqrt(n) - square root with ValueError for negative numbers\n5. modulo(a, b) - remainder operation\n6. factorial(n) - factorial for non-negative integers (raise ValueError for negative)\n\nAll functions must:\n- Include proper type hints (use float | int for numeric types)\n- Have comprehensive docstrings following Google/NumPy style\n- Handle edge cases appropriately (division by zero, negative sqrt, negative factorial)\n- Export functions in app/utils/__init__.py\n\nAcceptance criteria:\n- File app/utils/calculator.py exists with all 6 functions\n- All functions have type hints and docstrings\n- Functions raise appropriate exceptions for invalid inputs\n- Functions are exported in app/utils/__init__.py",
+      "priority_bucket": "P1",
+      "priority_rationale": "Core feature implementation - required foundation for calculator functionality",
+      "verification": [
+        "test -f app/utils/calculator.py",
+        "python -c 'from app.utils import multiply, divide, power, sqrt, modulo, factorial; assert multiply(2, 3) == 6'",
+        "python -c 'from app.utils.calculator import divide; import pytest; pytest.raises(ZeroDivisionError, divide, 1, 0)'"
+      ],
+      "notes": "Use math.sqrt and math.factorial from standard library. For modulo, use % operator. Ensure type hints support both int and float inputs."
+    },
+    {
+      "title": "Add comprehensive test coverage for calculator module",
+      "description": "Create tests/test_calculator.py with comprehensive test coverage for all calculator functions.\n\nTest requirements:\n- Test normal operation for each function with various inputs\n- Test error cases: ZeroDivisionError for divide(1, 0), ValueError for sqrt(-1) and factorial(-1)\n- Test edge cases: factorial(0) = 1, power(2, 0) = 1, modulo with negative numbers\n- Test type handling: ensure functions work with both int and float inputs\n- Use pytest fixtures where appropriate\n- Follow existing test patterns from tests/test_middleware.py\n\nAcceptance criteria:\n- File tests/test_calculator.py exists\n- All 6 functions have test coverage\n- Error cases are tested and raise correct exceptions\n- Edge cases are covered\n- Tests pass with pytest",
+      "priority_bucket": "P1",
+      "priority_rationale": "Critical for ensuring code quality and preventing regressions - tests validate correctness of core functionality",
+      "verification": [
+        "test -f tests/test_calculator.py",
+        "pytest tests/test_calculator.py -v",
+        "pytest tests/test_calculator.py --cov=app.utils.calculator --cov-report=term-missing | grep -q '100%' || pytest tests/test_calculator.py --cov=app.utils.calculator"
+      ],
+      "notes": "Use pytest.raises context manager for exception testing. Consider parametrize for testing multiple input combinations."
+    },
+    {
+      "title": "Update README.md to document calculator module",
+      "description": "Create or update README.md in project root to document the calculator module and its scientific operations.\n\nDocumentation should include:\n- Overview of the calculator module\n- List of available functions with brief descriptions\n- Usage examples for each function\n- Error handling information (what exceptions are raised and when)\n- Installation/setup instructions if needed\n- Link to test file for examples\n\nAcceptance criteria:\n- README.md exists in project root\n- Calculator module is documented with all 6 functions\n- Usage examples are provided\n- Error handling is documented\n- Documentation is clear and follows project conventions",
+      "priority_bucket": "P2",
+      "priority_rationale": "Important for usability and maintainability, but not blocking for functionality - documentation helps users understand the module",
+      "verification": [
+        "test -f README.md",
+        "grep -q 'calculator' README.md",
+        "grep -q 'multiply\\|divide\\|power\\|sqrt\\|modulo\\|factorial' README.md"
+      ],
+      "notes": "If README.md doesn't exist, create a new one. If it exists, add a new section for the calculator module. Include code examples using triple backticks."
+    }
+  ]
+}

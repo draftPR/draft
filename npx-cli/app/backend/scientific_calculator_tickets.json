@@ -1,0 +1,40 @@
+{
+  "tickets": [
+    {
+      "title": "Create calculator.py with basic operations and extend with scientific functions",
+      "description": "Create calculator.py in the project root (or app/utils/calculator.py if following backend structure) with add() and subtract() functions if they don't exist, then add six new scientific calculator functions:\n\n1. multiply(a, b) - multiply two numbers\n2. divide(a, b) - divide two numbers, raise ZeroDivisionError when b is 0\n3. power(base, exp) - raise base to exponent power\n4. sqrt(n) - calculate square root, raise ValueError for negative numbers\n5. modulo(a, b) - remainder operation (a % b)\n6. factorial(n) - calculate factorial for non-negative integers, raise ValueError for negative numbers\n\nAll functions must:\n- Include proper type hints using float | int (or Union[float, int] for Python < 3.10)\n- Have comprehensive docstrings following Google/NumPy style with Args, Returns, and Raises sections\n- Handle edge cases appropriately (division by zero, negative sqrt, negative factorial)\n- Use math.sqrt and math.factorial from standard library where applicable\n\nAcceptance criteria:\n- calculator.py exists with all 8 functions (add, subtract, plus 6 new)\n- All functions have complete type hints\n- All functions have docstrings with Args, Returns, and Raises\n- Functions raise appropriate exceptions for invalid inputs\n- Code follows project style (ruff formatting)",
+      "priority_bucket": "P1",
+      "priority_rationale": "Core feature implementation - required foundation for calculator functionality. All other tickets depend on this.",
+      "verification": [
+        "test -f calculator.py || test -f app/utils/calculator.py",
+        "python -c 'from calculator import multiply, divide, power, sqrt, modulo, factorial; assert multiply(2, 3) == 6' || python -c 'from app.utils.calculator import multiply, divide, power, sqrt, modulo, factorial; assert multiply(2, 3) == 6'",
+        "python -c 'from calculator import divide; divide(1, 0)' 2>&1 | grep -q ZeroDivisionError || python -c 'from app.utils.calculator import divide; divide(1, 0)' 2>&1 | grep -q ZeroDivisionError"
+      ],
+      "notes": "Check if calculator.py exists in project root first. If not, create it. If following backend structure, use app/utils/calculator.py. Use math.sqrt() and math.factorial() from standard library. For modulo, use % operator. Python 3.11+ supports float | int syntax for type hints."
+    },
+    {
+      "title": "Add comprehensive test coverage for calculator functions",
+      "description": "Create tests/test_calculator.py with comprehensive test coverage for all calculator functions (add, subtract, multiply, divide, power, sqrt, modulo, factorial).\n\nTest requirements:\n- Test normal operation for each function with various positive and negative inputs\n- Test error cases:\n  - ZeroDivisionError for divide(1, 0)\n  - ValueError for sqrt(-1) and factorial(-1)\n- Test edge cases:\n  - factorial(0) = 1\n  - power(2, 0) = 1\n  - power(0, 0) = 1\n  - modulo with negative numbers\n  - divide with float results\n- Test type handling: ensure functions work with both int and float inputs\n- Use pytest.raises context manager for exception testing\n- Use @pytest.mark.parametrize for testing multiple input combinations\n- Follow existing test patterns from tests/test_middleware.py\n\nAcceptance criteria:\n- File tests/test_calculator.py exists\n- All 8 functions have test coverage\n- Error cases are tested and raise correct exceptions\n- Edge cases are covered\n- Tests pass with pytest -v\n- Test coverage is comprehensive (aim for 100% function coverage)",
+      "priority_bucket": "P1",
+      "priority_rationale": "Critical for ensuring code quality and preventing regressions - tests validate correctness of core functionality and catch bugs early.",
+      "verification": [
+        "test -f tests/test_calculator.py",
+        "pytest tests/test_calculator.py -v",
+        "pytest tests/test_calculator.py --cov=calculator --cov-report=term-missing || pytest tests/test_calculator.py --cov=app.utils.calculator --cov-report=term-missing"
+      ],
+      "notes": "Use pytest.raises context manager for exception testing. Consider parametrize decorator for testing multiple input combinations efficiently. Follow pytest patterns from existing test files like tests/test_middleware.py. Test both int and float inputs for each function."
+    },
+    {
+      "title": "Update README.md to document calculator module",
+      "description": "Update README.md in the project root to document the calculator module and its scientific operations.\n\nDocumentation should include:\n- Overview section describing the calculator module\n- List of all available functions (add, subtract, multiply, divide, power, sqrt, modulo, factorial) with brief descriptions\n- Usage examples for each function using code blocks\n- Error handling information:\n  - ZeroDivisionError for divide() when divisor is 0\n  - ValueError for sqrt() with negative numbers\n  - ValueError for factorial() with negative numbers\n- Type information (functions accept int or float, return float for most operations)\n- Link to test file (tests/test_calculator.py) for more examples\n\nAcceptance criteria:\n- README.md exists in project root\n- Calculator module section is added or updated\n- All 8 functions are documented\n- Usage examples are provided with code blocks\n- Error handling is clearly documented\n- Documentation is clear, follows project conventions, and matches existing README style",
+      "priority_bucket": "P2",
+      "priority_rationale": "Important for usability and maintainability, but not blocking for functionality - documentation helps users understand the module but code works without it.",
+      "verification": [
+        "test -f README.md",
+        "grep -qi 'calculator' README.md",
+        "grep -q 'multiply\\|divide\\|power\\|sqrt\\|modulo\\|factorial' README.md"
+      ],
+      "notes": "Add a new section to README.md for the calculator module. Include code examples using triple backticks with python syntax highlighting. Follow the existing README.md style and structure. Place the section in an appropriate location (e.g., after the main project description or in a 'Modules' section)."
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * telem CLI — one-command launcher for Telem.
+ * draft CLI — one-command launcher for Draft.
  *
  * Usage:
- *   npx telem          # launch in current directory
- *   npx telem --port 9000
- *   npx telem --help
+ *   npx draft-board          # launch in current directory
+ *   npx draft-board --port 9000
+ *   npx draft-board --help
  */
 
 const { execSync, spawn } = require("child_process");
@@ -59,15 +59,15 @@ function hasPrebuiltFrontend(appRoot) {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function log(msg) {
-  console.log(`\x1b[36m[alma]\x1b[0m ${msg}`);
+  console.log(`\x1b[36m[draft]\x1b[0m ${msg}`);
 }
 
 function logError(msg) {
-  console.error(`\x1b[31m[alma]\x1b[0m ${msg}`);
+  console.error(`\x1b[31m[draft]\x1b[0m ${msg}`);
 }
 
 function logSuccess(msg) {
-  console.log(`\x1b[32m[alma]\x1b[0m ${msg}`);
+  console.log(`\x1b[32m[draft]\x1b[0m ${msg}`);
 }
 
 function commandExists(cmd) {
@@ -279,7 +279,7 @@ function startProductionMode(appRoot, port) {
   fs.mkdirSync(backendFrontendDir, { recursive: true });
   fs.symlinkSync(sourceDist, backendFrontendDist);
 
-  logSuccess("Starting Telem (production mode — single process)");
+  logSuccess("Starting Draft (production mode — single process)");
   logSuccess(`  App:      http://localhost:${port}`);
   logSuccess(`  API Docs: http://localhost:${port}/docs`);
   console.log("");
@@ -337,7 +337,7 @@ function startDevMode(appRoot, backendPort, frontendPort) {
   const backendDir = path.join(appRoot, "backend");
   const frontendDir = path.join(appRoot, "frontend");
 
-  logSuccess("Starting Telem (development mode — two processes)");
+  logSuccess("Starting Draft (development mode — two processes)");
   logSuccess(`  Backend:  http://localhost:${backendPort}`);
   logSuccess(`  Frontend: http://localhost:${frontendPort}`);
   logSuccess(`  API Docs: http://localhost:${backendPort}/docs`);
@@ -441,10 +441,10 @@ function parseArgs() {
 
 function showHelp() {
   console.log(`
-\x1b[1mTelem\x1b[0m — AI-powered local-first kanban board
+\x1b[1mDraft\x1b[0m — AI-powered local-first kanban board
 
 \x1b[1mUsage:\x1b[0m
-  npx telem [options]
+  npx draft-board [options]
 
 \x1b[1mOptions:\x1b[0m
   -p, --port <port>          Server port (default: 8000)
@@ -472,7 +472,7 @@ function main() {
 
   if (opts.version) {
     const pkg = require(path.join(PKG_ROOT, "package.json"));
-    console.log(`telem v${pkg.version}`);
+    console.log(`draft v${pkg.version}`);
     process.exit(0);
   }
 
@@ -485,7 +485,7 @@ function main() {
 
   console.log("");
   console.log("  \x1b[1m\x1b[36m╔═══════════════════════════════════╗\x1b[0m");
-  console.log(`  \x1b[1m\x1b[36m║      Telem v${pkg.version.padEnd(15)}║\x1b[0m`);
+  console.log(`  \x1b[1m\x1b[36m║      Draft v${pkg.version.padEnd(15)}║\x1b[0m`);
   console.log("  \x1b[1m\x1b[36m║   AI-Powered Local Kanban Board   ║\x1b[0m");
   console.log("  \x1b[1m\x1b[36m╚═══════════════════════════════════╝\x1b[0m");
   console.log("");
@@ -494,7 +494,7 @@ function main() {
   if (!appRoot) {
     logError("Could not find backend/ and frontend/ directories.");
     logError("If installed via npm, the package may be incomplete.");
-    logError("Try reinstalling: npm install -g telem");
+    logError("Try reinstalling: npm install -g draft-board");
     process.exit(1);
   }
   log(`App root: ${appRoot}`);
