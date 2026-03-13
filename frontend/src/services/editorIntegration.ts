@@ -75,7 +75,7 @@ export function openInEditor(
 export function setPreferredEditor(editor: EditorType): void {
   preferredEditor = editor;
   if (typeof window !== "undefined") {
-    localStorage.setItem("smartkanban_preferred_editor", editor);
+    localStorage.setItem("draft_preferred_editor", editor);
   }
 }
 
@@ -102,7 +102,7 @@ export function getAvailableEditors(): { type: EditorType; name: string }[] {
 export function initEditorSettings(): void {
   if (typeof window === "undefined") return;
   
-  const stored = localStorage.getItem("smartkanban_preferred_editor");
+  const stored = localStorage.getItem("draft_preferred_editor");
   if (stored && stored in EDITOR_CONFIGS) {
     preferredEditor = stored as EditorType;
   }

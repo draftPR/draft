@@ -1,13 +1,13 @@
 """Custom exceptions for Draft."""
 
 
-class SmartKanbanError(Exception):
+class DraftError(Exception):
     """Base exception for Draft."""
 
     pass
 
 
-class InvalidStateTransitionError(SmartKanbanError):
+class InvalidStateTransitionError(DraftError):
     """Raised when an invalid state transition is attempted."""
 
     def __init__(self, from_state: str, to_state: str, message: str | None = None):
@@ -19,7 +19,7 @@ class InvalidStateTransitionError(SmartKanbanError):
         super().__init__(self.message)
 
 
-class ResourceNotFoundError(SmartKanbanError):
+class ResourceNotFoundError(DraftError):
     """Raised when a requested resource is not found."""
 
     def __init__(self, resource_type: str, resource_id: str):
@@ -29,7 +29,7 @@ class ResourceNotFoundError(SmartKanbanError):
         super().__init__(self.message)
 
 
-class ValidationError(SmartKanbanError):
+class ValidationError(DraftError):
     """Raised when validation fails."""
 
     def __init__(self, message: str):
@@ -37,7 +37,7 @@ class ValidationError(SmartKanbanError):
         super().__init__(self.message)
 
 
-class ConflictError(SmartKanbanError):
+class ConflictError(DraftError):
     """Raised when an operation conflicts with current resource state.
 
     Typically maps to HTTP 409 Conflict.
@@ -49,7 +49,7 @@ class ConflictError(SmartKanbanError):
         super().__init__(self.message)
 
 
-class WorkspaceError(SmartKanbanError):
+class WorkspaceError(DraftError):
     """Base exception for workspace-related errors."""
 
     def __init__(self, message: str):
@@ -84,7 +84,7 @@ class BranchNotFoundError(WorkspaceError):
         super().__init__(f"Base branch '{branch}' not found in repository")
 
 
-class ExecutorError(SmartKanbanError):
+class ExecutorError(DraftError):
     """Base exception for executor-related errors."""
 
     def __init__(self, message: str):
@@ -122,7 +122,7 @@ class ExecutorInvocationError(ExecutorError):
         super().__init__(full_message)
 
 
-class ConfigurationError(SmartKanbanError):
+class ConfigurationError(DraftError):
     """Raised when required configuration is missing or invalid."""
 
     def __init__(self, message: str):
@@ -130,7 +130,7 @@ class ConfigurationError(SmartKanbanError):
         super().__init__(self.message)
 
 
-class PlannerError(SmartKanbanError):
+class PlannerError(DraftError):
     """Base exception for planner-related errors."""
 
     def __init__(self, message: str):

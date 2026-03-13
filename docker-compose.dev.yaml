@@ -13,7 +13,7 @@ services:
     volumes:
       # Mount source code for live reload
       - ./backend:/app/backend:rw
-      - alma-data:/app/data
+      - draft-data:/app/data
     environment:
       - TASK_BACKEND=sqlite
       - LOG_LEVEL=debug

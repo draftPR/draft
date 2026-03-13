@@ -1,6 +1,6 @@
-# Dockerfile.local - All-in-one container for Telem local/demo mode
+# Dockerfile.local - All-in-one container for Draft local/demo mode
 #
-# This Dockerfile bundles everything needed to run Telem:
+# This Dockerfile bundles everything needed to run Draft:
 # - Redis (optional, uses in-memory fallback by default)
 # - Python backend (FastAPI)
 # - Celery worker

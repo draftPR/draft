@@ -1,5 +1,5 @@
 # =============================================================================
-# Telem - Multi-stage Docker build
+# Draft - Multi-stage Docker build
 # =============================================================================
 # Stage 1: Python dependencies
 # Stage 2: Frontend build
@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN useradd --create-home --shell /bin/bash alma
+RUN useradd --create-home --shell /bin/bash draft
 
 WORKDIR /app
 
@@ -56,16 +56,16 @@ COPY --from=frontend-builder /build/dist ./frontend/dist/
 COPY Makefile run.py draft.yaml* ./
 
 # Create data directories
-RUN mkdir -p /app/data /app/logs && chown -R alma:alma /app
+RUN mkdir -p /app/data /app/logs && chown -R draft:draft /app
 
 # Set environment
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TASK_BACKEND=sqlite \
-    DATABASE_URL=sqlite+aiosqlite:///./data/alma.db \
+    DATABASE_URL=sqlite+aiosqlite:///./data/draft.db \
     STATIC_FILES_DIR=/app/frontend/dist
 
-USER alma
+USER draft
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

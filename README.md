@@ -75,67 +75,35 @@ draft/
 
 ## Quick Start
 
-### 1. Install Dependencies
-
 ```bash
-make setup
+npx draft-board
 ```
 
-This will:
-- Create a Python virtual environment in `backend/venv/`
-- Install Python dependencies
-- Install Node.js dependencies
+That's it. This single command handles everything: checks prerequisites, sets up a Python virtual environment, installs dependencies, runs database migrations, and starts both the backend and frontend servers.
 
-### 2. Run Database Migrations
-
-```bash
-make db-migrate
-```
-
-### 3. Run the Application
-
-**One Command (Recommended):**
-
-```bash
-make run
-```
-
-Or directly:
-
-```bash
-./run.py
-```
-
-This starts:
-- FastAPI backend (http://localhost:8000) with in-process background worker
-- Vite frontend (http://localhost:5173)
+Once running:
+- **Frontend:** http://localhost:5173
+- **Backend API:** http://localhost:8000
+- **API Docs:** http://localhost:8000/docs
 
 Press `Ctrl+C` to stop all services gracefully.
 
-**Manual (2 terminals):**
+### Development Setup (Alternative)
 
-**Terminal 1 - Backend (http://localhost:8000):**
+If you prefer manual control or are contributing to Draft:
+
 ```bash
-make dev-backend
+make setup        # Install all dependencies (backend venv + frontend npm)
+make db-migrate   # Run database migrations
+make run          # Start backend + frontend
 ```
 
-**Terminal 2 - Frontend (http://localhost:5173):**
+Or run services separately in two terminals:
+
 ```bash
-make dev-frontend
+make dev-backend   # Terminal 1: FastAPI at http://localhost:8000
+make dev-frontend  # Terminal 2: Vite at http://localhost:5173
 ```
-
-### 4. Verify Setup
-
-Test the backend endpoints:
-```bash
-curl http://localhost:8000/health
-# {"status":"ok"}
-
-curl http://localhost:8000/version
-# {"app":"Draft","version":"0.1.0"}
-```
-
-Open http://localhost:5173 in your browser to see the frontend.
 
 ## Workspace Isolation
 

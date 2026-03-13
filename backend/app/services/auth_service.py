@@ -1,5 +1,6 @@
 """Authentication service: password hashing, JWT tokens, user CRUD."""
 
+import logging
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -11,8 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 
+_logger = logging.getLogger(__name__)
+
 # Configuration
-SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "draft-dev-secret-change-in-production")
+_DEFAULT_SECRET = "draft-dev-secret-change-in-production"
+SECRET_KEY = os.getenv("AUTH_SECRET_KEY", _DEFAULT_SECRET)
+if SECRET_KEY == _DEFAULT_SECRET:
+    _logger.warning(
+        "AUTH_SECRET_KEY is not set — using insecure default. "
+        "Set AUTH_SECRET_KEY in your environment for production use."
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("AUTH_TOKEN_EXPIRE_MINUTES", "1440"))  # 24h
 

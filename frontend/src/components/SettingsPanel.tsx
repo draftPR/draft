@@ -70,7 +70,7 @@ const DEFAULT_BUDGET: BudgetSettings = {
 
 export function loadBudgetSettings(): BudgetSettings {
   if (typeof window === "undefined") return DEFAULT_BUDGET;
-  const stored = localStorage.getItem("smartkanban_budget");
+  const stored = localStorage.getItem("draft_budget");
   if (stored) {
     try {
       return JSON.parse(stored);
@@ -83,7 +83,7 @@ export function loadBudgetSettings(): BudgetSettings {
 
 export function saveBudgetSettings(settings: BudgetSettings): void {
   if (typeof window !== "undefined") {
-    localStorage.setItem("smartkanban_budget", JSON.stringify(settings));
+    localStorage.setItem("draft_budget", JSON.stringify(settings));
   }
 }
 
@@ -1010,7 +1010,7 @@ export function VerificationCommandsCard() {
 export function SettingsPanel() {
   const [editor, setEditor] = useState<EditorType>(getPreferredEditor());
   const [defaultAgent, setDefaultAgent] = useState(
-    () => (typeof window !== "undefined" ? localStorage.getItem("smartkanban_default_agent") : null) || "claude"
+    () => (typeof window !== "undefined" ? localStorage.getItem("draft_default_agent") : null) || "claude"
   );
   const [budget, setBudget] = useState<BudgetSettings>(loadBudgetSettings);
   const [hasChanges, setHasChanges] = useState(false);
@@ -1029,7 +1029,7 @@ export function SettingsPanel() {
   const handleSave = () => {
     saveBudgetSettings(budget);
     if (typeof window !== "undefined") {
-      localStorage.setItem("smartkanban_default_agent", defaultAgent);
+      localStorage.setItem("draft_default_agent", defaultAgent);
     }
     setHasChanges(false);
     playSound("success");

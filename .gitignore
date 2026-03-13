@@ -63,14 +63,15 @@ frontend/test-results/
 
 # Draft workspaces (git worktrees)
 .draft/
-.smartkanban/
 
-# Internal dev docs (keep only README, CLAUDE, CONTRIBUTING)
+# Internal dev docs (keep only public-facing markdown)
 /*.md
 !CLAUDE.md
 !AGENTS.md
 !README.md
 !CONTRIBUTING.md
+!SECURITY.md
+!CODE_OF_CONDUCT.md
 
 # Demo / recording artifacts
 demo-videos/

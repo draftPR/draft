@@ -108,7 +108,7 @@ export async function playSound(type: SoundType): Promise<void> {
 export function setSoundEnabled(enabled: boolean): void {
   soundEnabled = enabled;
   if (typeof window !== "undefined") {
-    localStorage.setItem("smartkanban_sound_enabled", String(enabled));
+    localStorage.setItem("draft_sound_enabled", String(enabled));
   }
 }
 
@@ -125,7 +125,7 @@ export function isSoundEnabled(): boolean {
 export function setVolume(v: number): void {
   volume = Math.max(0, Math.min(1, v));
   if (typeof window !== "undefined") {
-    localStorage.setItem("smartkanban_volume", String(volume));
+    localStorage.setItem("draft_volume", String(volume));
   }
 }
 
@@ -142,12 +142,12 @@ export function getVolume(): number {
 export function initSoundSettings(): void {
   if (typeof window === "undefined") return;
   
-  const storedEnabled = localStorage.getItem("smartkanban_sound_enabled");
+  const storedEnabled = localStorage.getItem("draft_sound_enabled");
   if (storedEnabled !== null) {
     soundEnabled = storedEnabled === "true";
   }
   
-  const storedVolume = localStorage.getItem("smartkanban_volume");
+  const storedVolume = localStorage.getItem("draft_volume");
   if (storedVolume !== null) {
     volume = parseFloat(storedVolume);
   }

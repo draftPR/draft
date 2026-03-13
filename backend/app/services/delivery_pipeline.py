@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.exceptions import SmartKanbanError
+from app.exceptions import DraftError
 from app.models.goal import Goal
 from app.models.job import Job
 from app.models.ticket import Ticket
@@ -49,7 +49,7 @@ class PipelineResult:
             self.evidence = {}
 
 
-class PipelineError(SmartKanbanError):
+class PipelineError(DraftError):
     """Error during pipeline execution."""
 
     pass

@@ -40,7 +40,7 @@ export function SettingsPage() {
   const defaultTab = searchParams.get("tab") || "general";
   const [editor, setEditor] = useState<EditorType>(getPreferredEditor());
   const [defaultAgent, setDefaultAgent] = useState(() =>
-    localStorage.getItem("smartkanban_default_agent") ?? "claude"
+    localStorage.getItem("draft_default_agent") ?? "claude"
   );
   const [budget, setBudget] = useState<BudgetSettings>(loadBudgetSettings);
   const [hasChanges, setHasChanges] = useState(false);
@@ -95,7 +95,7 @@ export function SettingsPage() {
   const handleSave = () => {
     saveBudgetSettings(budget);
     if (typeof window !== "undefined") {
-      localStorage.setItem("smartkanban_default_agent", defaultAgent);
+      localStorage.setItem("draft_default_agent", defaultAgent);
     }
     setHasChanges(false);
     playSound("success");

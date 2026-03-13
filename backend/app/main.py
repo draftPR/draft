@@ -17,10 +17,10 @@ from app.database import init_db
 from app.exceptions import (
     ConfigurationError,
     ConflictError,
+    DraftError,
     InvalidStateTransitionError,
     LLMAPIError,
     ResourceNotFoundError,
-    SmartKanbanError,
     ValidationError,
 )
 from app.middleware import (
@@ -244,10 +244,8 @@ async def llm_api_error_handler(request: Request, exc: LLMAPIError) -> JSONRespo
     )
 
 
-@app.exception_handler(SmartKanbanError)
-async def smart_kanban_error_handler(
-    request: Request, exc: SmartKanbanError
-) -> JSONResponse:
+@app.exception_handler(DraftError)
+async def smart_kanban_error_handler(request: Request, exc: DraftError) -> JSONResponse:
     """Handle generic Draft errors."""
     return JSONResponse(
         status_code=500,
@@ -449,7 +447,9 @@ app.include_router(planner_router)
 app.include_router(revisions_router)
 app.include_router(merge_router)
 app.include_router(maintenance_router)
-app.include_router(debug_router)
+# Debug endpoints only available in development mode
+if os.getenv("APP_ENV", "development") == "development":
+    app.include_router(debug_router)
 app.include_router(agents_router)  # AI agent management
 app.include_router(dashboard_router)  # Sprint dashboard and metrics
 app.include_router(executors_router)  # Executor plugin management

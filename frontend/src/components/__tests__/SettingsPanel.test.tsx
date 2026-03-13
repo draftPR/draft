@@ -155,7 +155,7 @@ describe("WelcomeTutorialCard", () => {
 
 describe("loadBudgetSettings / saveBudgetSettings", () => {
   it("returns defaults when no stored data", () => {
-    localStorage.removeItem("smartkanban_budget");
+    localStorage.removeItem("draft_budget");
     const budget = loadBudgetSettings();
     expect(budget.daily).toBe(10);
     expect(budget.weekly).toBe(50);

@@ -70,7 +70,7 @@ def _get_defaults() -> dict:
     """
     return {
         "project": {
-            "name": "SmartKanban Project",
+            "name": "Draft Project",
             "repo_root": ".",
         },
         "execute_config": {

@@ -13,13 +13,13 @@ services:
     ports:
       - "${PORT:-8000}:8000"
     volumes:
-      - alma-data:/app/data
-      - alma-logs:/app/logs
+      - draft-data:/app/data
+      - draft-logs:/app/logs
       # Mount the host repo for worktree operations (optional)
       - ${GIT_REPO_PATH:-.}:/repo:rw
     environment:
       - TASK_BACKEND=${TASK_BACKEND:-sqlite}
-      - DATABASE_URL=sqlite+aiosqlite:///./data/alma.db
+      - DATABASE_URL=sqlite+aiosqlite:///./data/draft.db
       - GIT_REPO_PATH=/repo
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000}
       - SENTRY_DSN=${SENTRY_DSN:-}
@@ -66,6 +66,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  alma-data:
-  alma-logs:
+  draft-data:
+  draft-logs:
   redis-data:

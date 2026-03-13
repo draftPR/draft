@@ -2,7 +2,7 @@
 
 # Default target
 help:
-	@echo "Telem - Development Commands"
+	@echo "Draft - Development Commands"
 	@echo ""
 	@echo "Setup:"
 	@echo "  make setup          - Install all dependencies (frontend + backend)"
@@ -56,7 +56,7 @@ setup-frontend:
 
 # Quick start - backend + frontend (2 processes, no Redis needed)
 run:
-	@echo "Starting Telem..."
+	@echo "Starting Draft..."
 	@python3 run.py
 
 # Development targets (manual)
@@ -101,9 +101,9 @@ test-frontend:
 # Type generation
 generate-types:
 	@echo "Generating TypeScript types from OpenAPI spec..."
-	cd backend && (test -f venv/bin/activate && . venv/bin/activate; python scripts/extract_openapi.py /tmp/alma-openapi.json)
-	cd frontend && npx openapi-typescript /tmp/alma-openapi.json -o src/types/generated.ts
-	@rm -f /tmp/alma-openapi.json
+	cd backend && (test -f venv/bin/activate && . venv/bin/activate; python scripts/extract_openapi.py /tmp/draft-openapi.json)
+	cd frontend && npx openapi-typescript /tmp/draft-openapi.json -o src/types/generated.ts
+	@rm -f /tmp/draft-openapi.json
 	@echo "Generated frontend/src/types/generated.ts"
 
 # Clean targets
