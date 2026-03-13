@@ -1,0 +1,32 @@
+[project]
+name = "draft-sdk"
+version = "0.1.0"
+description = "Python SDK for Draft — AI-powered kanban board for autonomous code delivery"
+readme = "README.md"
+license = {text = "BSL-1.1"}
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+]
+keywords = ["draft", "kanban", "ai", "agent", "sdk", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://trydraft.dev"
+Documentation = "https://docs.trydraft.dev/sdk/overview"
+Repository = "https://github.com/draftPR/draft"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/draft_sdk"]

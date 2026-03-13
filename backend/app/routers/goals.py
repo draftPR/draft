@@ -195,6 +195,27 @@ async def get_autonomy_status(
 
 
 @router.get(
+    "/{goal_id}/progress",
+    summary="Get goal progress summary",
+)
+async def get_goal_progress(
+    goal_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get a summary of progress on a goal: ticket state breakdown,
+    completion percentage, and whether the goal is blocked."""
+    from app.services.delivery_pipeline import get_pipeline_status
+
+    # Verify goal exists
+    service = GoalService(db)
+    await service.get_goal_by_id(goal_id)
+
+    result = await get_pipeline_status(db, goal_id)
+    result["goal_id"] = goal_id
+    return result
+
+
+@router.get(
     "/{goal_id}/generate-tickets/stream",
     summary="Generate tickets with streaming progress (SSE)",
 )
