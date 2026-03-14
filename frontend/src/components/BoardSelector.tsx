@@ -2,6 +2,7 @@
  * BoardSelector - Dropdown to switch between projects/boards
  */
 
+import { useNavigate } from 'react-router';
 import { useBoard } from '@/contexts/BoardContext';
 import {
   Select,
@@ -14,6 +15,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export function BoardSelector() {
   const { currentBoard, boards, setCurrentBoard, isLoading } = useBoard();
+  const navigate = useNavigate();
+
+  const handleBoardChange = (boardId: string) => {
+    setCurrentBoard(boardId);
+    navigate(`/boards/${boardId}`);
+  };
 
   if (isLoading) {
     return <Skeleton className="h-9 w-[220px]" />;
@@ -30,7 +37,7 @@ export function BoardSelector() {
   return (
     <Select
       value={currentBoard?.id || ''}
-      onValueChange={setCurrentBoard}
+      onValueChange={handleBoardChange}
     >
       <SelectTrigger className="w-[220px]">
         <SelectValue placeholder="Select project..." />

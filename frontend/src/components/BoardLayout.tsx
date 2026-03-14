@@ -28,7 +28,7 @@ export function BoardLayout() {
   }, [urlBoardId, setCurrentBoardId]);
 
   useEffect(() => {
-    if (urlTicketId && !selectedTicketId) {
+    if (urlTicketId && urlTicketId !== selectedTicketId) {
       selectTicket(urlTicketId);
     }
   }, [urlTicketId, selectedTicketId, selectTicket]);

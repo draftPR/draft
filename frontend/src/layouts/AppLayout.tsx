@@ -15,6 +15,7 @@ import { CreateGoalDialog } from "@/components/CreateGoalDialog";
 import { CreateTicketDialog } from "@/components/CreateTicketDialog";
 import { BoardSettingsDialog } from "@/components/BoardSettingsDialog";
 import { GoalsListDialog } from "@/components/GoalsListDialog";
+import { GoalDetailDialog } from "@/components/GoalDetailDialog";
 import { QueueStatusDialog } from "@/components/QueueStatusDialog";
 import { DebugPanel } from "@/components/DebugPanel";
 import { SprintDashboard } from "@/components/SprintDashboard";
@@ -77,6 +78,7 @@ export function AppLayout() {
   const { selectTicket, selectedTicketId } = useTicketSelectionStore();
 
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [newGoalDetailId, setNewGoalDetailId] = useState<string | null>(null);
 
   const refreshBoard = useCallback(() => {
     setRefreshTrigger((prev) => prev + 1);
@@ -254,7 +256,10 @@ export function AppLayout() {
       <CreateGoalDialog
         open={ui.goalDialogOpen}
         onOpenChange={ui.setGoalDialogOpen}
-        onSuccess={refreshBoard}
+        onSuccess={(goalId) => {
+          refreshBoard();
+          setNewGoalDetailId(goalId);
+        }}
       />
       <CreateTicketDialog
         open={ui.ticketDialogOpen}
@@ -265,6 +270,21 @@ export function AppLayout() {
         open={ui.goalsListOpen}
         onOpenChange={ui.setGoalsListOpen}
         onBoardRefresh={refreshBoard}
+      />
+      <GoalDetailDialog
+        goalId={newGoalDetailId}
+        open={!!newGoalDetailId}
+        onOpenChange={(open) => {
+          if (!open) setNewGoalDetailId(null);
+        }}
+        onTicketsAccepted={() => {
+          setNewGoalDetailId(null);
+          refreshBoard();
+        }}
+        onGoalDeleted={() => {
+          setNewGoalDetailId(null);
+          refreshBoard();
+        }}
       />
       <QueueStatusDialog
         open={ui.queueStatusOpen}

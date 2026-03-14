@@ -428,13 +428,12 @@ class UDARPlannerService:
         Returns:
             "retry" or "proceed"
         """
-        from app.services.config_service import ConfigService
+        from app.services.config_service import DraftConfig
 
         failed_count = sum(1 for r in state["validation_results"] if not r["is_valid"])
 
-        # Get max iterations from config
-        config = ConfigService().load_config()
-        max_iterations = config.planner_config.udar.max_self_correction_iterations
+        # Get max iterations from config (use defaults; callers pass board config)
+        max_iterations = DraftConfig().planner_config.udar.max_self_correction_iterations
 
         # Retry if validation failed and under iteration limit
         if failed_count > 0 and state["iteration"] < max_iterations:
@@ -652,11 +651,10 @@ Return JSON in this format:
 
         # Step 2: Apply deterministic filters (avoid LLM if possible)
         # Only consider "significant" changes based on config threshold
-        from app.services.config_service import ConfigService
+        from app.services.config_service import DraftConfig
 
-        config = ConfigService().load_config()
         significance_threshold = (
-            config.planner_config.udar.replan_significance_threshold
+            DraftConfig().planner_config.udar.replan_significance_threshold
         )
 
         significant_tickets = [

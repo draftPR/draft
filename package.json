@@ -33,6 +33,9 @@
     "!backend/__pycache__",
     "!backend/.ruff_cache",
     "!backend/.pytest_cache",
-    "!backend/tests"
+    "!backend/tests",
+    "!backend/*.db",
+    "!backend/*.db-shm",
+    "!backend/*.db-wal"
   ]
 }

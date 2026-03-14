@@ -16,7 +16,7 @@ from dataclasses import dataclass
 import litellm
 from litellm import completion
 
-from app.services.config_service import ConfigService, PlannerConfig
+from app.services.config_service import PlannerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +52,7 @@ class LLMService:
             config: Planner configuration. If None, loads from config file.
         """
         if config is None:
-            config_service = ConfigService()
-            config = config_service.get_planner_config()
+            config = PlannerConfig()  # Use code defaults, not YAML
 
         self.config = config
 

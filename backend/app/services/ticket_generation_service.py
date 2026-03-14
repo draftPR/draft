@@ -42,7 +42,7 @@ from app.schemas.planner import (
     bucket_to_priority,
     priority_to_bucket,
 )
-from app.services.config_service import ConfigService, PlannerConfig
+from app.services.config_service import PlannerConfig
 from app.services.context_gatherer import ContextGatherer, RepoContext
 from app.services.executor_service import ExecutorService, ExecutorType
 from app.services.llm_service import LLMService
@@ -110,8 +110,7 @@ class TicketGenerationService:
         self.db = db
 
         if config is None:
-            config_service = ConfigService()
-            config = config_service.get_planner_config()
+            config = PlannerConfig()  # Use code defaults, not YAML
         self.config = config
 
         if llm_service is None:

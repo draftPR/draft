@@ -122,48 +122,64 @@ def run_planner_tick_sync() -> dict:
 
     # LLM-powered operations run OUTSIDE the planner lock to avoid
     # starving other writers during 10-60s LLM API calls.
+    #
+    # These features require an API-based model (not cli/). If the model
+    # is CLI-based (e.g., "cli/claude"), we skip LLM operations since
+    # LLMService only supports API calls. This prevents 401 errors on
+    # clean installs that don't have API credentials configured.
+    is_cli_model = config.model.startswith("cli/")
 
     # 3. Handle blocked tickets (LLM-powered)
     if config.features.propose_followups:
-        try:
-            with get_sync_db() as db:
-                followups_created = _handle_blocked_tickets_sync(db, config)
-                if followups_created:
-                    from app.services.orchestrator_log import add_orchestrator_log
-
-                    add_orchestrator_log(
-                        "INFO",
-                        f"Created {followups_created} follow-up ticket(s) for blocked tickets",
-                        {"count": followups_created},
-                    )
-                db.commit()
-        except Exception:
-            import logging
-
-            logging.getLogger(__name__).exception(
-                "Error in LLM-powered follow-up generation"
+        if is_cli_model:
+            logger.debug(
+                "Skipping follow-up generation: model '%s' is CLI-based. "
+                "Set an API model in planner_config.model to enable this feature.",
+                config.model,
             )
+        else:
+            try:
+                with get_sync_db() as db:
+                    followups_created = _handle_blocked_tickets_sync(db, config)
+                    if followups_created:
+                        from app.services.orchestrator_log import add_orchestrator_log
+
+                        add_orchestrator_log(
+                            "INFO",
+                            f"Created {followups_created} follow-up ticket(s) for blocked tickets",
+                            {"count": followups_created},
+                        )
+                    db.commit()
+            except Exception:
+                logger.exception(
+                    "Error in LLM-powered follow-up generation"
+                )
 
     # 4. Generate reflections (LLM-powered)
     if config.features.generate_reflections:
-        try:
-            with get_sync_db() as db:
-                reflections_added = _generate_reflections_sync(db, config)
-                if reflections_added:
-                    from app.services.orchestrator_log import add_orchestrator_log
-
-                    add_orchestrator_log(
-                        "INFO",
-                        f"Generated {reflections_added} reflection(s) for done tickets",
-                        {"count": reflections_added},
-                    )
-                db.commit()
-        except Exception:
-            import logging
-
-            logging.getLogger(__name__).exception(
-                "Error in LLM-powered reflection generation"
+        if is_cli_model:
+            logger.debug(
+                "Skipping reflection generation: model '%s' is CLI-based. "
+                "Set an API model in planner_config.model to enable this feature.",
+                config.model,
             )
+        else:
+            try:
+                with get_sync_db() as db:
+                    reflections_added = _generate_reflections_sync(db, config)
+                    if reflections_added:
+                        from app.services.orchestrator_log import add_orchestrator_log
+
+                        add_orchestrator_log(
+                            "INFO",
+                            f"Generated {reflections_added} reflection(s) for done tickets",
+                            {"count": reflections_added},
+                        )
+                    db.commit()
+            except Exception:
+                logger.exception(
+                    "Error in LLM-powered reflection generation"
+                )
 
     return {
         "executed": executed,

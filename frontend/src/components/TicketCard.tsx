@@ -146,23 +146,25 @@ export const TicketCard = memo(function TicketCard({ ticket, index, onClick, onE
                     )}
                   </button>
                 )}
-                <button
-                  onClick={handleDeleteClick}
-                  disabled={deleting}
-                  className={cn(
-                    "p-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                    "bg-red-100 hover:bg-red-200 text-red-700",
-                    "dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-400",
-                    "disabled:opacity-50 disabled:cursor-not-allowed"
-                  )}
-                  title="Delete this ticket"
-                >
-                  {deleting ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <X className="h-3 w-3" />
-                  )}
-                </button>
+                {ticket.state !== TicketState.EXECUTING && ticket.state !== TicketState.VERIFYING && (
+                  <button
+                    onClick={handleDeleteClick}
+                    disabled={deleting}
+                    className={cn(
+                      "p-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                      "bg-red-100 hover:bg-red-200 text-red-700",
+                      "dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-400",
+                      "disabled:opacity-50 disabled:cursor-not-allowed"
+                    )}
+                    title="Delete this ticket"
+                  >
+                    {deleting ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <X className="h-3 w-3" />
+                    )}
+                  </button>
+                )}
               </div>
             </div>
             {ticket.description && (

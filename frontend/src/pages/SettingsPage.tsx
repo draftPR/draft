@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router";
-import { Settings, Save, Wrench, Loader2, Trash2, FolderGit, HardDrive } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router";
+import { Settings, Save, Wrench, Loader2, Trash2, FolderGit, HardDrive, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -15,15 +15,10 @@ import { Label } from "@/components/ui/label";
 import {
   EditorSettingsCard,
   AgentSettingsCard,
-  BudgetSettingsCard,
-  KeyboardShortcutsCard,
   WelcomeTutorialCard,
   PlannerSettingsCard,
   ExecutorProfilesCard,
   VerificationCommandsCard,
-  type BudgetSettings,
-  loadBudgetSettings,
-  saveBudgetSettings,
 } from "@/components/SettingsPanel";
 import {
   getPreferredEditor,
@@ -37,12 +32,12 @@ import { toast } from "sonner";
 
 export function SettingsPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const defaultTab = searchParams.get("tab") || "general";
   const [editor, setEditor] = useState<EditorType>(getPreferredEditor());
   const [defaultAgent, setDefaultAgent] = useState(() =>
     localStorage.getItem("draft_default_agent") ?? "claude"
   );
-  const [budget, setBudget] = useState<BudgetSettings>(loadBudgetSettings);
   const [hasChanges, setHasChanges] = useState(false);
 
   // Maintenance state
@@ -87,13 +82,7 @@ export function SettingsPage() {
     setHasChanges(true);
   };
 
-  const handleBudgetChange = (key: keyof BudgetSettings, value: number | boolean) => {
-    setBudget(prev => ({ ...prev, [key]: value }));
-    setHasChanges(true);
-  };
-
   const handleSave = () => {
-    saveBudgetSettings(budget);
     if (typeof window !== "undefined") {
       localStorage.setItem("draft_default_agent", defaultAgent);
     }
@@ -104,14 +93,25 @@ export function SettingsPage() {
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="page-title flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            Settings
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Configure Draft to match your workflow
-          </p>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate(-1)}
+            className="h-8 w-8"
+            title="Back to board"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="page-title flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Settings
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Configure Draft to match your workflow
+            </p>
+          </div>
         </div>
         {hasChanges && (
           <Button onClick={handleSave}>
@@ -125,13 +125,11 @@ export function SettingsPage() {
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="executors">Executors</TabsTrigger>
-          <TabsTrigger value="budget">Budget</TabsTrigger>
           <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="space-y-6 mt-4">
           <EditorSettingsCard editor={editor} onEditorChange={handleEditorChange} />
-          <KeyboardShortcutsCard />
           <WelcomeTutorialCard />
         </TabsContent>
 
@@ -143,10 +141,6 @@ export function SettingsPage() {
           <ExecutorProfilesCard />
           <VerificationCommandsCard />
           <PlannerSettingsCard onDirty={() => setHasChanges(true)} />
-        </TabsContent>
-
-        <TabsContent value="budget" className="space-y-6 mt-4">
-          <BudgetSettingsCard budget={budget} onBudgetChange={handleBudgetChange} />
         </TabsContent>
 
         <TabsContent value="maintenance" className="space-y-6 mt-4">

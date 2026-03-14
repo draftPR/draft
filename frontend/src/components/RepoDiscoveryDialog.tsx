@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router';
 import { useBoard } from '@/contexts/BoardContext';
 import {
   discoverRepos,
@@ -22,6 +23,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Search, FolderGit2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { useUIStore } from '@/stores/uiStore';
 
 interface RepoDiscoveryDialogProps {
   open: boolean;
@@ -34,15 +36,14 @@ export function RepoDiscoveryDialog({
   onOpenChange,
   onReposAdded,
 }: RepoDiscoveryDialogProps) {
-  const { refreshBoards } = useBoard();
+  const navigate = useNavigate();
+  const { refreshBoards, setCurrentBoard } = useBoard();
   const [searchPath, setSearchPath] = useState('~/code');
   const [discoveredRepos, setDiscoveredRepos] = useState<DiscoveredRepo[]>([]);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [discovering, setDiscovering] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasAutoScanned, setHasAutoScanned] = useState(false);
-
   const handleDiscover = useCallback(async () => {
     if (!searchPath.trim()) {
       toast.error('Please enter a path to scan');
@@ -90,6 +91,7 @@ export function RepoDiscoveryDialog({
     try {
       let addedCount = 0;
       let errorCount = 0;
+      let lastCreatedBoardId: string | null = null;
 
       for (const path of selectedPaths) {
         try {
@@ -103,12 +105,13 @@ export function RepoDiscoveryDialog({
           }
 
           // Create a new board for this repository
-          await createBoard({
+          const board = await createBoard({
             name: repoMetadata.display_name || repoMetadata.name,
             repo_root: path,
             default_branch: repoMetadata.default_branch || undefined,
           });
 
+          lastCreatedBoardId = board.id;
           addedCount++;
         } catch (error) {
           console.error(`Failed to create board for repo ${path}:`, error);
@@ -121,10 +124,22 @@ export function RepoDiscoveryDialog({
         await refreshBoards();
         onReposAdded?.();
         onOpenChange(false);
-      }
 
-      if (errorCount > 0) {
-        toast.warning(`${addedCount} created, ${errorCount} failed`);
+        // Auto-navigate to the newly created board and open goal dialog
+        if (lastCreatedBoardId) {
+          setCurrentBoard(lastCreatedBoardId);
+          navigate(`/boards/${lastCreatedBoardId}`);
+          // Open the Create Goal dialog so the user can start immediately
+          setTimeout(() => useUIStore.getState().setGoalDialogOpen(true), 100);
+        }
+
+        if (errorCount > 0) {
+          toast.warning(`${addedCount} created, ${errorCount} failed`);
+        }
+      } else if (errorCount > 0) {
+        toast.error(`Failed to create ${errorCount} board${errorCount > 1 ? 's' : ''}`, {
+          description: "Check that the repositories exist and aren't already added.",
+        });
       }
     } catch (error) {
       console.error('Failed to create boards:', error);
@@ -147,17 +162,14 @@ export function RepoDiscoveryDialog({
     setSelectedPaths(newSet);
   }
 
-  // Auto-scan when dialog opens for the first time
+  // Reset state when dialog closes
   useEffect(() => {
-    if (open && !hasAutoScanned) {
-      setHasAutoScanned(true);
-      handleDiscover();
-    }
-    // Reset when dialog closes
     if (!open) {
-      setHasAutoScanned(false);
+      setDiscoveredRepos([]);
+      setSelectedPaths(new Set());
+      setError(null);
     }
-  }, [open, hasAutoScanned, handleDiscover]);
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -267,12 +279,12 @@ export function RepoDiscoveryDialog({
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center text-muted-foreground">
-                <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <FolderGit2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">
-                  Enter a path and click Scan to discover repositories
+                  Edit the path above if needed, then click Scan
                 </p>
                 <p className="text-xs mt-1 opacity-70">
-                  Example: ~/code, ~/projects, /Users/your-name/dev
+                  Common paths: ~/code, ~/projects, ~/dev
                 </p>
               </div>
             </div>

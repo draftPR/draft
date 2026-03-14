@@ -319,8 +319,8 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
                 plannerStatus.llm_configured ? "text-emerald-600" : "text-amber-600"
               )}>
                 {plannerStatus.llm_configured
-                  ? `Planner ready · ${plannerStatus.llm_provider ?? plannerStatus.model}`
-                  : "Planner needs API key"}
+                  ? `Planner ready`
+                  : "Planner ready · CLI mode"}
               </span>
             ) : (
               <span>Loading...</span>
@@ -670,12 +670,22 @@ export function KanbanBoard({ refreshTrigger }: KanbanBoardProps = {}) {
               if (isCollapsed) {
                 return (
                   <Droppable key={state} droppableId={state}>
-                    {(provided) => (
+                    {(provided, snapshot) => (
                       <div
                         ref={provided.innerRef}
                         {...provided.droppableProps}
-                        className="flex-shrink-0 w-[36px] min-h-[400px]"
+                        className={cn(
+                          "flex-shrink-0 w-[36px] min-h-[400px] rounded-lg transition-all duration-200",
+                          snapshot.isDraggingOver && "bg-primary/10 ring-2 ring-primary/30"
+                        )}
                       >
+                        {snapshot.isDraggingOver && (
+                          <div className="flex items-center justify-center h-20 mt-2">
+                            <span className="text-[9px] text-primary font-medium [writing-mode:vertical-lr] rotate-180">
+                              Drop here
+                            </span>
+                          </div>
+                        )}
                         <div className="hidden">{provided.placeholder}</div>
                       </div>
                     )}

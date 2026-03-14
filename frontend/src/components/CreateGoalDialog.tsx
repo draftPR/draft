@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 interface CreateGoalDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess?: () => void;
+  onSuccess?: (goalId: string) => void;
 }
 
 export function CreateGoalDialog({
@@ -69,7 +69,7 @@ export function CreateGoalDialog({
 
     setLoading(true);
     try {
-      await createGoal({
+      const goal = await createGoal({
         title: title.trim(),
         description: description.trim() || null,
         board_id: currentBoard?.id ?? null,
@@ -85,7 +85,7 @@ export function CreateGoalDialog({
       );
       resetForm();
       onOpenChange(false);
-      onSuccess?.();
+      onSuccess?.(goal.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create goal";
       toast.error(message);

@@ -711,21 +711,28 @@ async def execute_ticket(
     """
     from app.state_machine import validate_transition
 
+    ticket_service = TicketService(db)
+    ticket = await ticket_service.get_ticket_by_id(ticket_id)
+
     # Validate executor profile if specified
     if executor_profile:
-        from app.services.config_service import ConfigService
+        from app.models.board import Board
+        from app.services.config_service import DraftConfig
 
-        config_service = ConfigService()
-        profile = config_service.get_executor_profile(executor_profile)
+        # Load profiles from the ticket's board config (DB, not YAML)
+        board_result = await db.execute(
+            select(Board).where(Board.id == ticket.goal.board_id)
+        )
+        board = board_result.scalar_one_or_none()
+        board_config = board.config if board and board.config else None
+        config = DraftConfig.from_board_config(board_config)
+        profile = config.executor_profiles.get(executor_profile)
         if not profile:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown executor profile: '{executor_profile}'. "
-                f"Available: {list(config_service.get_executor_profiles().keys())}",
+                f"Available: {list(config.executor_profiles.keys())}",
             )
-
-    ticket_service = TicketService(db)
-    ticket = await ticket_service.get_ticket_by_id(ticket_id)
 
     # Validate ticket can transition to EXECUTING
     current_state = ticket.state_enum

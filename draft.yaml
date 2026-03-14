@@ -109,8 +109,8 @@ verify_config:
   # Commands to run during ticket verification
   # Each command is executed in the ticket's isolated worktree directory.
   # Commands run sequentially; verification stops on first failure.
-  commands:
-    - "python -m pytest -q test_calculator.py"
+  # Example: ["npm test", "npm run lint", "python -m pytest -q"]
+  commands: []
 
   # Note: After verification passes, tickets always go to 'needs_human' for review.
   # Only when the user explicitly approves the revision does it move to 'done'.
@@ -237,9 +237,12 @@ planner_config:
     # When true, the periodic planner tick will automatically start executing planned tickets
     auto_execute: false
     # Generate follow-up ticket proposals for BLOCKED tickets
-    propose_followups: true
+    # Requires LLM API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, or AWS credentials)
+    # Set to true once you have API credentials configured
+    propose_followups: false
     # Generate reflection summaries for DONE tickets
-    generate_reflections: true
+    # Requires LLM API keys (same as above)
+    generate_reflections: false
     # Validate generated tickets against codebase before creating them
     # When true, the LLM checks if tickets are:
     #   - Appropriate for the goal

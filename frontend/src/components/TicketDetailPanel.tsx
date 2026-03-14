@@ -529,9 +529,12 @@ export function TicketDetailPanel() {
   if (error) {
     return (
       <div className="h-full flex items-center justify-center p-6">
-        <div className="flex flex-col items-center gap-2 text-center">
+        <div className="flex flex-col items-center gap-3 text-center">
           <AlertCircle className="h-6 w-6 text-destructive" />
           <p className="text-sm text-destructive">{error}</p>
+          <Button variant="outline" size="sm" onClick={() => selectedTicketId && loadAll(selectedTicketId)}>
+            Retry
+          </Button>
         </div>
       </div>
     );
@@ -769,10 +772,16 @@ export function TicketDetailPanel() {
 
         {ticket.state === TicketState.BLOCKED && (
           <div className="space-y-3">
-            <Button onClick={handleUnblock} className="w-full" variant="outline">
-              <Lock className="h-4 w-4 mr-2" />
-              Unblock
-            </Button>
+            {ticket.blocked_by_ticket_id ? (
+              <p className="text-xs text-muted-foreground text-center py-2">
+                Blocked by another ticket — complete the blocker first
+              </p>
+            ) : (
+              <Button onClick={handleUnblock} className="w-full" variant="outline">
+                <Lock className="h-4 w-4 mr-2" />
+                Unblock
+              </Button>
+            )}
           </div>
         )}
 
@@ -824,7 +833,7 @@ export function TicketDetailPanel() {
                             )}
                           >
                             {p.name}
-                            <span className="ml-1 text-[10px] opacity-60">{p.executor_type}</span>
+                            <span className="ml-1 text-[10px] opacity-60">{p.executor_type.replace(/_/g, " ")}</span>
                           </button>
                         ))}
                       </div>
@@ -1093,7 +1102,7 @@ export function TicketDetailPanel() {
                   return (
                     <div key={item.id} className="border-l-2 border-border/50 pl-4 py-2 space-y-1">
                       <div className="flex items-center justify-between">
-                        <span className="text-[12px] font-medium capitalize text-foreground">{event.event_type}</span>
+                        <span className="text-[12px] font-medium capitalize text-foreground">{event.event_type.replace(/_/g, " ")}</span>
                         <span className="text-[11px] text-muted-foreground">{formatDate(event.created_at)}</span>
                       </div>
                       {event.event_type === EventType.TRANSITIONED && event.from_state && event.to_state && (
@@ -1126,7 +1135,7 @@ export function TicketDetailPanel() {
                         {job.status === JobStatus.RUNNING && <Loader2 className="h-3 w-3 animate-spin text-blue-500" />}
                         {job.status === JobStatus.SUCCEEDED && <Check className="h-3 w-3 text-emerald-500" />}
                         {job.status === JobStatus.FAILED && <AlertCircle className="h-3 w-3 text-red-500" />}
-                        {job.kind} job
+                        {job.kind.replace(/_/g, " ")} job
                       </span>
                       <span className="text-[11px] text-muted-foreground">{formatDate(job.created_at)}</span>
                     </div>
