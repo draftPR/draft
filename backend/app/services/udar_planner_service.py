@@ -433,7 +433,9 @@ class UDARPlannerService:
         failed_count = sum(1 for r in state["validation_results"] if not r["is_valid"])
 
         # Get max iterations from config (use defaults; callers pass board config)
-        max_iterations = DraftConfig().planner_config.udar.max_self_correction_iterations
+        max_iterations = (
+            DraftConfig().planner_config.udar.max_self_correction_iterations
+        )
 
         # Retry if validation failed and under iteration limit
         if failed_count > 0 and state["iteration"] < max_iterations:

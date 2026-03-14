@@ -252,6 +252,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/goals/{goal_id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get goal progress summary
+         * @description Get a summary of progress on a goal: ticket state breakdown,
+         *     completion percentage, and whether the goal is blocked.
+         */
+        get: operations["get_goal_progress_goals__goal_id__progress_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/goals/{goal_id}/generate-tickets/stream": {
         parameters: {
             query?: never;
@@ -1327,7 +1348,7 @@ export interface paths {
          * @deprecated
          * @description **DEPRECATED:** Use POST /boards/{board_id}/analyze-codebase instead.
          *
-         *     This endpoint uses the repo_root from draft.yaml config.
+         *     This endpoint uses the repo_root from the first board's DB config.
          *     The board-scoped endpoint is preferred for multi-board setups.
          */
         post: operations["analyze_codebase_legacy_board_analyze_codebase_post"];
@@ -6953,6 +6974,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AutonomyStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_goal_progress_goals__goal_id__progress_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                goal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

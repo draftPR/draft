@@ -865,7 +865,9 @@ async def analyze_codebase_legacy(
     board_result = await db.execute(select(Board).limit(1))
     board = board_result.scalar_one_or_none()
     if not board:
-        raise HTTPException(status_code=404, detail="No board found. Create a board first.")
+        raise HTTPException(
+            status_code=404, detail="No board found. Create a board first."
+        )
     repo_root = Path(board.repo_root).resolve()
 
     if not repo_root.exists():

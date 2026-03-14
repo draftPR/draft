@@ -151,9 +151,7 @@ def run_planner_tick_sync() -> dict:
                         )
                     db.commit()
             except Exception:
-                logger.exception(
-                    "Error in LLM-powered follow-up generation"
-                )
+                logger.exception("Error in LLM-powered follow-up generation")
 
     # 4. Generate reflections (LLM-powered)
     if config.features.generate_reflections:
@@ -177,9 +175,7 @@ def run_planner_tick_sync() -> dict:
                         )
                     db.commit()
             except Exception:
-                logger.exception(
-                    "Error in LLM-powered reflection generation"
-                )
+                logger.exception("Error in LLM-powered reflection generation")
 
     return {
         "executed": executed,

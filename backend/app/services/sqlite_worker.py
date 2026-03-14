@@ -246,9 +246,7 @@ def get_worker() -> SQLiteWorker:
             from app.services.config_service import DraftConfig
 
             with get_sync_db() as db:
-                board = db.execute(
-                    sa_select(Board).limit(1)
-                ).scalar_one_or_none()
+                board = db.execute(sa_select(Board).limit(1)).scalar_one_or_none()
                 board_config = board.config if board and board.config else None
 
             config = DraftConfig.from_board_config(board_config)
