@@ -233,15 +233,23 @@ _worker: SQLiteWorker | None = None
 def get_worker() -> SQLiteWorker:
     """Get or create the global SQLite worker.
 
-    Reads max_parallel_jobs from draft.yaml to configure the thread pool.
+    Reads max_parallel_jobs from the first board's DB config (or code defaults).
     """
     global _worker
     if _worker is None:
         max_workers = 1
         try:
-            from app.services.config_service import ConfigService
+            from sqlalchemy import select as sa_select
 
-            config = ConfigService().load_config()
+            from app.database_sync import get_sync_db
+            from app.models.board import Board
+            from app.services.config_service import DraftConfig
+
+            with get_sync_db() as db:
+                board = db.execute(sa_select(Board).limit(1)).scalar_one_or_none()
+                board_config = board.config if board and board.config else None
+
+            config = DraftConfig.from_board_config(board_config)
             max_workers = config.execute_config.max_parallel_jobs
         except Exception:
             pass  # Fall back to 1

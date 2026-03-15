@@ -28,7 +28,6 @@ from app.schemas.repo import (
 from app.schemas.ticket import BoardResponse as KanbanBoardResponse
 from app.services.board_repo_service import BoardRepoService
 from app.services.board_service import BoardService
-from app.services.config_service import ConfigService
 from app.services.ticket_generation_service import TicketGenerationService
 from app.services.ticket_service import TicketService
 from app.templates import list_templates
@@ -859,13 +858,17 @@ async def analyze_codebase_legacy(
     """
     **DEPRECATED:** Use POST /boards/{board_id}/analyze-codebase instead.
 
-    This endpoint uses the repo_root from draft.yaml config.
+    This endpoint uses the repo_root from the first board's DB config.
     The board-scoped endpoint is preferred for multi-board setups.
     """
-    # Get repo root from config - legacy path
-    config_service = ConfigService()
-    config = config_service.load_config()
-    repo_root = Path(config.project.repo_root).resolve()
+    # Get repo root from first board - legacy path
+    board_result = await db.execute(select(Board).limit(1))
+    board = board_result.scalar_one_or_none()
+    if not board:
+        raise HTTPException(
+            status_code=404, detail="No board found. Create a board first."
+        )
+    repo_root = Path(board.repo_root).resolve()
 
     if not repo_root.exists():
         raise HTTPException(

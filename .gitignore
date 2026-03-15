@@ -88,3 +88,4 @@ supervisord.conf
 nginx.conf
 backend/test_parse.py
 backend/setup_demo_review.py
+backend/.smartkanban/

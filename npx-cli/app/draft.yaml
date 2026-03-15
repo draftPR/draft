@@ -1,82 +1,82 @@
 # Draft Configuration
-# Edit this file to customize how Draft works with your project.
-# All settings have sensible defaults — you only need to change what matters to you.
+# This file configures execution and verification pipelines for Draft.
 
 # =============================================================================
-# EXECUTION
+# PROJECT CONFIGURATION
 # =============================================================================
+
+project:
+  # Path to the repository root (relative to this config file or absolute)
+  repo_root: "."
+
+# =============================================================================
+# EXECUTION CONFIGURATION
+# =============================================================================
+# Settings for the execute job that implements ticket changes using AI code tools.
+#
+# Executor Types:
+#   - Claude CLI (headless): Runs automatically, can implement changes without user
+#   - Cursor CLI (interactive): Opens editor, transitions to needs_human for manual work
+#
+# State Transitions:
+#   - Headless success with diff → verifying
+#   - Headless success with NO diff → blocked (reason: no changes)
+#   - Headless failure → blocked
+#   - Interactive (Cursor) → needs_human immediately
+#   - YOLO refused (empty allowlist) → needs_human with explanation
 
 execute_config:
-  # Which AI CLI to use: "claude" (recommended) or "cursor"
-  preferred_executor: "claude"
-
-  # How long the AI agent can run per ticket (seconds)
+  # Timeout for executor CLI in seconds (default: 600 = 10 minutes)
   timeout: 600
 
-  # Run multiple tickets in parallel (default: 1 = one at a time)
+  # Preferred executor CLI
+  # Options:
+  #   - "claude": Claude Code CLI (recommended for automation, headless)
+  #   - "cursor": Cursor CLI (interactive, opens editor for human)
+  preferred_executor: "claude"
+
+  # Maximum concurrent execute jobs (default: 1 = sequential)
+  # Set higher to execute independent tickets in parallel.
+  # Dependent tickets (blocked_by) are always executed sequentially.
   max_parallel_jobs: 1
 
-  # YOLO mode: skip permission prompts (default: false)
-  # Only works when yolo_allowlist contains your repo path
+  # ---------------------------------------------------------------------------
+  # YOLO MODE - DANGEROUS: Skip permission prompts
+  # ---------------------------------------------------------------------------
+  # When enabled AND allowlist is non-empty, Claude CLI runs with
+  # --dangerously-skip-permissions. This allows the AI to run any command
+  # without asking for approval.
+  #
+  # ⚠️  SECURITY WARNING ⚠️
+  # Only enable this if you understand the risks:
+  #   - AI can run ANY shell command without confirmation
+  #   - Prompt injection attacks could execute malicious code
+  #   - Network access, file deletion, etc. are all unrestricted
+  #
+  # Safety Policy (enforced by worker):
+  #   - If yolo_mode=true BUT yolo_allowlist is empty → REFUSES to run YOLO
+  #   - Transitions to needs_human with explanation
+  #   - You MUST explicitly list trusted paths in yolo_allowlist
+  #   - Only runs inside isolated worktrees (path validation enforced)
+  #   - Never runs on main/master/develop branches
+  #
+  # Default: false (permissioned mode - safer)
   yolo_mode: false
+
+  # REQUIRED when yolo_mode=true: list of trusted repo paths
+  # If yolo_mode is true but this is empty, execution REFUSES for safety.
+  # This prevents "I turned on YOLO and forgot" accidents.
+  # Example: ["/Users/me/trusted-repo", "/home/ci/project"]
   yolo_allowlist: []
 
 # =============================================================================
-# VERIFICATION
+# EXECUTOR PROFILES
 # =============================================================================
-# Commands that run after the AI implements a ticket to check its work.
-# Each runs in the ticket's isolated worktree. Stops on first failure.
-
-verify_config:
-  commands: []
-  # Examples:
-  #   - "npm test"
-  #   - "npm run lint"
-  #   - "python -m pytest -q"
-  #   - "cargo test"
-
-# =============================================================================
-# MERGE
-# =============================================================================
-
-merge_config:
-  default_strategy: "merge"    # "merge" or "rebase"
-  pull_before_merge: true
-  delete_branch_after_merge: true
-
-# =============================================================================
-# CLEANUP
-# =============================================================================
-
-cleanup_config:
-  auto_cleanup_on_merge: true
-  worktree_ttl_days: 14
-  evidence_ttl_days: 30
-
-# =============================================================================
-# PLANNER
-# =============================================================================
-# The planner automates ticket workflow. Core features (picking next ticket,
-# unblocking dependencies) work without any API keys using the CLI.
-
-planner_config:
-  # Which model to use for ticket generation
-  # "cli/claude" = uses Claude Code CLI (no API key needed)
-  model: "cli/claude"
-
-  features:
-    # Auto-start executing planned tickets
-    auto_execute: false
-
-    # These features require LLM API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, or AWS creds):
-    propose_followups: false    # Suggest fixes for blocked tickets
-    generate_reflections: false # Summarize completed tickets
-
-# =============================================================================
-# EXECUTOR PROFILES (optional)
-# =============================================================================
-# Named presets for different execution strategies.
-# Use when running a ticket: POST /tickets/{id}/run?executor_profile=fast
+# Named profiles with per-executor overrides. Use these to configure different
+# execution strategies (e.g., fast vs thorough, different models, timeouts).
+#
+# Select a profile when running a ticket:
+#   POST /tickets/{id}/run?executor_profile=fast
 #
 # Example:
 #   executor_profiles:
@@ -88,5 +88,229 @@ planner_config:
 #       executor_type: claude
 #       timeout: 1200
 #       extra_flags: ["--model", "claude-opus-4-6"]
+#     codex-auto:
+#       executor_type: codex
+#       timeout: 600
+#       extra_flags: ["--full-auto"]
 
 executor_profiles: {}
+
+# =============================================================================
+# VERIFICATION CONFIGURATION
+# =============================================================================
+# Settings for the verify job that validates ticket implementations.
+#
+# State Transitions:
+#   - All commands pass → needs_human (awaiting user review/approval)
+#   - Any command fails → blocked
+#   - User approves revision → done
+
+verify_config:
+  # Commands to run during ticket verification
+  # Each command is executed in the ticket's isolated worktree directory.
+  # Commands run sequentially; verification stops on first failure.
+  # Example: ["npm test", "npm run lint", "python -m pytest -q"]
+  commands: []
+
+  # Note: After verification passes, tickets always go to 'needs_human' for review.
+  # Only when the user explicitly approves the revision does it move to 'done'.
+  # This ensures human oversight of all code changes before completion.
+
+  # Target state when verification fails (currently only "blocked" supported)
+  on_failure: "blocked"
+
+# =============================================================================
+# CLEANUP CONFIGURATION
+# =============================================================================
+# Controls automatic cleanup of worktrees and evidence files to prevent disk rot.
+# Use POST /maintenance/cleanup to trigger cleanup manually.
+
+cleanup_config:
+  # Delete worktree after successful merge
+  auto_cleanup_on_merge: true
+  # Delete worktrees older than this many days
+  worktree_ttl_days: 14
+  # Delete evidence files older than this many days  
+  evidence_ttl_days: 30
+  # Maximum number of active worktrees (for future use)
+  max_worktrees: 50
+
+# =============================================================================
+# MERGE CONFIGURATION
+# =============================================================================
+# Controls how worktree branches are merged back into the default branch.
+# Use POST /tickets/{id}/merge to trigger merge after approval.
+
+merge_config:
+  # Default merge strategy: "merge" or "rebase"
+  default_strategy: "merge"
+  # Pull --ff-only before merge to ensure we're up to date
+  pull_before_merge: true
+  # Delete the feature branch after successful merge
+  delete_branch_after_merge: true
+
+# =============================================================================
+# AUTONOMY CONFIGURATION
+# =============================================================================
+# Safety rails for full autonomy mode. When a goal has autonomy_enabled=true,
+# these settings control what the system is allowed to auto-approve.
+#
+# Individual gates (auto_approve_tickets, auto_approve_revisions, auto_merge,
+# auto_approve_followups) are set per-goal via the API.
+# These global settings define safety limits that apply to ALL autonomous goals.
+
+autonomy_config:
+  # Maximum diff lines allowed for auto-approval of revisions.
+  # Diffs larger than this require human review.
+  max_diff_lines: 500
+
+  # File patterns that trigger mandatory human review.
+  # If any file in the diff matches these patterns, auto-approval is blocked.
+  sensitive_file_patterns:
+    - "**/.env*"
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/secrets/**"
+    - "**/credentials*"
+
+  # Require all verification commands to pass before auto-approving.
+  # When true (default), any verification failure blocks auto-approval.
+  require_verification_pass: true
+
+# =============================================================================
+# PLANNER CONFIGURATION
+# =============================================================================
+# Settings for the AI planner that automates workflow decisions.
+#
+# The planner runs in "tick" mode - each tick evaluates the board state and
+# takes one or more actions:
+#   - Pick next ticket: If PLANNED tickets exist and nothing is EXECUTING
+#   - Propose follow-ups: For BLOCKED tickets, generate follow-up ticket proposals
+#   - Generate reflections: For DONE tickets, create summary comments
+#
+# LLM is only used for follow-ups and reflections. Ticket selection is deterministic.
+
+planner_config:
+  # Agent CLI path for ticket generation (cursor-agent or claude)
+  # Auto-detected from PATH; set full path to override (e.g., "~/.local/bin/cursor-agent")
+  agent_path: "claude"
+
+  # LLM model for the planner.
+  # Default: "cli/claude" — uses the same Claude Code CLI as the executor (no API key needed).
+  # To use an API model instead, change in Settings > Executors or set here:
+  #   Direct Anthropic API:  "anthropic/claude-sonnet-4-5-20250929"  (requires ANTHROPIC_API_KEY)
+  #   AWS Bedrock:           "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"  (requires AWS credentials)
+  #   Bedrock inf. profile:  "bedrock/arn:aws:bedrock:us-east-2:...:inference-profile/..."
+  #   OpenAI:                "gpt-4o-mini" or "gpt-4o"  (requires OPENAI_API_KEY)
+  model: "cli/claude"
+
+  # Maximum tokens for LLM responses
+  max_tokens_reflection: 300
+  max_tokens_followup: 500
+
+  # Timeout for LLM API calls in seconds
+  timeout: 30
+
+  # ---------------------------------------------------------------------------
+  # SAFETY CAPS - Prevent runaway follow-up generation
+  # ---------------------------------------------------------------------------
+  # Follow-ups for blocked tickets can explode your backlog if uncapped.
+  # These limits ensure the planner doesn't spam your board.
+
+  # Maximum follow-up tickets for any single blocked ticket (total, ever)
+  max_followups_per_ticket: 2
+
+  # Maximum follow-up tickets created in one tick
+  max_followups_per_tick: 3
+
+  # Blocker reasons that should NOT trigger follow-ups
+  # These are typically prompt/requirements issues, not new tickets
+  skip_followup_reasons:
+    - "no changes produced"
+    - "no changes"
+    - "empty diff"
+
+  # Enable/disable specific planner features
+  features:
+    # Automatically pick and execute highest priority PLANNED ticket
+    # When false, tickets stay in "planned" until you click "Start Autopilot"
+    # When true, the periodic planner tick will automatically start executing planned tickets
+    auto_execute: false
+    # Generate follow-up ticket proposals for BLOCKED tickets
+    # Requires LLM API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, or AWS credentials)
+    # Set to true once you have API credentials configured
+    propose_followups: false
+    # Generate reflection summaries for DONE tickets
+    # Requires LLM API keys (same as above)
+    generate_reflections: false
+    # Validate generated tickets against codebase before creating them
+    # When true, the LLM checks if tickets are:
+    #   - Appropriate for the goal
+    #   - Not already implemented
+    #   - Relevant to the codebase
+    # Invalid tickets are filtered out and logged
+    validate_tickets: false  # Disabled for testing - agent output will generate all tickets
+
+  # ---------------------------------------------------------------------------
+  # UDAR AGENT CONFIGURATION (Experimental)
+  # ---------------------------------------------------------------------------
+  # UDAR (Understand-Decide-Act-Validate-Review) is a lean agent architecture
+  # for adaptive ticket generation. When enabled, it replaces the legacy
+  # single-shot ticket generator with a structured workflow that:
+  #   - Gathers codebase context deterministically (0 LLM calls)
+  #   - Generates tickets in batched LLM call (1 LLM call)
+  #   - Validates proposals deterministically (0 LLM calls)
+  #   - Can optionally re-plan after ticket completion (incremental)
+  #
+  # COST: 1-2 LLM calls per goal (vs legacy 1 call), but with better reasoning
+  udar:
+    # Enable UDAR agent for ticket generation (default: false for Phase 2 testing)
+    enabled: false
+
+    # Enable incremental replanning after ticket completion (default: false)
+    # When true, agent analyzes completed tickets and generates follow-ups
+    # Cost: ~1 LLM call per 5 completed tickets (batched)
+    enable_incremental_replanning: false
+
+    # Max self-correction iterations if validation fails (default: 1 to save quota)
+    max_self_correction_iterations: 1
+
+    # Enable optional LLM validation in Validate phase (default: false)
+    # When false, only deterministic validation is used (exact duplicate check, etc.)
+    # When true, adds LLM-based validation (+1 LLM call)
+    enable_llm_validation: false
+
+    # Incremental replanning settings (Phase 3)
+    # Batch size: Wait for this many completed tickets before analyzing (default: 5)
+    # Higher = fewer LLM calls but less responsive follow-ups
+    replan_batch_size: 5
+
+    # Significance threshold: Only call LLM if files changed exceeds this (default: 10)
+    # Changes below this threshold are considered "minor" and skip LLM analysis
+    replan_significance_threshold: 10
+
+    # Max frequency: Minimum minutes between replanning batches (default: 30)
+    # Prevents too-frequent LLM calls even if batch size reached
+    replan_max_frequency_minutes: 30
+
+    # ---------------------------------------------------------------------------
+    # Production Hardening (Phase 5)
+    # ---------------------------------------------------------------------------
+    # Error handling, timeouts, and fallback behavior for production deployments
+
+    # Fallback to legacy ticket generation if UDAR fails (default: true)
+    # When true, errors in UDAR automatically fall back to legacy mode
+    # When false, UDAR errors propagate to the caller
+    fallback_to_legacy: true
+
+    # Timeout for UDAR agent execution in seconds (default: 120 = 2 minutes)
+    # Prevents runaway LLM calls from blocking indefinitely
+    timeout_seconds: 120
+
+    # Enable cost tracking in AgentSession table (default: true)
+    # Tracks input/output tokens and estimated USD cost per goal
+    enable_cost_tracking: true
+
+    # Max retries on transient errors (default: 0 = no retry)
+    # For network errors, rate limits, etc. NOT for validation failures.
+    max_retries_on_error: 0

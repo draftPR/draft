@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.models.board import Board
 from app.models.ticket_event import TicketEvent
 from app.schemas.planner import (
     PlannerAction,
@@ -19,7 +20,7 @@ from app.schemas.planner import (
     PlannerTickRequest,
     PlannerTickResponse,
 )
-from app.services.config_service import ConfigService
+from app.services.config_service import DraftConfig
 from app.services.planner_service import PlannerLockError, PlannerService
 from app.state_machine import ActorType
 
@@ -241,9 +242,11 @@ async def get_planner_status(
 
     This helps debug "why didn't follow-ups happen?" issues.
     """
-    config_service = ConfigService()
-    # Load fresh config without cache (in case draft.yaml was edited)
-    config = config_service.load_config(use_cache=False).planner_config
+    # Load config from the first board's DB config (single source of truth)
+    board_result = await db.execute(select(Board).limit(1))
+    board = board_result.scalar_one_or_none()
+    board_config = board.config if board and board.config else None
+    config = DraftConfig.from_board_config(board_config).planner_config
 
     llm_configured, llm_provider = _detect_llm_provider(model=config.model)
 

@@ -298,8 +298,8 @@ class PlannerFeaturesConfig:
     """Feature flags for the planner."""
 
     auto_execute: bool = False
-    propose_followups: bool = True
-    generate_reflections: bool = True
+    propose_followups: bool = False
+    generate_reflections: bool = False
     validate_tickets: bool = False
 
     @classmethod
@@ -307,8 +307,8 @@ class PlannerFeaturesConfig:
         """Create a config instance from a dictionary."""
         return cls(
             auto_execute=data.get("auto_execute", False),
-            propose_followups=data.get("propose_followups", True),
-            generate_reflections=data.get("generate_reflections", True),
+            propose_followups=data.get("propose_followups", False),
+            generate_reflections=data.get("generate_reflections", False),
             validate_tickets=data.get("validate_tickets", False),
         )
 

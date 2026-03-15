@@ -66,20 +66,19 @@ def upgrade() -> None:
 
     op.drop_index(op.f("ix_agent_sessions_agent_type"), table_name="agent_sessions")
     op.drop_index(op.f("ix_agent_sessions_created_at"), table_name="agent_sessions")
-    op.alter_column(
-        "boards",
-        "created_at",
-        existing_type=sa.DATETIME(),
-        nullable=False,
-        existing_server_default=sa.text("(CURRENT_TIMESTAMP)"),
-    )
-    op.alter_column(
-        "boards",
-        "updated_at",
-        existing_type=sa.DATETIME(),
-        nullable=False,
-        existing_server_default=sa.text("(CURRENT_TIMESTAMP)"),
-    )
+    with op.batch_alter_table("boards") as batch_op:
+        batch_op.alter_column(
+            "created_at",
+            existing_type=sa.DATETIME(),
+            nullable=False,
+            existing_server_default=sa.text("(CURRENT_TIMESTAMP)"),
+        )
+        batch_op.alter_column(
+            "updated_at",
+            existing_type=sa.DATETIME(),
+            nullable=False,
+            existing_server_default=sa.text("(CURRENT_TIMESTAMP)"),
+        )
     op.create_foreign_key(
         None, "jobs", "revisions", ["source_revision_id"], ["id"], ondelete="SET NULL"
     )
@@ -144,20 +143,19 @@ def downgrade() -> None:
         "jobs", sa.Column("agent_session_id", sa.VARCHAR(length=36), nullable=True)
     )
     op.drop_constraint(None, "jobs", type_="foreignkey")
-    op.alter_column(
-        "boards",
-        "updated_at",
-        existing_type=sa.DATETIME(),
-        nullable=True,
-        existing_server_default=sa.text("(CURRENT_TIMESTAMP)"),
-    )
-    op.alter_column(
-        "boards",
-        "created_at",
-        existing_type=sa.DATETIME(),
-        nullable=True,
-        existing_server_default=sa.text("(CURRENT_TIMESTAMP)"),
-    )
+    with op.batch_alter_table("boards") as batch_op:
+        batch_op.alter_column(
+            "updated_at",
+            existing_type=sa.DATETIME(),
+            nullable=True,
+            existing_server_default=sa.text("(CURRENT_TIMESTAMP)"),
+        )
+        batch_op.alter_column(
+            "created_at",
+            existing_type=sa.DATETIME(),
+            nullable=True,
+            existing_server_default=sa.text("(CURRENT_TIMESTAMP)"),
+        )
     op.create_index(
         op.f("ix_agent_sessions_created_at"),
         "agent_sessions",

@@ -626,20 +626,13 @@ async def submit_review(
                             )
                         else:
                             # Simple git merge (runs in thread pool to avoid blocking)
-                            # Read merge configuration with board-level overrides
-                            from app.services.config_service import ConfigService
+                            # Read merge configuration from board DB config
+                            from app.services.config_service import DraftConfig
 
-                            config_service = ConfigService()
-
-                            # Reuse board fetched earlier for target_branch detection
-                            board_config = (
+                            board_config_dict = (
                                 board.config if board and board.config else None
                             )
-
-                            # Load config with board overrides applied
-                            config = config_service.load_config_with_board_overrides(
-                                board_config=board_config, use_cache=False
-                            )
+                            config = DraftConfig.from_board_config(board_config_dict)
                             merge_config = config.merge_config
 
                             import asyncio
