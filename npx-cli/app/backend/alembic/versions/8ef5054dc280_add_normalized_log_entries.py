@@ -79,11 +79,12 @@ def upgrade() -> None:
             nullable=False,
             existing_server_default=sa.text("(CURRENT_TIMESTAMP)"),
         )
-    op.create_foreign_key(
-        None, "jobs", "revisions", ["source_revision_id"], ["id"], ondelete="SET NULL"
-    )
-    op.drop_column("jobs", "agent_session_id")
-    op.drop_column("jobs", "agent_type")
+    with op.batch_alter_table("jobs") as batch_op:
+        batch_op.create_foreign_key(
+            None, "revisions", ["source_revision_id"], ["id"], ondelete="SET NULL"
+        )
+        batch_op.drop_column("agent_session_id")
+        batch_op.drop_column("agent_type")
     op.drop_index(
         op.f("ix_review_comments_revision_resolved"), table_name="review_comments"
     )
@@ -96,7 +97,8 @@ def upgrade() -> None:
         ["revision_id"],
         unique=True,
     )
-    op.drop_column("tickets", "total_cost_usd")
+    with op.batch_alter_table("tickets") as batch_op:
+        batch_op.drop_column("total_cost_usd")
     op.drop_index(op.f("ix_workspaces_ticket_id"), table_name="workspaces")
     op.create_index(
         op.f("ix_workspaces_ticket_id"), "workspaces", ["ticket_id"], unique=True
@@ -122,7 +124,8 @@ def downgrade() -> None:
     op.create_index(
         op.f("ix_workspaces_ticket_id"), "workspaces", ["ticket_id"], unique=False
     )
-    op.add_column("tickets", sa.Column("total_cost_usd", sa.FLOAT(), nullable=True))
+    with op.batch_alter_table("tickets") as batch_op:
+        batch_op.add_column(sa.Column("total_cost_usd", sa.FLOAT(), nullable=True))
     op.drop_index(
         op.f("ix_review_summaries_revision_id"), table_name="review_summaries"
     )
@@ -138,11 +141,14 @@ def downgrade() -> None:
         ["revision_id", "resolved"],
         unique=False,
     )
-    op.add_column("jobs", sa.Column("agent_type", sa.VARCHAR(length=50), nullable=True))
-    op.add_column(
-        "jobs", sa.Column("agent_session_id", sa.VARCHAR(length=36), nullable=True)
-    )
-    op.drop_constraint(None, "jobs", type_="foreignkey")
+    with op.batch_alter_table("jobs") as batch_op:
+        batch_op.add_column(
+            sa.Column("agent_type", sa.VARCHAR(length=50), nullable=True)
+        )
+        batch_op.add_column(
+            sa.Column("agent_session_id", sa.VARCHAR(length=36), nullable=True)
+        )
+        batch_op.drop_constraint(None, type_="foreignkey")
     with op.batch_alter_table("boards") as batch_op:
         batch_op.alter_column(
             "updated_at",

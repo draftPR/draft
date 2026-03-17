@@ -74,6 +74,7 @@ def run_planner_tick_sync() -> dict:
     followups_created = 0
     reflections_added = 0
     queued_executed = 0
+    unblocked = 0
     jobs_to_enqueue: list[str] = []
 
     with get_sync_db() as db:

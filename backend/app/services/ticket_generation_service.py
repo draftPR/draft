@@ -1443,16 +1443,21 @@ Now analyze the codebase and generate the JSON."""
                     "Need cursor-agent or claude CLI for automated ticket generation."
                 )
 
-        # For Claude CLI with streaming: enable structured JSON output
-        # so the normalizer can produce typed entries (thinking, tool_use, etc.)
+        # Ticket generation is a read-only analysis task (reads files, outputs JSON).
+        # Always bypass permissions so the CLI doesn't block on interactive prompts
+        # when running headlessly as a subprocess.
+        if is_claude_cli:
+            cmd.insert(1, "--dangerously-skip-permissions")
+
+        # For Claude CLI with streaming: use plain --print mode.
+        # Note: --output-format stream-json buffers all output until completion
+        # when stdout is not a TTY, producing 0 bytes during execution.
+        # Plain --print returns the final text which is all we need for parsing.
         if is_claude_cli and stream_callback:
             cmd = [
                 cmd[0],  # executable path
                 "--print",
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--include-partial-messages",
+                "--dangerously-skip-permissions",
                 "--no-session-persistence",
                 prompt,
             ]
@@ -1486,6 +1491,7 @@ Now analyze the codebase and generate the JSON."""
                 process = subprocess.Popen(
                     cmd,
                     cwd=repo_root,
+                    stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -1494,9 +1500,9 @@ Now analyze the codebase and generate the JSON."""
                 )
 
                 output_lines = []
-                result_text = None  # Extracted from 'result' JSON line (stream-json)
 
-                # Read stdout line by line
+                # Read stdout line by line (plain --print mode outputs
+                # final text, so lines arrive when process completes)
                 while True:
                     line = process.stdout.readline()
                     if not line and process.poll() is not None:
@@ -1505,20 +1511,6 @@ Now analyze the codebase and generate the JSON."""
                         output_lines.append(line)
                         stripped = line.rstrip()
                         stream_callback(stripped)
-
-                        # For stream-json mode: extract the result text
-                        # from the final {"type":"result",...,"result":"..."} line
-                        if is_claude_cli and stripped.startswith("{"):
-                            try:
-                                parsed = json.loads(stripped)
-                                if (
-                                    isinstance(parsed, dict)
-                                    and parsed.get("type") == "result"
-                                    and isinstance(parsed.get("result"), str)
-                                ):
-                                    result_text = parsed["result"]
-                            except json.JSONDecodeError:
-                                pass
 
                 logger.info(
                     f"Agent subprocess completed. Total lines: {len(output_lines)}"
@@ -1539,16 +1531,13 @@ Now analyze the codebase and generate the JSON."""
                     )
                     raise ValueError(f"Agent failed: {stderr[:500]}")
 
-                # For stream-json mode: return extracted result text
-                # For plain text mode: return raw output
-                if result_text is not None:
-                    return result_text
                 return "".join(output_lines)
             else:
                 # Non-streaming mode (original behavior)
                 result = subprocess.run(
                     cmd,
                     cwd=repo_root,
+                    stdin=subprocess.DEVNULL,
                     capture_output=True,
                     text=True,
                     timeout=600,  # 10 minute timeout for ticket generation

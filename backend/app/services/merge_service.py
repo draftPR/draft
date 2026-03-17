@@ -17,6 +17,7 @@ from app.data_dir import get_evidence_dir, get_worktrees_root
 from app.exceptions import ResourceNotFoundError, ValidationError
 from app.models.enums import ActorType, EventType
 from app.models.evidence import Evidence, EvidenceKind
+from app.models.goal import Goal
 from app.models.revision import RevisionStatus
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
@@ -98,13 +99,14 @@ class MergeService:
             ValidationError: If ticket is not in valid state for merge
             ConflictError: If merge cannot proceed due to conflicts
         """
-        # Fetch ticket with workspace and revisions
+        # Fetch ticket with workspace, revisions, and goal→board for repo_root
         result = await self.db.execute(
             select(Ticket)
             .where(Ticket.id == ticket_id)
             .options(
                 selectinload(Ticket.workspace),
                 selectinload(Ticket.revisions),
+                selectinload(Ticket.goal).selectinload(Goal.board),
             )
         )
         ticket = result.scalar_one_or_none()
@@ -134,8 +136,14 @@ class MergeService:
         if not worktree_path.exists():
             raise ValidationError(f"Worktree path does not exist: {worktree_path}")
 
+        # Resolve repo_root from the board (via ticket → goal → board)
+        board = ticket.goal.board if ticket.goal else None
+        if board and board.repo_root:
+            repo_path = Path(board.repo_root)
+        else:
+            repo_path = WorkspaceService.get_repo_path()
+
         # Validate worktree is under central data dir or legacy .draft/worktrees/
-        repo_path = WorkspaceService.get_repo_path()
         central_worktrees = get_worktrees_root()
         legacy_worktrees = repo_path / ".draft" / "worktrees"
         resolved = worktree_path.resolve()
@@ -156,8 +164,11 @@ class MergeService:
                 f"Worktree must be under a known worktrees directory: {worktree_path}"
             )
 
-        # Detect default branch early for event payload
-        default_branch = self._detect_default_branch(repo_path)
+        # Use board's default_branch if set, otherwise detect from git
+        if board and board.default_branch:
+            default_branch = board.default_branch
+        else:
+            default_branch = self._detect_default_branch(repo_path)
 
         # Record merge requested event
         await self._create_event(
@@ -180,6 +191,7 @@ class MergeService:
             workspace=workspace,
             strategy=strategy,
             default_branch=default_branch,
+            repo_path=repo_path,
         )
 
         if merge_result.success:
@@ -236,6 +248,7 @@ class MergeService:
         workspace: Workspace,
         strategy: MergeStrategy,
         default_branch: str,
+        repo_path: Path | None = None,
     ) -> MergeResult:
         """Perform the actual git merge/rebase operation.
 
@@ -253,11 +266,13 @@ class MergeService:
             workspace: The workspace with worktree info
             strategy: Merge strategy
             default_branch: Pre-detected default branch name
+            repo_path: Path to the repo root (from board). Falls back to default.
 
         Returns:
             MergeResult with operation outcome
         """
-        repo_path = WorkspaceService.get_repo_path()
+        if repo_path is None:
+            repo_path = WorkspaceService.get_repo_path()
         worktree_path = Path(workspace.worktree_path)
         branch_name = workspace.branch_name
         merge_config = self._config.merge_config
@@ -297,6 +312,23 @@ class MergeService:
 
             if result.stdout.strip():
                 return make_failure("Worktree has uncommitted changes")
+
+            # Step 1b: Verify main repo has no uncommitted changes
+            # NOTE: Uncommitted changes in the main repo will cause merge to fail
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=repo_path,  # <-- MAIN REPO directory
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            record_output("git status --porcelain (main repo)", result)
+
+            if result.stdout.strip():
+                return make_failure(
+                    "Main repo has uncommitted changes. "
+                    "Please commit or stash changes before merging."
+                )
 
             # Step 2: Ensure branch is not protected
             if branch_name.lower() in self.PROTECTED_BRANCHES:
