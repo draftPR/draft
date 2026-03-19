@@ -93,12 +93,12 @@ class ExecutorInfo:
         if self.executor_type == ExecutorType.CLAUDE:
             # Claude Code CLI with non-interactive mode:
             # - --print: Non-interactive mode that prints response and exits
-            # - --dangerously-skip-permissions: ONLY if yolo_mode is enabled
-            # Prompt is piped via stdin to avoid ARG_MAX limits
+            # - --dangerously-skip-permissions: Always enabled for headless execution.
+            #   Without this flag, Claude CLI runs in permissioned mode and hangs
+            #   waiting for TTY approval that can never come in a background process.
+            #   Worktree isolation already provides the safety boundary.
             prompt_content = prompt_file.read_text()
-            cmd = [self.command, "--print"]
-            if yolo_mode:
-                cmd.append("--dangerously-skip-permissions")
+            cmd = [self.command, "--print", "--dangerously-skip-permissions"]
             return cmd, prompt_content
         elif self.executor_type == ExecutorType.CURSOR_AGENT:
             # Cursor Agent CLI with non-interactive mode:
