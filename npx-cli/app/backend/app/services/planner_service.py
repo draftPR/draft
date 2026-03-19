@@ -255,14 +255,30 @@ class PlannerService:
                     )
 
             # 3. Handle blocked tickets (LLM-powered, with caps)
+            # CLI-based models (e.g. "cli/claude") can't be used with LiteLLM.
+            # Skip LLM-powered features when using CLI models.
+            is_cli_model = self.config.model.startswith("cli/")
+
             if self.config.features.propose_followups:
-                followup_actions = await self._handle_blocked_tickets()
-                actions.extend(followup_actions)
+                if is_cli_model:
+                    logger.debug(
+                        "Skipping follow-up generation: model '%s' is CLI-based.",
+                        self.config.model,
+                    )
+                else:
+                    followup_actions = await self._handle_blocked_tickets()
+                    actions.extend(followup_actions)
 
             # 4. Generate reflections (LLM-powered)
             if self.config.features.generate_reflections:
-                reflection_actions = await self._generate_reflections()
-                actions.extend(reflection_actions)
+                if is_cli_model:
+                    logger.debug(
+                        "Skipping reflection generation: model '%s' is CLI-based.",
+                        self.config.model,
+                    )
+                else:
+                    reflection_actions = await self._generate_reflections()
+                    actions.extend(reflection_actions)
 
             # 5. UDAR incremental replanning (Phase 3)
             if (

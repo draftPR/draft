@@ -1374,6 +1374,21 @@ def analyze_no_changes_reason(
 
     logger = logging.getLogger(__name__)
 
+    # CLI-based models (e.g. "cli/claude") can't be used with LiteLLM API calls.
+    # Skip LLM analysis and return a generic fallback.
+    if planner_config.model.startswith("cli/"):
+        logger.info(
+            "Skipping no-changes analysis: model '%s' is CLI-based, "
+            "no API credentials available for LLM analysis.",
+            planner_config.model,
+        )
+        return NoChangesAnalysis(
+            reason="Executor produced no code changes (LLM analysis skipped — CLI model in use)",
+            needs_code_changes=True,
+            requires_manual_work=False,
+            manual_work_description=None,
+        )
+
     # Truncate executor output to avoid token limits
     max_output_chars = 8000
     truncated_stdout = executor_stdout[:max_output_chars]

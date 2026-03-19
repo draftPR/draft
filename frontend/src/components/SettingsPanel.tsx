@@ -44,11 +44,13 @@ import {
   fetchPlannerConfig,
   updatePlannerConfig,
   checkPlannerHealth,
+  testExecutor,
   getBoardConfig,
   updateBoardConfig,
   fetchExecutorProfiles,
   saveExecutorProfiles,
 } from "@/services/api";
+import type { AgentTestResponse } from "@/services/api";
 import type { PlannerHealthResponse } from "@/types/api";
 import { useBoard } from "@/contexts/BoardContext";
 
@@ -138,6 +140,31 @@ export function AgentSettingsCard({
   defaultAgent: string;
   onAgentChange: (value: string) => void;
 }) {
+  const { currentBoard } = useBoard();
+  const boardId = currentBoard?.id;
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<AgentTestResponse | null>(null);
+
+  const runTest = useCallback(async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await testExecutor(boardId);
+      setTestResult(result);
+      playSound(result.status === "ok" ? "success" : "error");
+    } catch {
+      setTestResult({
+        status: "error",
+        executor: defaultAgent,
+        response: null,
+        error: "Failed to connect to backend",
+        duration_ms: 0,
+      });
+    } finally {
+      setTesting(false);
+    }
+  }, [boardId, defaultAgent]);
+
   return (
     <Card>
       <CardHeader>
@@ -158,6 +185,53 @@ export function AgentSettingsCard({
             showDetails
           />
         </div>
+
+        {/* Test result */}
+        {testResult && (
+          <div className={`p-3 rounded border text-sm space-y-1 ${
+            testResult.status === "ok"
+              ? "bg-green-500/10 border-green-500/30"
+              : "bg-destructive/10 border-destructive/30"
+          }`}>
+            <div className="flex items-center gap-2">
+              {testResult.status === "ok" ? (
+                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 text-destructive shrink-0" />
+              )}
+              <span className="font-medium text-xs">
+                {testResult.status === "ok"
+                  ? `Agent responded (${testResult.executor}, ${testResult.duration_ms}ms)`
+                  : `Agent test failed (${testResult.executor})`
+                }
+              </span>
+            </div>
+            {testResult.status === "ok" && testResult.response && (
+              <p className="text-xs text-muted-foreground font-mono break-all pl-6">
+                {testResult.response.slice(0, 200)}
+              </p>
+            )}
+            {testResult.status === "error" && testResult.error && (
+              <p className="text-xs text-muted-foreground font-mono break-all pl-6">
+                {testResult.error.slice(0, 200)}
+              </p>
+            )}
+          </div>
+        )}
+
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={runTest}
+          disabled={testing}
+        >
+          {testing ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <Terminal className="h-4 w-4 mr-2" />
+          )}
+          {testing ? "Testing..." : "Test Agent"}
+        </Button>
       </CardContent>
     </Card>
   );

@@ -256,7 +256,20 @@ async def get_planner_status(
     # Optionally perform LLM health check
     llm_health = None
     if health_check and llm_configured:
-        llm_health = await _check_llm_health(config.model)
+        if config.model.startswith("cli/"):
+            # CLI models can't be tested via LiteLLM — check binary exists instead
+            import shutil
+
+            cli_name = config.model.removeprefix("cli/")
+            agent_path = config.get_agent_path() if hasattr(config, "get_agent_path") else cli_name
+            found = shutil.which(agent_path)
+            llm_health = LLMHealthCheck(
+                healthy=bool(found),
+                latency_ms=0,
+                error=None if found else f"CLI not found: {agent_path}",
+            )
+        else:
+            llm_health = await _check_llm_health(config.model)
 
     return PlannerStatusResponse(
         model=config.model,

@@ -1374,6 +1374,21 @@ def analyze_no_changes_reason(
 
     logger = logging.getLogger(__name__)
 
+    # CLI-based models (e.g. "cli/claude") can't be used with LiteLLM API calls.
+    # Skip LLM analysis and return a generic fallback.
+    if planner_config.model.startswith("cli/"):
+        logger.info(
+            "Skipping no-changes analysis: model '%s' is CLI-based, "
+            "no API credentials available for LLM analysis.",
+            planner_config.model,
+        )
+        return NoChangesAnalysis(
+            reason="Executor produced no code changes (LLM analysis skipped — CLI model in use)",
+            needs_code_changes=True,
+            requires_manual_work=False,
+            manual_work_description=None,
+        )
+
     # Truncate executor output to avoid token limits
     max_output_chars = 8000
     truncated_stdout = executor_stdout[:max_output_chars]
@@ -2236,6 +2251,36 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 
     write_log(log_path, f"Git diff summary:\n{diff_stat}")
     write_log(log_path, f"Has changes: {has_changes}")
+
+    # Auto-commit changes in worktree so they can be merged later.
+    # The diff/patch evidence has already been captured above.
+    # Only commit if executor succeeded and there are actual changes.
+    if has_changes and executor_exit_code == 0:
+        write_log(log_path, "Auto-committing changes in worktree...")
+        try:
+            subprocess.run(
+                ["git", "add", "-A"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            commit_result = subprocess.run(
+                ["git", "commit", "-m", f"feat: {ticket.title}"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if commit_result.returncode == 0:
+                write_log(log_path, "Changes committed successfully.")
+            else:
+                write_log(
+                    log_path,
+                    f"Git commit warning: {commit_result.stderr.strip()}",
+                )
+        except Exception as e:
+            write_log(log_path, f"Auto-commit failed (non-fatal): {e}")
 
     # Check for cancellation before state transition
     if check_canceled(job_id):

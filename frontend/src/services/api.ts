@@ -191,6 +191,21 @@ export async function checkPlannerHealth(boardId?: string): Promise<PlannerHealt
   return apiFetch<PlannerHealthResponse>(`/settings/planner/check${params}`);
 }
 
+export interface AgentTestResponse {
+  status: "ok" | "error";
+  executor: string;
+  response: string | null;
+  error: string | null;
+  duration_ms: number;
+}
+
+export async function testExecutor(boardId?: string): Promise<AgentTestResponse> {
+  const params = boardId ? `?board_id=${boardId}` : "";
+  return apiFetch<AgentTestResponse>(`/executors/test${params}`, {
+    method: "POST",
+  });
+}
+
 const API_BASE = config.backendBaseUrl;
 
 /**
