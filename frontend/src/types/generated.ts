@@ -3033,6 +3033,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/executors/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Agent
+         * @description Test the configured agent by sending a simple prompt and checking the response.
+         *
+         *     Spawns the configured executor CLI with a trivial prompt ("Reply with: hello")
+         *     and verifies it responds without errors. Useful for validating that the agent
+         *     CLI is installed, authenticated, and working end-to-end.
+         */
+        post: operations["test_agent_executors_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings": {
         parameters: {
             query?: never;
@@ -3414,6 +3438,22 @@ export interface components {
              * @default 0
              */
             total_cost_usd: number;
+        };
+        /**
+         * AgentTestResponse
+         * @description Response from the agent test endpoint.
+         */
+        AgentTestResponse: {
+            /** Status */
+            status: string;
+            /** Executor */
+            executor: string;
+            /** Response */
+            response?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Duration Ms */
+            duration_ms: number;
         };
         /**
          * AnalyzeCodebaseRequest
@@ -10710,6 +10750,38 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_agent_executors_test_post: {
+        parameters: {
+            query?: {
+                /** @description Board ID (uses first board if omitted) */
+                board_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTestResponse"];
                 };
             };
             /** @description Validation Error */

@@ -415,7 +415,9 @@ async def test_agent(
                 return AgentTestResponse(
                     status="error",
                     executor=executor_info.executor_type.value,
-                    error=error_output[:500] if error_output else f"Exit code {result.returncode}",
+                    error=error_output[:500]
+                    if error_output
+                    else f"Exit code {result.returncode}",
                     duration_ms=elapsed_ms,
                 )
 
@@ -449,5 +451,7 @@ async def test_agent(
                 duration_ms=elapsed_ms,
             )
 
-    logger.info(f"Testing agent: {executor_info.executor_type.value} ({executor_info.command})")
+    logger.info(
+        f"Testing agent: {executor_info.executor_type.value} ({executor_info.command})"
+    )
     return await asyncio.to_thread(_run_test)

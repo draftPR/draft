@@ -261,7 +261,11 @@ async def get_planner_status(
             import shutil
 
             cli_name = config.model.removeprefix("cli/")
-            agent_path = config.get_agent_path() if hasattr(config, "get_agent_path") else cli_name
+            agent_path = (
+                config.get_agent_path()
+                if hasattr(config, "get_agent_path")
+                else cli_name
+            )
             found = shutil.which(agent_path)
             llm_health = LLMHealthCheck(
                 healthy=bool(found),
