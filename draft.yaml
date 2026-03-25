@@ -67,7 +67,8 @@ execute_config:
   # If yolo_mode is true but this is empty, execution REFUSES for safety.
   # This prevents "I turned on YOLO and forgot" accidents.
   # Example: ["/Users/me/trusted-repo", "/home/ci/project"]
-  yolo_allowlist: []
+  yolo_allowlist:
+    - "/Users/ellabaror/Documents/code/alma-kanban"
 
 # =============================================================================
 # EXECUTOR PROFILES
@@ -314,3 +315,41 @@ planner_config:
     # Max retries on transient errors (default: 0 = no retry)
     # For network errors, rate limits, etc. NOT for validation failures.
     max_retries_on_error: 0
+
+# =============================================================================
+# MULTI-AGENT TEAM CONFIGURATION
+# =============================================================================
+# Settings for coral-style multi-agent collaboration where specialized agents
+# (team lead, developer, reviewer, QA, etc.) work together on tickets via
+# tmux sessions and a message board.
+#
+# When enabled, ticket execution spawns a team of agents instead of a single
+# executor. The team lead (orchestrator) coordinates work distribution.
+#
+# Requires: tmux installed on the system
+# Configure per-board teams in Board Settings > Team tab.
+
+team_config:
+  # Master switch: false = legacy single-agent mode (default, backward compat)
+  enabled: false
+
+  # Default executor for team members (can be overridden per member)
+  default_executor: "claude"
+
+  # Timeout for the orchestrator/team lead (seconds, default: 30 min)
+  orchestrator_timeout: 1800
+
+  # Timeout for each worker agent (seconds, default: 10 min)
+  worker_timeout: 600
+
+  # How often agents check the message board for new messages (seconds)
+  message_check_interval: 10
+
+  # Maximum agents allowed in a team
+  max_team_size: 10
+
+  # How to detect team completion:
+  #   - "orchestrator_done": Team lead posts DONE message
+  #   - "all_idle": All agents idle for 60+ seconds
+  #   - "orchestrator_done_or_timeout": Team lead DONE or timeout
+  completion_strategy: "orchestrator_done_or_timeout"

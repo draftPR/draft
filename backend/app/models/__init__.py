@@ -2,6 +2,13 @@
 
 from app.models.agent_conversation_history import AgentConversationHistory
 from app.models.agent_session import AgentMessage, AgentSession
+from app.models.agent_team import (
+    AgentTeam,
+    AgentTeamMember,
+    BoardMessage,
+    BoardMessageCursor,
+    TeamAgentSession,
+)
 from app.models.analysis_cache import AnalysisCache
 from app.models.base import Base
 from app.models.board import Board
@@ -30,6 +37,11 @@ __all__ = [
     "AgentConversationHistory",
     "AgentMessage",
     "AgentSession",
+    "AgentTeam",
+    "AgentTeamMember",
+    "BoardMessage",
+    "BoardMessageCursor",
+    "TeamAgentSession",
     "AnalysisCache",
     "Base",
     "Board",

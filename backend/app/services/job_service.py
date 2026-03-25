@@ -287,6 +287,22 @@ class JobService:
         except Exception as e:
             logger.error(f"Failed to kill subprocess for job {job_id}: {e}")
 
+        # Stop any team agent sessions for this job's ticket
+        try:
+            from app.database_sync import get_sync_db
+            from app.services.team_session_service import TeamSessionService
+
+            def _stop_team():
+                with get_sync_db() as sync_db:
+                    ts = TeamSessionService(sync_db)
+                    return ts.stop_team(job.ticket_id)
+
+            stopped = await asyncio.to_thread(_stop_team)
+            if stopped:
+                logger.info(f"Stopped {stopped} team agent sessions for job {job_id}")
+        except Exception as e:
+            logger.debug(f"Team cleanup during cancel (non-fatal): {e}")
+
         await self.db.refresh(job)
         return job
 

@@ -1180,3 +1180,136 @@ export async function refreshPRStatus(ticketId: string): Promise<PRStatus> {
     method: "POST",
   });
 }
+
+// ==================== Agent Team API ====================
+
+export interface AgentRoleCatalogItem {
+  role: string;
+  display_name: string;
+  description: string;
+  default_prompt: string;
+  receive_mode: string;
+  is_required: boolean;
+  category: string;
+  icon: string;
+}
+
+export interface AgentTeamMember {
+  id: string;
+  role: string;
+  display_name: string;
+  executor_type: string;
+  behavior_prompt: string | null;
+  receive_mode: string;
+  is_required: boolean;
+  sort_order: number;
+}
+
+export interface AgentTeam {
+  id: string;
+  board_id: string;
+  name: string;
+  is_active: boolean;
+  members: AgentTeamMember[];
+}
+
+export async function fetchAgentCatalog(): Promise<AgentRoleCatalogItem[]> {
+  return apiFetch<AgentRoleCatalogItem[]>("/agent-catalog");
+}
+
+export async function fetchAgentPresets(): Promise<string[]> {
+  return apiFetch<string[]>("/agent-presets");
+}
+
+export async function fetchAgentTeam(boardId: string): Promise<AgentTeam | null> {
+  return apiFetch<AgentTeam | null>(`/boards/${boardId}/team`);
+}
+
+export async function updateAgentTeam(
+  boardId: string,
+  data: { name?: string; is_active?: boolean }
+): Promise<AgentTeam> {
+  return apiFetch<AgentTeam>(`/boards/${boardId}/team`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function applyTeamPreset(
+  boardId: string,
+  preset: string
+): Promise<AgentTeam> {
+  return apiFetch<AgentTeam>(`/boards/${boardId}/team/preset`, {
+    method: "POST",
+    body: JSON.stringify({ preset }),
+  });
+}
+
+export async function addTeamMember(
+  boardId: string,
+  data: { role: string; display_name?: string; executor_type?: string; behavior_prompt?: string }
+): Promise<AgentTeamMember> {
+  return apiFetch<AgentTeamMember>(`/boards/${boardId}/team/members`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTeamMember(
+  boardId: string,
+  memberId: string,
+  data: { display_name?: string; executor_type?: string; behavior_prompt?: string; sort_order?: number }
+): Promise<AgentTeamMember> {
+  return apiFetch<AgentTeamMember>(`/boards/${boardId}/team/members/${memberId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function removeTeamMember(
+  boardId: string,
+  memberId: string
+): Promise<void> {
+  return apiFetch<void>(`/boards/${boardId}/team/members/${memberId}`, {
+    method: "DELETE",
+  });
+}
+
+export interface BoardMessageItem {
+  id: number;
+  board_id: string;
+  ticket_id: string;
+  sender_session_id: string;
+  sender_role: string;
+  content: string;
+  created_at: string;
+}
+
+export async function fetchBoardMessages(
+  boardId: string,
+  ticketId: string
+): Promise<BoardMessageItem[]> {
+  return apiFetch<BoardMessageItem[]>(
+    `/boards/${boardId}/messages/all?ticket_id=${ticketId}`
+  );
+}
+
+export interface TeamAgentStatus {
+  id: string;
+  team_member_id: string;
+  tmux_session_name: string;
+  status: string;
+  last_pulse_status: string | null;
+  last_pulse_summary: string | null;
+  created_at: string | null;
+  ended_at: string | null;
+}
+
+export async function fetchTeamExecutionStatus(
+  boardId: string,
+  ticketId: string
+): Promise<TeamAgentStatus[]> {
+  return apiFetch<TeamAgentStatus[]>(
+    `/boards/${boardId}/team/status?ticket_id=${ticketId}`
+  );
+}

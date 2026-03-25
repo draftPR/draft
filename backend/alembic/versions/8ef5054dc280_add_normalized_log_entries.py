@@ -81,7 +81,11 @@ def upgrade() -> None:
         )
     with op.batch_alter_table("jobs") as batch_op:
         batch_op.create_foreign_key(
-            None, "revisions", ["source_revision_id"], ["id"], ondelete="SET NULL"
+            "fk_jobs_source_revision_id",
+            "revisions",
+            ["source_revision_id"],
+            ["id"],
+            ondelete="SET NULL",
         )
         batch_op.drop_column("agent_session_id")
         batch_op.drop_column("agent_type")
@@ -148,7 +152,9 @@ def downgrade() -> None:
         batch_op.add_column(
             sa.Column("agent_session_id", sa.VARCHAR(length=36), nullable=True)
         )
-        batch_op.drop_constraint(None, type_="foreignkey")
+        batch_op.drop_constraint(
+            "fk_jobs_source_revision_id", type_="foreignkey"
+        )
     with op.batch_alter_table("boards") as batch_op:
         batch_op.alter_column(
             "updated_at",

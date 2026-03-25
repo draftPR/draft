@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +34,7 @@ import { toast } from "sonner";
 import { AlertCircle, ExternalLink, Info, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useNavigate } from "react-router";
+import { TeamSettings } from "@/components/TeamSettings";
 
 interface BoardSettingsDialogProps {
   open: boolean;
@@ -239,13 +241,25 @@ export function BoardSettingsDialog({
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[550px]">
+      <DialogContent className="sm:max-w-[650px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Board Settings</DialogTitle>
           <DialogDescription>
-            Configure execution settings for this board.
+            Configure execution settings and agent team for this board.
           </DialogDescription>
         </DialogHeader>
+
+        <Tabs defaultValue="execution" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="execution">Execution</TabsTrigger>
+            <TabsTrigger value="team">Agent Team</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="team" className="mt-4">
+            <TeamSettings boardId={boardId} />
+          </TabsContent>
+
+          <TabsContent value="execution" className="mt-4">
 
         <div className="space-y-6 py-4">
           {hasOverrides && (
@@ -406,6 +420,9 @@ export function BoardSettingsDialog({
             </div>
           </div>
         </div>
+
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           <Button
