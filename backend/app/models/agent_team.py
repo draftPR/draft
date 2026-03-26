@@ -149,6 +149,9 @@ class TeamAgentSession(Base):
     log_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     last_pulse_status: Mapped[str | None] = mapped_column(String(500), nullable=True)
     last_pulse_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_pulse_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -93,6 +93,7 @@ def upgrade() -> None:
         sa.Column("log_path", sa.String(1024), nullable=True),
         sa.Column("last_pulse_status", sa.String(500), nullable=True),
         sa.Column("last_pulse_summary", sa.String(500), nullable=True),
+        sa.Column("last_pulse_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

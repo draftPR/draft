@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Draft is an AI-powered local-first kanban board that uses AI agents to automatically implement tickets. It creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI or Cursor Agent) to implement changes, verifies the changes, and manages the workflow through a state machine.
+Draft is an AI-powered local-first kanban board that uses AI agents to automatically implement tickets. It creates isolated git worktrees for each ticket, runs AI code tools (Claude CLI, Cursor Agent, Codex, or Gemini) to implement changes, verifies the changes, and manages the workflow through a state machine. Supports **multi-agent team execution** where specialized agent roles (Team Lead, PM, Developer, Code Reviewer, QA, etc.) collaborate via tmux sessions and an inter-agent message board.
 
 **Tech Stack:**
 - Backend: FastAPI + SQLAlchemy (async) + SQLite
 - Frontend: React + Vite + TypeScript + Tailwind CSS + shadcn/ui
 - Database: SQLite with Alembic migrations
 - Background Jobs: In-process SQLiteWorker (ThreadPoolExecutor)
-- AI Executors: Claude Code CLI or Cursor Agent CLI
+- AI Executors: Claude Code CLI, Cursor Agent CLI, Codex, Gemini
+- Multi-Agent: tmux-based orchestration with PULSE status protocol
 
 ## Development Commands
 
@@ -111,6 +112,8 @@ Multiple AI code executors via `executor_service.py`:
 - `CLAUDE`: Claude Code CLI (headless, recommended)
 - `CURSOR_AGENT`: Cursor Agent CLI (headless)
 - `CURSOR`: Cursor IDE CLI (interactive → `NEEDS_HUMAN` immediately)
+- `CODEX`: OpenAI Codex CLI
+- `GEMINI`: Google Gemini CLI
 
 State transitions after execution:
 - Headless success with diff → `VERIFYING`
@@ -118,6 +121,38 @@ State transitions after execution:
 - Headless failure → `BLOCKED`
 
 **YOLO Mode:** When enabled in `draft.yaml`, Claude CLI runs with `--dangerously-skip-permissions`. Only runs if `yolo_allowlist` has trusted repo paths.
+
+### Multi-Agent Team Execution
+
+When a board has an active agent team, ticket execution uses **tmux-based multi-agent orchestration** instead of a single executor. Inspired by Coral's architecture.
+
+**Agent Roles (14 available):** Team Lead (orchestrator, required), PM, Code Explorer, Developer, Code Reviewer, QA Engineer, Frontend Dev, Backend Dev, LLM Expert, ML Engineer, Prompt Engineer, DevOps Engineer, Security Engineer, Database Expert.
+
+**Presets:** `default` (6 agents), `duo` (2), `full_stack` (7), `ml_pipeline` (7), `security_audit` (5).
+
+**How it works:**
+1. Worker detects active team via `_get_active_team()` in `worker.py`
+2. `TeamSessionService` launches one tmux session per team member
+3. Each agent gets a role-specific behavior prompt + the ticket context
+4. Team Lead (orchestrator) receives all messages; others receive only directed messages
+5. Agents communicate via `board-cli.sh` → `POST /boards/{id}/messages` (message board)
+6. Status tracked via PULSE protocol: `||PULSE:STATUS working||` tags in agent output
+7. Worker polls tmux sessions every 30s, checks for completion signals
+8. When Team Lead posts `DONE:`, worker collects diff and transitions ticket
+
+**Key files:**
+- `agent_catalog.py`: Role definitions, prompts, presets
+- `tmux_manager.py`: Session lifecycle (create, kill, capture output)
+- `team_session_service.py`: Launch/monitor agent teams
+- `message_board_service.py`: Inter-agent messaging (cursor-based reads)
+- `board_cli_service.py`: Shell script injected into worktrees
+- `agent_hooks_service.py`: Claude Code hooks for board check-ins
+- `routers/agent_team.py`: REST API for team CRUD
+- `routers/message_board.py`: REST API for messaging
+
+**Per-member executor:** Each team member can use a different executor (Claude, Cursor, Codex, Gemini) configured in the UI.
+
+**Important:** Don't run the backend with `--reload` during team execution — HMR kills the worker's polling loop mid-execution.
 
 ### Verification Pipeline
 
@@ -174,6 +209,11 @@ Board
   │    │    └─ Workspace (1:1)
   │    ├─ CostBudget (1:1)
   │    └─ AgentSessions (1:N)
+  ├─ AgentTeam (1:1)
+  │    └─ AgentTeamMembers (1:N)
+  │         └─ TeamAgentSessions (1:N)
+  ├─ BoardMessages (1:N) — inter-agent message board
+  ├─ BoardMessageCursors (1:N) — per-session read cursors
   ├─ Jobs (1:N, denormalized)
   └─ Workspaces (1:N, denormalized)
 ```
@@ -235,6 +275,26 @@ Ruff ignores `B008` (function call in default argument) because FastAPI's `Depen
 1. Add enum variant to `ExecutorType` in `executor_service.py`
 2. Implement `get_apply_command()` logic
 3. Update `find_executor()` to detect new CLI
+4. Add to `EXECUTOR_OPTIONS` in `frontend/src/components/TeamSettings.tsx`
 
 ### Adding a Verification Command
 Edit `draft.yaml` under `verify_config.commands`.
+
+### Adding a New Agent Role
+1. Add role definition to `AGENT_ROLE_CATALOG` in `backend/app/services/agent_catalog.py`
+2. Include: `role` (snake_case id), `display_name`, `description`, `default_prompt`, `receive_mode` ("directed" or "all"), `is_required`, `category`, `icon`
+3. Optionally add to presets in `TEAM_PRESETS` in the same file
+4. Add icon mapping in `ICON_MAP` in `frontend/src/components/TeamSettings.tsx`
+
+### Adding a New Team Preset
+1. Add preset to `TEAM_PRESETS` dict in `backend/app/services/agent_catalog.py`
+2. Each preset is a list of role strings (must match `role` field in catalog)
+3. Preset appears automatically in the UI
+
+### Running Multi-Agent Execution
+1. Open Board Settings → Agent Team tab
+2. Apply a preset or add members from catalog
+3. Toggle "Multi-Agent Execution" ON
+4. Execute a ticket — worker auto-detects the team and launches tmux sessions
+5. Monitor via `tmux ls` to see running agents
+6. **Important:** Use `make run` (not `--reload`) to prevent HMR from killing the worker loop

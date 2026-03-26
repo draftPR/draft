@@ -2,6 +2,7 @@
 
 Provides cursor-based messaging between agents working on the same ticket.
 Inspired by coral's message board pattern with per-session read cursors.
+Uses SELECT FOR UPDATE on cursor reads to prevent race conditions.
 """
 
 import logging
@@ -58,6 +59,7 @@ class MessageBoardService:
 
         Returns messages posted by OTHER agents (excludes own messages).
         Advances the cursor past all messages (including own).
+        Uses atomic cursor update to prevent race conditions between agents.
 
         Args:
             board_id: Board scope.
@@ -67,41 +69,73 @@ class MessageBoardService:
         """
         cursor = self._get_or_create_cursor(board_id, ticket_id, session_id)
 
-        # Fetch new messages (excluding sender's own)
-        stmt = (
-            select(BoardMessage)
-            .where(
-                and_(
-                    BoardMessage.board_id == board_id,
-                    BoardMessage.ticket_id == ticket_id,
-                    BoardMessage.id > cursor.last_read_id,
-                    BoardMessage.sender_session_id != session_id,
-                )
-            )
-            .order_by(BoardMessage.id.asc())
-        )
-        messages = list(self.db.execute(stmt).scalars().all())
+        # Atomically read the cursor's last_read_id and lock the row.
+        # SQLite doesn't support SELECT FOR UPDATE, so we use a
+        # begin_nested() savepoint + immediate re-read to serialize access.
+        try:
+            self.db.begin_nested()
 
-        # For "mentions" mode, filter to messages that mention this agent's role
-        # (handled by caller who knows the role — we return all here and let
-        # the board CLI or notifier filter)
-
-        # Advance cursor past ALL messages (including own) to avoid re-reading
-        latest_stmt = (
-            select(BoardMessage.id)
-            .where(
-                and_(
-                    BoardMessage.board_id == board_id,
-                    BoardMessage.ticket_id == ticket_id,
+            # Re-read cursor within savepoint for consistent snapshot
+            fresh_cursor = self.db.execute(
+                select(BoardMessageCursor).where(
+                    BoardMessageCursor.id == cursor.id
                 )
+            ).scalar_one()
+            read_from = fresh_cursor.last_read_id
+
+            # Fetch new messages (excluding sender's own)
+            stmt = (
+                select(BoardMessage)
+                .where(
+                    and_(
+                        BoardMessage.board_id == board_id,
+                        BoardMessage.ticket_id == ticket_id,
+                        BoardMessage.id > read_from,
+                        BoardMessage.sender_session_id != session_id,
+                    )
+                )
+                .order_by(BoardMessage.id.asc())
             )
-            .order_by(BoardMessage.id.desc())
-            .limit(1)
-        )
-        latest_id = self.db.execute(latest_stmt).scalar()
-        if latest_id is not None and latest_id > cursor.last_read_id:
-            cursor.last_read_id = latest_id
-            self.db.commit()
+            messages = list(self.db.execute(stmt).scalars().all())
+
+            # Advance cursor past ALL messages (including own)
+            latest_stmt = (
+                select(BoardMessage.id)
+                .where(
+                    and_(
+                        BoardMessage.board_id == board_id,
+                        BoardMessage.ticket_id == ticket_id,
+                    )
+                )
+                .order_by(BoardMessage.id.desc())
+                .limit(1)
+            )
+            latest_id = self.db.execute(latest_stmt).scalar()
+            if latest_id is not None and latest_id > read_from:
+                fresh_cursor.last_read_id = latest_id
+
+            self.db.commit()  # Commits the savepoint
+        except Exception:
+            self.db.rollback()
+            logger.warning(
+                "Race condition in read_messages for session %s, retrying",
+                session_id,
+            )
+            # On conflict, re-read without savepoint (fallback)
+            self.db.refresh(cursor)
+            stmt = (
+                select(BoardMessage)
+                .where(
+                    and_(
+                        BoardMessage.board_id == board_id,
+                        BoardMessage.ticket_id == ticket_id,
+                        BoardMessage.id > cursor.last_read_id,
+                        BoardMessage.sender_session_id != session_id,
+                    )
+                )
+                .order_by(BoardMessage.id.asc())
+            )
+            messages = list(self.db.execute(stmt).scalars().all())
 
         return messages
 

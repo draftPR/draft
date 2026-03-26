@@ -41,6 +41,31 @@ class TeamSessionService:
         self.db = db
         self.board_service = MessageBoardService(db)
 
+    def validate_team(self, team: AgentTeam) -> list[str]:
+        """Validate team composition before launch. Returns list of errors."""
+        errors = []
+        if not team.members or len(team.members) == 0:
+            errors.append("Team has no members")
+            return errors
+
+        # Check for orchestrator
+        has_orchestrator = any(
+            m.receive_mode == "all" or m.role == "team_lead"
+            for m in team.members
+        )
+        if not has_orchestrator:
+            errors.append(
+                "Team must have an orchestrator (team_lead with receive_mode='all')"
+            )
+
+        # Check for duplicate roles
+        roles = [m.role for m in team.members]
+        dupes = [r for r in set(roles) if roles.count(r) > 1]
+        if dupes:
+            errors.append(f"Duplicate roles found: {', '.join(dupes)}")
+
+        return errors
+
     def launch_team(
         self,
         ticket_id: str,
@@ -55,17 +80,26 @@ class TeamSessionService:
     ) -> list[TeamAgentSession]:
         """Launch all agents in a team for a ticket execution.
 
-        1. Injects board CLI into worktree
-        2. Launches orchestrator (team lead) first
-        3. Launches worker agents
-        4. Sends initial prompts
+        1. Validates team composition
+        2. Injects board CLI into worktree
+        3. Launches orchestrator (team lead) first
+        4. Launches worker agents
+        5. Sends initial prompts
 
+        On partial failure, cleans up all already-launched sessions.
         Returns list of created TeamAgentSession records.
         """
         if not tmux_manager.is_tmux_available():
             raise RuntimeError(
                 "tmux is required for multi-agent execution but is not installed. "
                 "Install it with: brew install tmux (macOS) or apt install tmux (Linux)"
+            )
+
+        # Validate team before launch
+        validation_errors = self.validate_team(team)
+        if validation_errors:
+            raise ValueError(
+                f"Invalid team composition: {'; '.join(validation_errors)}"
             )
 
         # Inject board CLI into the worktree
@@ -86,71 +120,102 @@ class TeamSessionService:
             else:
                 workers.append(member)
 
-        if orchestrator is None:
-            raise ValueError(
-                "Team must have an orchestrator (team_lead with receive_mode='all')"
-            )
+        # orchestrator guaranteed non-None by validate_team above
+        assert orchestrator is not None
 
-        sessions = []
+        sessions: list[TeamAgentSession] = []
+        launched_tmux_names: list[str] = []
 
-        # Launch orchestrator first
-        orch_session = self._launch_agent(
-            ticket_id=ticket_id,
-            board_id=board_id,
-            job_id=job_id,
-            member=orchestrator,
-            worktree_path=worktree_path,
-            roster_str=roster_str,
-            api_base_url=api_base_url,
-            yolo_mode=yolo_mode,
-        )
-        sessions.append(orch_session)
-
-        # Subscribe orchestrator to board
-        self.board_service.subscribe(board_id, ticket_id, orch_session.session_uuid)
-
-        # Send orchestrator its initial prompt
-        orchestrator_prompt = self._build_orchestrator_prompt(
-            ticket_title=ticket_title,
-            ticket_description=ticket_description,
-            roster_str=roster_str,
-            member=orchestrator,
-        )
-        tmux_manager.send_text(orch_session.tmux_session_name, orchestrator_prompt)
-
-        # Launch workers
-        for worker_member in workers:
-            worker_session = self._launch_agent(
+        try:
+            # Launch orchestrator first
+            orch_session = self._launch_agent(
                 ticket_id=ticket_id,
                 board_id=board_id,
                 job_id=job_id,
-                member=worker_member,
+                member=orchestrator,
                 worktree_path=worktree_path,
                 roster_str=roster_str,
                 api_base_url=api_base_url,
                 yolo_mode=yolo_mode,
             )
-            sessions.append(worker_session)
+            sessions.append(orch_session)
+            launched_tmux_names.append(orch_session.tmux_session_name)
 
-            # Subscribe worker to board
+            # Subscribe orchestrator to board
             self.board_service.subscribe(
-                board_id, ticket_id, worker_session.session_uuid
+                board_id, ticket_id, orch_session.session_uuid
             )
 
-            # Send worker its initial prompt
-            worker_prompt = self._build_worker_prompt(
-                member=worker_member,
+            # Send orchestrator its initial prompt
+            orchestrator_prompt = self._build_orchestrator_prompt(
+                ticket_title=ticket_title,
+                ticket_description=ticket_description,
                 roster_str=roster_str,
+                member=orchestrator,
             )
-            tmux_manager.send_text(worker_session.tmux_session_name, worker_prompt)
+            tmux_manager.send_text(
+                orch_session.tmux_session_name, orchestrator_prompt
+            )
 
-        self.db.commit()
-        logger.info(
-            "Launched team of %d agents for ticket %s",
-            len(sessions),
-            ticket_id,
-        )
-        return sessions
+            # Launch workers
+            for worker_member in workers:
+                worker_session = self._launch_agent(
+                    ticket_id=ticket_id,
+                    board_id=board_id,
+                    job_id=job_id,
+                    member=worker_member,
+                    worktree_path=worktree_path,
+                    roster_str=roster_str,
+                    api_base_url=api_base_url,
+                    yolo_mode=yolo_mode,
+                )
+                sessions.append(worker_session)
+                launched_tmux_names.append(worker_session.tmux_session_name)
+
+                # Subscribe worker to board
+                self.board_service.subscribe(
+                    board_id, ticket_id, worker_session.session_uuid
+                )
+
+                # Send worker its initial prompt
+                worker_prompt = self._build_worker_prompt(
+                    member=worker_member,
+                    roster_str=roster_str,
+                )
+                tmux_manager.send_text(
+                    worker_session.tmux_session_name, worker_prompt
+                )
+
+            self.db.commit()
+            logger.info(
+                "Launched team of %d agents for ticket %s",
+                len(sessions),
+                ticket_id,
+            )
+            return sessions
+
+        except Exception as exc:
+            # Clean up all launched tmux sessions on partial failure
+            logger.error(
+                "Team launch failed after %d/%d agents: %s. Cleaning up.",
+                len(launched_tmux_names),
+                len(team.members),
+                exc,
+            )
+            for tmux_name in launched_tmux_names:
+                try:
+                    tmux_manager.kill_session(tmux_name)
+                except Exception:
+                    pass  # Best effort cleanup
+            # Mark any DB sessions as failed
+            for session in sessions:
+                session.status = "failed"
+                session.ended_at = datetime.now(UTC)
+            try:
+                self.db.commit()
+            except Exception:
+                self.db.rollback()
+            raise
 
     def _launch_agent(
         self,
@@ -358,17 +423,32 @@ class TeamSessionService:
         self.db.commit()
         return True
 
-    def get_team_status(self, ticket_id: str) -> list[dict]:
-        """Get status of all agent sessions for a ticket."""
+    def get_team_status(
+        self, ticket_id: str, agent_timeout_seconds: int = 600
+    ) -> list[dict]:
+        """Get status of all agent sessions for a ticket.
+
+        Detects dead agents and marks them failed. Also enforces per-agent
+        timeout: if an agent hasn't updated PULSE in agent_timeout_seconds
+        and its tmux session is still alive, it's considered stuck and killed.
+        """
         stmt = select(TeamAgentSession).where(TeamAgentSession.ticket_id == ticket_id)
         sessions = list(self.db.execute(stmt).scalars().all())
 
+        now = datetime.now(UTC)
         result = []
         for session in sessions:
             alive = tmux_manager.is_session_alive(session.tmux_session_name)
+
+            # Dead process detection
             if not alive and session.status in ("running", "waiting", "pending"):
                 session.status = "failed"
-                session.ended_at = datetime.now(UTC)
+                session.ended_at = now
+                logger.warning(
+                    "Agent %s (tmux=%s) died unexpectedly",
+                    session.session_uuid[:8],
+                    session.tmux_session_name,
+                )
 
             # Parse PULSE status from log
             pulse_status = session.last_pulse_status
@@ -378,9 +458,25 @@ class TeamSessionService:
                 if new_status:
                     pulse_status = new_status
                     session.last_pulse_status = new_status
+                    session.last_pulse_at = now
                 if new_summary:
                     pulse_summary = new_summary
                     session.last_pulse_summary = new_summary
+
+            # Per-agent timeout: kill stuck agents
+            if alive and session.status == "running" and agent_timeout_seconds > 0:
+                last_activity = getattr(session, "last_pulse_at", None) or session.created_at
+                if last_activity and (now - last_activity).total_seconds() > agent_timeout_seconds:
+                    logger.warning(
+                        "Agent %s (role=%s) timed out after %ds with no PULSE update. Killing.",
+                        session.session_uuid[:8],
+                        session.tmux_session_name,
+                        agent_timeout_seconds,
+                    )
+                    tmux_manager.kill_session(session.tmux_session_name)
+                    session.status = "failed"
+                    session.ended_at = now
+                    alive = False
 
             result.append(
                 {
@@ -473,5 +569,12 @@ class TeamSessionService:
                     summary = value
 
             return status, summary
-        except Exception:
+        except PermissionError:
+            logger.warning("Cannot read agent log (permission denied): %s", log_path)
+            return None, None
+        except OSError as exc:
+            logger.warning("Cannot read agent log: %s (%s)", log_path, exc)
+            return None, None
+        except Exception as exc:
+            logger.warning("PULSE parse failed for %s: %s", log_path, exc)
             return None, None
