@@ -152,9 +152,7 @@ def downgrade() -> None:
         batch_op.add_column(
             sa.Column("agent_session_id", sa.VARCHAR(length=36), nullable=True)
         )
-        batch_op.drop_constraint(
-            "fk_jobs_source_revision_id", type_="foreignkey"
-        )
+        batch_op.drop_constraint("fk_jobs_source_revision_id", type_="foreignkey")
     with op.batch_alter_table("boards") as batch_op:
         batch_op.alter_column(
             "updated_at",

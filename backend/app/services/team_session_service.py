@@ -50,8 +50,7 @@ class TeamSessionService:
 
         # Check for orchestrator
         has_orchestrator = any(
-            m.receive_mode == "all" or m.role == "team_lead"
-            for m in team.members
+            m.receive_mode == "all" or m.role == "team_lead" for m in team.members
         )
         if not has_orchestrator:
             errors.append(
@@ -142,9 +141,7 @@ class TeamSessionService:
             launched_tmux_names.append(orch_session.tmux_session_name)
 
             # Subscribe orchestrator to board
-            self.board_service.subscribe(
-                board_id, ticket_id, orch_session.session_uuid
-            )
+            self.board_service.subscribe(board_id, ticket_id, orch_session.session_uuid)
 
             # Send orchestrator its initial prompt
             orchestrator_prompt = self._build_orchestrator_prompt(
@@ -153,9 +150,7 @@ class TeamSessionService:
                 roster_str=roster_str,
                 member=orchestrator,
             )
-            tmux_manager.send_text(
-                orch_session.tmux_session_name, orchestrator_prompt
-            )
+            tmux_manager.send_text(orch_session.tmux_session_name, orchestrator_prompt)
 
             # Launch workers
             for worker_member in workers:
@@ -182,9 +177,7 @@ class TeamSessionService:
                     member=worker_member,
                     roster_str=roster_str,
                 )
-                tmux_manager.send_text(
-                    worker_session.tmux_session_name, worker_prompt
-                )
+                tmux_manager.send_text(worker_session.tmux_session_name, worker_prompt)
 
             self.db.commit()
             logger.info(
@@ -465,8 +458,13 @@ class TeamSessionService:
 
             # Per-agent timeout: kill stuck agents
             if alive and session.status == "running" and agent_timeout_seconds > 0:
-                last_activity = getattr(session, "last_pulse_at", None) or session.created_at
-                if last_activity and (now - last_activity).total_seconds() > agent_timeout_seconds:
+                last_activity = (
+                    getattr(session, "last_pulse_at", None) or session.created_at
+                )
+                if (
+                    last_activity
+                    and (now - last_activity).total_seconds() > agent_timeout_seconds
+                ):
                     logger.warning(
                         "Agent %s (role=%s) timed out after %ds with no PULSE update. Killing.",
                         session.session_uuid[:8],

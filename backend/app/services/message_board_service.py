@@ -77,9 +77,7 @@ class MessageBoardService:
 
             # Re-read cursor within savepoint for consistent snapshot
             fresh_cursor = self.db.execute(
-                select(BoardMessageCursor).where(
-                    BoardMessageCursor.id == cursor.id
-                )
+                select(BoardMessageCursor).where(BoardMessageCursor.id == cursor.id)
             ).scalar_one()
             read_from = fresh_cursor.last_read_id
 

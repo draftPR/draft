@@ -388,9 +388,7 @@ def _run_team_execution(
         with get_sync_db() as db:
             # Reload the full AgentTeam model from DB (launch_team expects ORM object)
             team_obj = (
-                db.query(AgentTeam)
-                .filter(AgentTeam.id == team_data["id"])
-                .first()
+                db.query(AgentTeam).filter(AgentTeam.id == team_data["id"]).first()
             )
             if not team_obj:
                 raise RuntimeError(f"Team {team_data['id']} not found in DB")
@@ -522,10 +520,10 @@ def _gather_team_logs(job_id: str, evidence_dir: Path) -> str | None:
             combined_log_path = evidence_dir / f"{combined_log_id}.team_log"
             with open(combined_log_path, "w") as f:
                 for sess in sessions:
-                    f.write(f"\n{'='*60}\n")
+                    f.write(f"\n{'=' * 60}\n")
                     f.write(f"Agent: {sess.tmux_session_name}\n")
                     f.write(f"Status: {sess.status}\n")
-                    f.write(f"{'='*60}\n\n")
+                    f.write(f"{'=' * 60}\n\n")
                     if sess.log_path and Path(sess.log_path).exists():
                         try:
                             content = Path(sess.log_path).read_text(errors="replace")
@@ -2317,7 +2315,11 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             "team_name": active_team["name"],
             "member_count": len(active_team["members"]),
             "members": [
-                {"role": m["role"], "display_name": m["display_name"], "executor": m["executor_type"]}
+                {
+                    "role": m["role"],
+                    "display_name": m["display_name"],
+                    "executor": m["executor_type"],
+                }
                 for m in active_team["members"]
             ],
             "completion_reason": team_reason,
@@ -2422,7 +2424,9 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
                 if commit_result.returncode == 0:
                     write_log(log_path, "Changes committed successfully.")
                 else:
-                    write_log(log_path, f"Git commit warning: {commit_result.stderr.strip()}")
+                    write_log(
+                        log_path, f"Git commit warning: {commit_result.stderr.strip()}"
+                    )
             except Exception as e:
                 write_log(log_path, f"Auto-commit failed (non-fatal): {e}")
 
