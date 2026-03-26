@@ -3294,6 +3294,225 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agent-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Role Catalog
+         * @description List all available agent roles for the team builder.
+         */
+        get: operations["list_role_catalog_agent_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent-presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Presets
+         * @description List available team preset names.
+         */
+        get: operations["list_presets_agent_presets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/boards/{board_id}/team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Team
+         * @description Get the agent team for a board (or null if not configured).
+         */
+        get: operations["get_team_boards__board_id__team_get"];
+        /**
+         * Update Team
+         * @description Update team settings (name, active state).
+         */
+        put: operations["update_team_boards__board_id__team_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/boards/{board_id}/team/preset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply Preset
+         * @description Apply a preset team composition to a board.
+         *
+         *     Replaces all existing members with the preset's roles.
+         */
+        post: operations["apply_preset_boards__board_id__team_preset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/boards/{board_id}/team/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Member
+         * @description Add a member to the board's agent team.
+         */
+        post: operations["add_member_boards__board_id__team_members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/boards/{board_id}/team/members/{member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Member
+         * @description Remove a member from the team.
+         */
+        delete: operations["remove_member_boards__board_id__team_members__member_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Member
+         * @description Update a team member's settings.
+         */
+        patch: operations["update_member_boards__board_id__team_members__member_id__patch"];
+        trace?: never;
+    };
+    "/boards/{board_id}/team/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Team Execution Status
+         * @description Get the live status of all agents executing for a ticket.
+         */
+        get: operations["get_team_execution_status_boards__board_id__team_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/boards/{board_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Messages
+         * @description Read new messages since this session's last read position.
+         *
+         *     Advances the cursor past returned messages. Excludes the caller's
+         *     own messages from the result but still advances past them.
+         */
+        get: operations["read_messages_boards__board_id__messages_get"];
+        put?: never;
+        /**
+         * Post Message
+         * @description Post a message to the team board for a ticket execution.
+         *
+         *     Called by agents via the board CLI during multi-agent execution.
+         */
+        post: operations["post_message_boards__board_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/boards/{board_id}/messages/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check Unread
+         * @description Check how many unread messages exist for this session.
+         */
+        get: operations["check_unread_boards__board_id__messages_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/boards/{board_id}/messages/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get All Messages
+         * @description Get all messages for a ticket execution (for UI display).
+         */
+        get: operations["get_all_messages_boards__board_id__messages_all_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/version": {
         parameters: {
             query?: never;
@@ -3334,6 +3553,20 @@ export interface components {
          * @enum {string}
          */
         ActorType: "human" | "planner" | "system" | "executor";
+        /** AddMemberRequest */
+        AddMemberRequest: {
+            /** Role */
+            role: string;
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Executor Type
+             * @default claude
+             */
+            executor_type: string;
+            /** Behavior Prompt */
+            behavior_prompt?: string | null;
+        };
         /**
          * AddPRCommentRequest
          * @description Request to add a comment to a PR.
@@ -3520,6 +3753,11 @@ export interface components {
              * @description Git HEAD SHA of workspace if different from repo root (for worktrees)
              */
             workspace_head_sha?: string | null;
+        };
+        /** ApplyPresetRequest */
+        ApplyPresetRequest: {
+            /** Preset */
+            preset: string;
         };
         /** AuthResponse */
         AuthResponse: {
@@ -4999,6 +5237,26 @@ export interface components {
             /** Created At */
             created_at: string;
         };
+        /** MessageResponse */
+        MessageResponse: {
+            /** Id */
+            id: number;
+            /** Board Id */
+            board_id: string;
+            /** Ticket Id */
+            ticket_id: string;
+            /** Sender Session Id */
+            sender_session_id: string;
+            /** Sender Role */
+            sender_role: string;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /**
          * OrchestratorLogEntry
          * @description A single orchestrator log entry.
@@ -5309,6 +5567,20 @@ export interface components {
              * @description Human-readable summary of what happened
              */
             summary: string;
+        };
+        /** PostMessageRequest */
+        PostMessageRequest: {
+            /** Ticket Id */
+            ticket_id: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Sender Role
+             * @default
+             */
+            sender_role: string;
+            /** Content */
+            content: string;
         };
         /**
          * PriorityBucket
@@ -5867,6 +6139,25 @@ export interface components {
             /** Events */
             events: components["schemas"]["TimelineEvent"][];
         };
+        /** RoleCatalogItem */
+        RoleCatalogItem: {
+            /** Role */
+            role: string;
+            /** Display Name */
+            display_name: string;
+            /** Description */
+            description: string;
+            /** Default Prompt */
+            default_prompt: string;
+            /** Receive Mode */
+            receive_mode: string;
+            /** Is Required */
+            is_required: boolean;
+            /** Category */
+            category: string;
+            /** Icon */
+            icon: string;
+        };
         /**
          * RunningJobInfo
          * @description Information about a running job.
@@ -6057,6 +6348,38 @@ export interface components {
             };
             /** Recent Events Count */
             recent_events_count: number;
+        };
+        /** TeamMemberResponse */
+        TeamMemberResponse: {
+            /** Id */
+            id: string;
+            /** Role */
+            role: string;
+            /** Display Name */
+            display_name: string;
+            /** Executor Type */
+            executor_type: string;
+            /** Behavior Prompt */
+            behavior_prompt: string | null;
+            /** Receive Mode */
+            receive_mode: string;
+            /** Is Required */
+            is_required: boolean;
+            /** Sort Order */
+            sort_order: number;
+        };
+        /** TeamResponse */
+        TeamResponse: {
+            /** Id */
+            id: string;
+            /** Board Id */
+            board_id: string;
+            /** Name */
+            name: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Members */
+            members: components["schemas"]["TeamMemberResponse"][];
         };
         /**
          * TicketAgentLogsResponse
@@ -6365,6 +6688,29 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** UnreadCountResponse */
+        UnreadCountResponse: {
+            /** Unread */
+            unread: number;
+        };
+        /** UpdateMemberRequest */
+        UpdateMemberRequest: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Executor Type */
+            executor_type?: string | null;
+            /** Behavior Prompt */
+            behavior_prompt?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+        };
+        /** UpdateTeamRequest */
+        UpdateTeamRequest: {
+            /** Name */
+            name?: string | null;
+            /** Is Active */
+            is_active?: boolean | null;
         };
         /** UserProfile */
         UserProfile: {
@@ -11248,6 +11594,417 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_role_catalog_agent_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleCatalogItem"][];
+                };
+            };
+        };
+    };
+    list_presets_agent_presets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
+    get_team_boards__board_id__team_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamResponse"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_team_boards__board_id__team_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTeamRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_preset_boards__board_id__team_preset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyPresetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_member_boards__board_id__team_members_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMemberResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_member_boards__board_id__team_members__member_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                board_id: string;
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_member_boards__board_id__team_members__member_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                board_id: string;
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMemberResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_execution_status_boards__board_id__team_status_get: {
+        parameters: {
+            query: {
+                ticket_id: string;
+            };
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_messages_boards__board_id__messages_get: {
+        parameters: {
+            query: {
+                ticket_id: string;
+                session_id: string;
+            };
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_message_boards__board_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_unread_boards__board_id__messages_check_get: {
+        parameters: {
+            query: {
+                ticket_id: string;
+                session_id: string;
+            };
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadCountResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_all_messages_boards__board_id__messages_all_get: {
+        parameters: {
+            query: {
+                ticket_id: string;
+            };
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"][];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -5,15 +5,16 @@ Revises: 016
 Create Date: 2026-03-24
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "017"
 down_revision: str | None = "016"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -28,7 +29,9 @@ def upgrade() -> None:
             nullable=False,
             unique=True,
         ),
-        sa.Column("name", sa.String(255), nullable=False, server_default="Default Team"),
+        sa.Column(
+            "name", sa.String(255), nullable=False, server_default="Default Team"
+        ),
         sa.Column("is_active", sa.Boolean, nullable=False, server_default="0"),
         sa.Column(
             "created_at",
@@ -57,9 +60,13 @@ def upgrade() -> None:
         ),
         sa.Column("role", sa.String(50), nullable=False),
         sa.Column("display_name", sa.String(255), nullable=False),
-        sa.Column("executor_type", sa.String(50), nullable=False, server_default="claude"),
+        sa.Column(
+            "executor_type", sa.String(50), nullable=False, server_default="claude"
+        ),
         sa.Column("behavior_prompt", sa.Text, nullable=True),
-        sa.Column("receive_mode", sa.String(20), nullable=False, server_default="mentions"),
+        sa.Column(
+            "receive_mode", sa.String(20), nullable=False, server_default="mentions"
+        ),
         sa.Column("is_required", sa.Boolean, nullable=False, server_default="0"),
         sa.Column("sort_order", sa.Integer, nullable=False, server_default="0"),
     )
@@ -116,9 +123,7 @@ def upgrade() -> None:
         "team_agent_sessions",
         ["team_member_id"],
     )
-    op.create_index(
-        "ix_team_agent_sessions_job_id", "team_agent_sessions", ["job_id"]
-    )
+    op.create_index("ix_team_agent_sessions_job_id", "team_agent_sessions", ["job_id"])
 
     # Message board for inter-agent communication
     op.create_table(
@@ -182,15 +187,11 @@ def downgrade() -> None:
     op.drop_index("ix_board_messages_board_id", table_name="board_messages")
     op.drop_table("board_messages")
 
-    op.drop_index(
-        "ix_team_agent_sessions_job_id", table_name="team_agent_sessions"
-    )
+    op.drop_index("ix_team_agent_sessions_job_id", table_name="team_agent_sessions")
     op.drop_index(
         "ix_team_agent_sessions_team_member_id", table_name="team_agent_sessions"
     )
-    op.drop_index(
-        "ix_team_agent_sessions_ticket_id", table_name="team_agent_sessions"
-    )
+    op.drop_index("ix_team_agent_sessions_ticket_id", table_name="team_agent_sessions")
     op.drop_table("team_agent_sessions")
 
     op.drop_index("ix_agent_team_members_team_id", table_name="agent_team_members")
