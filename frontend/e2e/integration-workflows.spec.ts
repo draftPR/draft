@@ -369,10 +369,10 @@ test.describe("Blocked Ticket Dependencies", () => {
     // Blocking indicator (use .first() since it may appear in card + panel)
     await expect(page.getByText(/Blocked by/i).first()).toBeVisible({ timeout: 10000 });
 
-    // Unblock button
-    const unblockBtn = page.getByRole("button", { name: /Unblock/i });
-    await expect(unblockBtn).toBeVisible();
-    await unblockBtn.click();
+    // Dependency-blocked ticket shows blocker message (no Unblock button)
+    await expect(
+      page.getByText(/complete the blocker first/i),
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test("ticket shows dependents it blocks", async ({ page }) => {

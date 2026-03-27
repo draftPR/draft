@@ -231,6 +231,9 @@ async function setupDemoMocks(page: Page) {
   await page.route(`${API}/boards/board-1/config`, (r) =>
     r.fulfill({ json: {} }),
   );
+  await page.route(`${API}/goals?*`, (r) =>
+    r.fulfill({ json: { goals: mockGoals } }),
+  );
   await page.route(`${API}/goals`, (r) => {
     if (r.request().method() === "POST")
       return r.fulfill({ json: mockGoals[0], status: 201 });

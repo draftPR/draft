@@ -31,10 +31,12 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { clearBoardConfig, getBoardConfig, updateBoardConfig, getExecutorModels, deleteAllTickets, deleteBoard, type ExecutorModel } from "@/services/api";
 import { toast } from "sonner";
-import { AlertCircle, ExternalLink, Info, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { AlertCircle, Info, Loader2, RotateCcw, ShieldAlert, Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useNavigate } from "react-router";
 import { TeamSettings } from "@/components/TeamSettings";
+import { useBoard } from "@/contexts/BoardContext";
+import { useUIStore } from "@/stores/uiStore";
 
 interface BoardSettingsDialogProps {
   open: boolean;
@@ -57,7 +59,8 @@ export function BoardSettingsDialog({
   onTicketsDeleted,
   onBoardDeleted,
 }: BoardSettingsDialogProps) {
-  const navigate = useNavigate();
+  const { currentBoard } = useBoard();
+  const boardSettingsTab = useUIStore((s) => s.boardSettingsTab);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -73,6 +76,7 @@ export function BoardSettingsDialog({
   const [executorModel, setExecutorModel] = useState<string | null>("auto");
   const [timeoutSecs, setTimeoutSecs] = useState(300);
   const [preferredExecutor, setPreferredExecutor] = useState("cursor-agent");
+  const [yoloMode, setYoloMode] = useState(false);
   const [modelOptions, setModelOptions] = useState<ExecutorModel[]>([]);
 
   // Fetch models when executor changes
@@ -131,6 +135,9 @@ export function BoardSettingsDialog({
         if (execConfig.preferred_executor !== undefined) {
           setPreferredExecutor(execConfig.preferred_executor);
         }
+        if (execConfig.yolo_mode !== undefined) {
+          setYoloMode(execConfig.yolo_mode);
+        }
       }
     } catch (err) {
       const message =
@@ -149,6 +156,10 @@ export function BoardSettingsDialog({
           executor_model: executorModel,
           timeout: timeoutSecs,
           preferred_executor: preferredExecutor,
+          yolo_mode: yoloMode,
+          yolo_allowlist: yoloMode && currentBoard?.repo_root
+            ? [currentBoard.repo_root]
+            : [],
         },
       });
       toast.success("Board settings saved");
@@ -170,6 +181,7 @@ export function BoardSettingsDialog({
       setExecutorModel("auto");
       setTimeoutSecs(300);
       setPreferredExecutor("cursor-agent");
+      setYoloMode(false);
       setHasOverrides(false);
       onOpenChange(false);
     } catch (err) {
@@ -249,7 +261,7 @@ export function BoardSettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="execution" className="w-full">
+        <Tabs defaultValue={boardSettingsTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="execution">Execution</TabsTrigger>
             <TabsTrigger value="team">Agent Team</TabsTrigger>
@@ -347,25 +359,35 @@ export function BoardSettingsDialog({
             </p>
           </div>
 
-          {/* Info about other settings */}
-          <Alert>
-            <Info className="h-4 w-4" />
-            <AlertDescription className="text-xs">
-              Additional settings (YOLO mode, verify commands, planner, etc.) can be
-              configured in the{" "}
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground transition-colors"
-                onClick={() => {
-                  onOpenChange(false);
-                  navigate("/settings?tab=executors");
-                }}
-              >
-                Settings page
-                <ExternalLink className="h-3 w-3" />
-              </button>
-            </AlertDescription>
-          </Alert>
+          {/* YOLO Mode */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="yolo-mode" className="flex items-center gap-2">
+                  <ShieldAlert className="h-4 w-4 text-amber-500" />
+                  YOLO Mode
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Skip permission prompts for autonomous execution
+                </p>
+              </div>
+              <Switch
+                id="yolo-mode"
+                checked={yoloMode}
+                onCheckedChange={setYoloMode}
+              />
+            </div>
+            {yoloMode && (
+              <Alert variant="destructive" className="mt-2">
+                <ShieldAlert className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  YOLO mode runs AI agents with <code>--dangerously-skip-permissions</code>.
+                  Changes are isolated in worktrees, but agents can execute arbitrary commands
+                  without approval.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
 
           {/* Danger Zone */}
           <div className="border-t pt-6 mt-6">

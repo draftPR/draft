@@ -125,12 +125,12 @@ export function RepoDiscoveryDialog({
         onReposAdded?.();
         onOpenChange(false);
 
-        // Auto-navigate to the newly created board and open goal dialog
+        // Auto-navigate to the newly created board and open team setup
         if (lastCreatedBoardId) {
           setCurrentBoard(lastCreatedBoardId);
           navigate(`/boards/${lastCreatedBoardId}`);
-          // Open the Create Goal dialog so the user can start immediately
-          setTimeout(() => useUIStore.getState().setGoalDialogOpen(true), 100);
+          // Open Board Settings on the Agent Team tab so the user can configure their team
+          setTimeout(() => useUIStore.getState().setBoardSettingsOpen(true, "team"), 100);
         }
 
         if (errorCount > 0) {
