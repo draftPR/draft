@@ -35,7 +35,6 @@ import { Switch } from "@/components/ui/switch";
 import { AlertCircle, Info, Loader2, RotateCcw, ShieldAlert, Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { TeamSettings } from "@/components/TeamSettings";
-import { useBoard } from "@/contexts/BoardContext";
 import { useUIStore } from "@/stores/uiStore";
 
 interface BoardSettingsDialogProps {
@@ -59,7 +58,6 @@ export function BoardSettingsDialog({
   onTicketsDeleted,
   onBoardDeleted,
 }: BoardSettingsDialogProps) {
-  const { currentBoard } = useBoard();
   const boardSettingsTab = useUIStore((s) => s.boardSettingsTab);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
