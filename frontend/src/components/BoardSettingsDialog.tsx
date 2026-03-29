@@ -157,9 +157,6 @@ export function BoardSettingsDialog({
           timeout: timeoutSecs,
           preferred_executor: preferredExecutor,
           yolo_mode: yoloMode,
-          yolo_allowlist: yoloMode && currentBoard?.repo_root
-            ? [currentBoard.repo_root]
-            : [],
         },
       });
       toast.success("Board settings saved");

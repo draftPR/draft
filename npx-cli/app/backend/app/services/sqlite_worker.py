@@ -304,6 +304,15 @@ def setup_worker() -> SQLiteWorker:
                         reason=f"Execution crashed: {e}",
                         actor_id="execute_worker",
                     )
+                    # Clean up any team sessions on crash
+                    try:
+                        from app.database_sync import get_sync_db
+                        from app.services.team_session_service import TeamSessionService
+
+                        with get_sync_db() as sync_db:
+                            TeamSessionService(sync_db).stop_team(ticket.id)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             return {"job_id": job_id, "status": "failed", "error": str(e)}

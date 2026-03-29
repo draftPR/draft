@@ -2146,10 +2146,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # =========================================================================
     # YOLO MODE CHECK (refuse if enabled but allowlist empty)
     # =========================================================================
-    yolo_status = execute_config.check_yolo_status(
-        str(worktree_path.resolve()),
-        repo_root=str(main_repo_path),
-    )
+    yolo_status = execute_config.check_yolo_status()
     model_info = (
         f", model={execute_config.executor_model}"
         if execute_config.executor_model
@@ -2159,31 +2156,6 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         log_path,
         f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}{model_info}",
     )
-
-    if yolo_status == YoloStatus.REFUSED:
-        refusal_reason = execute_config.get_yolo_refusal_reason(
-            repo_root=str(main_repo_path)
-        )
-        write_log(log_path, f"YOLO MODE REFUSED: {refusal_reason}")
-        write_log(log_path, "Transitioning to needs_human for manual approval.")
-        update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
-        transition_ticket_sync(
-            ticket_id,
-            TicketState.NEEDS_HUMAN,
-            reason=f"YOLO mode refused: {refusal_reason}",
-            payload={
-                "yolo_refused": True,
-                "refusal_reason": refusal_reason,
-                "worktree": str(worktree_path),
-            },
-            actor_id="execute_worker",
-        )
-        return {
-            "job_id": job_id,
-            "status": "yolo_refused",
-            "worktree": str(worktree_path),
-            "reason": refusal_reason,
-        }
 
     yolo_enabled = yolo_status == YoloStatus.ALLOWED
     write_log(log_path, f"YOLO mode: {yolo_status.value}")

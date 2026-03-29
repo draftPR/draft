@@ -41,8 +41,7 @@ class YoloStatus(StrEnum):
     """Result of YOLO mode check."""
 
     DISABLED = "disabled"  # yolo_mode: false
-    ALLOWED = "allowed"  # yolo_mode: true AND repo in allowlist
-    REFUSED = "refused"  # yolo_mode: true BUT allowlist empty or repo not in list
+    ALLOWED = "allowed"  # yolo_mode: true
 
 
 @dataclass
@@ -70,26 +69,17 @@ class ProjectConfig:
 class ExecuteConfig:
     """Configuration for execute jobs.
 
-    YOLO Mode Safety:
-        YOLO mode (--dangerously-skip-permissions) is ONLY allowed when:
-        1. yolo_mode: true in config
-        2. yolo_allowlist is NON-EMPTY
-        3. The worktree path is in the allowlist
-
-        If yolo_mode is true but allowlist is empty, execution REFUSES and
-        transitions to needs_human. This prevents accidental YOLO.
-
-        Default is yolo_mode: false (permissioned mode).
+    YOLO Mode:
+        When yolo_mode is true, executors run with --dangerously-skip-permissions.
+        Safety is enforced by worktree isolation (never runs on main/master/develop).
+        Configured per-board in the UI via Board Settings.
     """
 
     timeout: int = 600  # seconds (default 10 minutes)
     preferred_executor: str = "claude"  # "claude" (headless) or "cursor" (interactive)
     executor_model: str | None = None  # Optional model override for executor
     max_parallel_jobs: int = 1  # Max concurrent execute jobs (1 = sequential)
-    yolo_mode: bool = False  # DANGEROUS: skip permissions prompts (opt-in only)
-    yolo_allowlist: list[str] = field(
-        default_factory=list
-    )  # REQUIRED when yolo_mode=true
+    yolo_mode: bool = True  # Skip permission prompts (default on, toggle in Board Settings)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ExecuteConfig":
@@ -99,90 +89,18 @@ class ExecuteConfig:
             preferred_executor=data.get("preferred_executor", "claude"),
             executor_model=data.get("executor_model"),
             max_parallel_jobs=max(1, data.get("max_parallel_jobs", 1)),
-            yolo_mode=data.get("yolo_mode", False),
-            yolo_allowlist=data.get("yolo_allowlist") or [],
+            yolo_mode=data.get("yolo_mode", True),
         )
 
-    def check_yolo_status(
-        self, worktree_path: str, repo_root: str | None = None
-    ) -> YoloStatus:
-        """Check YOLO mode status for a given worktree.
+    def check_yolo_status(self) -> YoloStatus:
+        """Check whether YOLO mode is enabled.
 
-        Safety Policy:
-        - If yolo_mode is False → DISABLED (use permissioned mode)
-        - If yolo_mode is True but allowlist is empty → REFUSED (refuse to run)
-        - If yolo_mode is True and repo_root in allowlist → ALLOWED
-        - If yolo_mode is True but repo_root not in allowlist → REFUSED
-
-        Path Matching:
-        - All paths are resolved to absolute canonical paths (symlinks resolved)
-        - Allowlist entries can be the repo root OR a parent directory
-        - Worktree must be a descendant of an allowlisted path
-
-        Args:
-            worktree_path: Path to the worktree
-            repo_root: Path to the main repo root (if different from worktree parent)
-
-        Returns:
-            YoloStatus indicating whether YOLO mode should be used
+        Safety is enforced elsewhere via worktree isolation — executors never
+        run on main/master/develop branches.
         """
         if not self.yolo_mode:
             return YoloStatus.DISABLED
-
-        # CRITICAL: Empty allowlist + yolo_mode=true → REFUSE
-        # This prevents "I turned on YOLO and forgot to set allowlist"
-        if not self.yolo_allowlist:
-            return YoloStatus.REFUSED
-
-        # Resolve to canonical absolute paths (follows symlinks)
-        # Use realpath for symlink resolution, then resolve for normalization
-        worktree_canonical = os.path.realpath(worktree_path)
-
-        # If repo_root is provided, use it; otherwise derive from worktree path
-        # (worktrees are typically under {repo_root}/.draft/worktrees/)
-        if repo_root:
-            check_path = os.path.realpath(repo_root)
-        else:
-            check_path = worktree_canonical
-
-        # Check if the path (or repo root) is under any allowlisted path
-        for allowed_path in self.yolo_allowlist:
-            allowed_canonical = os.path.realpath(allowed_path)
-
-            # Exact match
-            if check_path == allowed_canonical:
-                return YoloStatus.ALLOWED
-
-            # Check if check_path is a descendant of allowed_canonical
-            # Use os.path.commonpath to safely determine ancestry
-            try:
-                common = os.path.commonpath([check_path, allowed_canonical])
-                if common == allowed_canonical:
-                    return YoloStatus.ALLOWED
-            except ValueError:
-                # Different drives on Windows, no common path
-                continue
-
-        return YoloStatus.REFUSED
-
-    def get_yolo_refusal_reason(self, repo_root: str | None = None) -> str:
-        """Get a human-readable reason for YOLO refusal.
-
-        Args:
-            repo_root: The repo root path to include in the message
-        """
-        if not self.yolo_allowlist:
-            return (
-                "YOLO mode enabled but yolo_allowlist is empty. "
-                "For safety, you must explicitly list trusted repo paths in yolo_allowlist. "
-                "Refusing to run with --dangerously-skip-permissions."
-            )
-        msg = "YOLO mode enabled but this repo is not in yolo_allowlist. "
-        if repo_root:
-            msg += f"Repo root: {os.path.realpath(repo_root)}. "
-        msg += f"Allowlist: {[os.path.realpath(p) for p in self.yolo_allowlist]}. "
-        msg += "Add this path to yolo_allowlist if you trust it."
-        return msg
+        return YoloStatus.ALLOWED
 
 
 @dataclass
@@ -502,8 +420,7 @@ class DraftConfig:
         execute_config:
           timeout: 600
           preferred_executor: "claude"
-          yolo_mode: false
-          yolo_allowlist: []
+          yolo_mode: true
 
         verify_config:
           commands: [...]
@@ -786,6 +703,8 @@ class ConfigService:
                 config.execute_config.preferred_executor = ec["preferred_executor"]
             if "yolo_mode" in ec:
                 config.execute_config.yolo_mode = ec["yolo_mode"]
+            if "yolo_allowlist" in ec:
+                pass  # Deprecated: allowlist removed, yolo safety via worktree isolation
 
         if "planner_config" in board_config and isinstance(
             board_config["planner_config"], dict

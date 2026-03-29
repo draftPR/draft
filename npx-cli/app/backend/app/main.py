@@ -43,10 +43,12 @@ from app.routers import (
     revisions_router,
     tickets_router,
 )
+from app.routers.agent_team import router as agent_team_router
 from app.routers.agents import router as agents_router
 from app.routers.auth import router as auth_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.executors import router as executors_router
+from app.routers.message_board import router as message_board_router
 from app.routers.pull_requests import router as pull_requests_router
 from app.routers.settings import router as settings_router
 from app.routers.webhooks import router as webhooks_router
@@ -457,6 +459,8 @@ app.include_router(settings_router)  # Global settings (draft.yaml)
 app.include_router(websocket_router)  # WebSocket real-time updates
 app.include_router(pull_requests_router)  # GitHub PR integration
 app.include_router(webhooks_router)  # Webhook notifications for ticket changes
+app.include_router(agent_team_router)  # Multi-agent team configuration
+app.include_router(message_board_router)  # Inter-agent message board
 
 
 @app.get("/version")

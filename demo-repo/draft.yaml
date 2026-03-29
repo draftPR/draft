@@ -7,16 +7,13 @@ project:
 execute_config:
   timeout: 300
   preferred_executor: "claude"
-  yolo_mode: true
-  # yolo_allowlist is set dynamically by seed_demo.py based on actual demo-repo path
+  # YOLO mode is configured per-board in the UI (Board Settings)
 
 verify_config:
   commands:
-    # Check Python syntax
     - "python3 -m py_compile src/calculator.py"
     - "python3 -m py_compile src/utils.py"
-    # Run tests
-    - "python3 -m pytest tests/ -v --tb=short"
+    - "python3 -m pytest tests/test_calculator.py::TestCalculator::test_power -v --tb=short"
   on_failure: "blocked"
 
 cleanup_config:

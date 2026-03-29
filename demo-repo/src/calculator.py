@@ -33,16 +33,41 @@ class Calculator:
         return a / b
 
     def power(self, base: float, exponent: float) -> float:
-        """Raise base to the power of exponent."""
-        return base ** exponent
+        """Raise base to the power of exponent.
 
-    def square_root(self, n: float) -> float:
-        """Calculate square root of n.
+        Args:
+            base: The base number.
+            exponent: The exponent to raise the base to.
 
-        BUG: No validation for negative numbers!
+        Returns:
+            base raised to the power of exponent.
+
+        Raises:
+            ValueError: If the result would be infinity (e.g. 0 ** -1).
         """
-        # TODO: Validate that n is not negative
-        return math.sqrt(n)
+        try:
+            result = base ** exponent
+        except ZeroDivisionError:
+            raise ValueError("Result is infinity")
+        if result == float('inf') or result == float('-inf'):
+            raise ValueError("Result is infinity")
+        return result
+
+    def square_root(self, x: float) -> float:
+        """Calculate square root of x.
+
+        Args:
+            x: The number to compute the square root of (must be >= 0).
+
+        Returns:
+            The square root of x.
+
+        Raises:
+            ValueError: If x is negative.
+        """
+        if x < 0:
+            raise ValueError("x must be non-negative")
+        return math.sqrt(x)
 
     def modulo(self, a: float, b: float) -> float:
         """Return remainder of a divided by b.
@@ -52,9 +77,64 @@ class Calculator:
         # TODO: Add error handling
         return a % b
 
-    # TODO: Add percentage calculation
-    # TODO: Add factorial calculation
-    # TODO: Add logarithm calculation
+    def percentage(self, value: float, percent: float) -> float:
+        """Return the given percentage of a value.
+
+        Args:
+            value: The base value.
+            percent: The percentage to compute (must be non-negative).
+
+        Returns:
+            value * percent / 100
+
+        Raises:
+            ValueError: If percent is negative.
+        """
+        if percent < 0:
+            raise ValueError("percent must be non-negative")
+        return value * percent / 100
+
+    def factorial(self, n: int) -> int:
+        """Compute n! iteratively.
+
+        Args:
+            n: A non-negative integer.
+
+        Returns:
+            n factorial (1 for n=0).
+
+        Raises:
+            ValueError: If n is negative or not an integer.
+        """
+        if not isinstance(n, int):
+            raise ValueError("n must be an integer")
+        if n < 0:
+            raise ValueError("n must be non-negative")
+        result = 1
+        for i in range(2, n + 1):
+            result *= i
+        return result
+
+    def logarithm(self, x: float, base: float) -> float:
+        """Compute log_base(x).
+
+        Args:
+            x: The argument (must be > 0).
+            base: The logarithm base (must be > 0 and != 1).
+
+        Returns:
+            Logarithm of x with the given base.
+
+        Raises:
+            ValueError: If x <= 0, base <= 0, or base == 1.
+        """
+        if x <= 0:
+            raise ValueError("x must be greater than 0")
+        if base <= 0:
+            raise ValueError("base must be greater than 0")
+        if base == 1:
+            raise ValueError("base must not be 1")
+        return math.log(x, base)
 
 
 def main():

@@ -64,6 +64,30 @@ MAX_TICKETS_PER_GENERATION = 10
 # Similarity threshold for dedup (token overlap)
 DEDUP_SIMILARITY_THRESHOLD = 0.6
 
+# Timeout for team-based ticket generation (seconds)
+TEAM_PLANNING_TIMEOUT = 300
+
+# Poll interval for team planning sessions (seconds)
+TEAM_PLANNING_POLL_INTERVAL = 5
+
+# JSON schema for ticket output (shared between single-agent and team prompts)
+TICKET_JSON_SCHEMA = """\
+```json
+{
+  "tickets": [
+    {
+      "title": "Short, action-oriented title (verb first)",
+      "description": "Clear description with acceptance criteria",
+      "priority_bucket": "P0|P1|P2|P3",
+      "priority_rationale": "Brief explanation of why this priority",
+      "verification": ["shell command to verify completion"],
+      "notes": "Optional implementation notes",
+      "blocked_by": "Title of another ticket that must complete first (or null)"
+    }
+  ]
+}
+```"""
+
 
 # =============================================================================
 # Dataclasses
@@ -131,13 +155,18 @@ class TicketGenerationService:
         validate_tickets: bool = False,
         stream_callback=None,
     ) -> GenerationResult:
-        """Generate tickets from a goal using the agent CLI.
+        """Generate tickets from a goal using the agent CLI or multi-agent team.
+
+        When the board has an active agent team with planning-capable roles
+        (PM, Code Explorer), uses multi-agent team generation for higher
+        quality tickets. Otherwise falls back to single-agent generation.
 
         Args:
             goal_id: ID of the goal to generate tickets for.
             repo_root: Optional path to repository for context.
             include_readme: Whether to include README excerpt.
             validate_tickets: Whether to validate tickets against codebase before creating.
+            stream_callback: Optional callback for streaming output.
 
         Returns:
             GenerationResult with created tickets.
@@ -151,7 +180,8 @@ class TicketGenerationService:
         if not goal:
             raise ValueError(f"Goal not found: {goal_id}")
 
-        # Determine repo_root from goal's board if not provided
+        # Determine repo_root and fetch board
+        board = None
         if not repo_root and goal.board_id:
             from app.models.board import Board
 
@@ -161,6 +191,13 @@ class TicketGenerationService:
             board = board_result.scalar_one_or_none()
             if board:
                 repo_root = board.repo_root
+        elif goal.board_id:
+            from app.models.board import Board
+
+            board_result = await self.db.execute(
+                select(Board).where(Board.id == goal.board_id)
+            )
+            board = board_result.scalar_one_or_none()
 
         if not repo_root:
             raise ValueError("No repository path available for ticket generation")
@@ -170,27 +207,48 @@ class TicketGenerationService:
         # Fetch existing tickets for this goal to prevent duplicates
         existing_tickets = await self._get_existing_tickets(goal_id)
 
-        # Build prompt for agent (includes existing tickets for dedup awareness)
-        prompt = self._build_agent_ticket_generation_prompt(
-            goal, include_readme, existing_tickets
-        )
-
-        # Call agent to generate tickets (run in thread pool to avoid blocking event loop)
-        logger.info(
-            f"Calling agent CLI for goal '{goal.title}' (streaming={'yes' if stream_callback else 'no'})"
-        )
-        if stream_callback:
-            stream_callback(
-                f"[DEBUG] Prompt built ({len(prompt)} chars). Calling agent..."
+        # Check if board has a planning-capable agent team
+        team = await self._get_planning_team(board) if board else None
+        if team:
+            logger.info(
+                "Board has planning-capable team (%d members). Using team generation.",
+                len(team.members),
             )
-        agent_response = await asyncio.to_thread(
-            self._call_agent_for_tickets,
-            prompt,
-            repo_root,
-            stream_callback,
-        )
+            if stream_callback:
+                stream_callback(
+                    "[TEAM] Launching multi-agent planning team..."
+                )
+            agent_response = await asyncio.to_thread(
+                self._generate_with_team,
+                goal,
+                board,
+                team,
+                repo_root,
+                existing_tickets,
+                stream_callback,
+            )
+        else:
+            # Single-agent path (existing behavior)
+            prompt = self._build_agent_ticket_generation_prompt(
+                goal, include_readme, existing_tickets
+            )
+
+            logger.info(
+                f"Calling agent CLI for goal '{goal.title}' (streaming={'yes' if stream_callback else 'no'})"
+            )
+            if stream_callback:
+                stream_callback(
+                    f"[DEBUG] Prompt built ({len(prompt)} chars). Calling agent..."
+                )
+            agent_response = await asyncio.to_thread(
+                self._call_agent_for_tickets,
+                prompt,
+                repo_root,
+                stream_callback,
+            )
+
         logger.info(
-            f"Agent CLI completed. Response length: {len(agent_response)} chars"
+            f"Agent completed. Response length: {len(agent_response)} chars"
         )
 
         # Parse and validate response
@@ -465,6 +523,145 @@ class TicketGenerationService:
             tickets=created_tickets,
             goal_id=goal_id,
         )
+
+    # =========================================================================
+    # TEAM-BASED GENERATION
+    # =========================================================================
+
+    async def _get_planning_team(self, board) -> "AgentTeam | None":
+        """Check if the board has an active agent team with planning-capable roles."""
+        from sqlalchemy.orm import selectinload
+
+        from app.models.agent_team import AgentTeam
+        from app.services.agent_catalog import PLANNING_CAPABLE_ROLES
+
+        result = await self.db.execute(
+            select(AgentTeam)
+            .where(AgentTeam.board_id == board.id, AgentTeam.is_active == True)  # noqa: E712
+            .options(selectinload(AgentTeam.members))
+        )
+        team = result.scalar_one_or_none()
+        if not team or not team.members:
+            return None
+
+        # Check if team has at least one planning-capable role + a team lead
+        team_roles = {m.role for m in team.members}
+        has_lead = "team_lead" in team_roles
+        has_planning_role = bool(team_roles & PLANNING_CAPABLE_ROLES)
+
+        if has_lead and has_planning_role:
+            return team
+        return None
+
+    def _generate_with_team(
+        self,
+        goal: Goal,
+        board,
+        team: "AgentTeam",
+        repo_root: Path,
+        existing_tickets: list[tuple[str, str]],
+        stream_callback=None,
+    ) -> str:
+        """Launch a planning team and collect the generated ticket JSON.
+
+        Runs synchronously (called via asyncio.to_thread from generate_from_goal).
+
+        Returns:
+            The raw JSON response string from the team lead's DONE message.
+        """
+        import time
+
+        from app.database_sync import get_sync_db
+        from app.services.team_session_service import TeamSessionService
+
+        existing_titles = [title for _, title in existing_tickets]
+
+        with get_sync_db() as sync_db:
+            team_service = TeamSessionService(sync_db)
+
+            sessions, synthetic_ticket_id = team_service.launch_planning_team(
+                board_id=board.id,
+                goal_title=goal.title,
+                goal_description=goal.description,
+                repo_root=repo_root,
+                team=team,
+                existing_tickets=existing_titles,
+                ticket_json_schema=TICKET_JSON_SCHEMA,
+            )
+
+            if stream_callback:
+                stream_callback(
+                    f"[TEAM] Launched {len(sessions)} agents. Waiting for results..."
+                )
+
+            # Poll for completion
+            start = time.monotonic()
+            while time.monotonic() - start < TEAM_PLANNING_TIMEOUT:
+                time.sleep(TEAM_PLANNING_POLL_INTERVAL)
+
+                # Check completion
+                is_done = team_service.check_team_completion(
+                    ticket_id=synthetic_ticket_id,
+                    board_id=board.id,
+                )
+
+                if is_done:
+                    break
+
+                # Log progress periodically
+                elapsed = int(time.monotonic() - start)
+                if elapsed % 30 == 0 and stream_callback:
+                    stream_callback(
+                        f"[TEAM] Planning in progress... ({elapsed}s elapsed)"
+                    )
+
+            # Extract result from board messages
+            from app.services.message_board_service import MessageBoardService
+
+            board_service = MessageBoardService(sync_db)
+            messages = board_service.get_all_messages(
+                board.id, synthetic_ticket_id
+            )
+
+            # Find the DONE message from the lead
+            done_content = ""
+            for msg in reversed(messages):
+                if msg.content.strip().upper().startswith("DONE:"):
+                    if (
+                        "lead" in msg.sender_role.lower()
+                        or "orchestrator" in msg.sender_role.lower()
+                    ):
+                        done_content = msg.content.strip()
+                        break
+
+            # Clean up team
+            team_service.stop_team(synthetic_ticket_id)
+
+            if not done_content:
+                logger.warning(
+                    "Planning team did not produce a DONE message within timeout. "
+                    "Falling back to last board message."
+                )
+                # Try to find any message with JSON content
+                for msg in reversed(messages):
+                    if '"tickets"' in msg.content:
+                        done_content = msg.content
+                        break
+
+            if not done_content:
+                raise ValueError(
+                    "Planning team did not produce ticket output. "
+                    "Check tmux logs for details."
+                )
+
+            if stream_callback:
+                stream_callback("[TEAM] Planning complete. Processing tickets...")
+
+            # Strip "DONE:" prefix if present
+            if done_content.upper().startswith("DONE:"):
+                done_content = done_content[5:].strip()
+
+            return done_content
 
     async def analyze_codebase(
         self,
@@ -1443,16 +1640,21 @@ Now analyze the codebase and generate the JSON."""
                     "Need cursor-agent or claude CLI for automated ticket generation."
                 )
 
-        # For Claude CLI with streaming: enable structured JSON output
-        # so the normalizer can produce typed entries (thinking, tool_use, etc.)
+        # Ticket generation is a read-only analysis task (reads files, outputs JSON).
+        # Always bypass permissions so the CLI doesn't block on interactive prompts
+        # when running headlessly as a subprocess.
+        if is_claude_cli:
+            cmd.insert(1, "--dangerously-skip-permissions")
+
+        # For Claude CLI with streaming: use plain --print mode.
+        # Note: --output-format stream-json buffers all output until completion
+        # when stdout is not a TTY, producing 0 bytes during execution.
+        # Plain --print returns the final text which is all we need for parsing.
         if is_claude_cli and stream_callback:
             cmd = [
                 cmd[0],  # executable path
                 "--print",
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--include-partial-messages",
+                "--dangerously-skip-permissions",
                 "--no-session-persistence",
                 prompt,
             ]
@@ -1486,6 +1688,7 @@ Now analyze the codebase and generate the JSON."""
                 process = subprocess.Popen(
                     cmd,
                     cwd=repo_root,
+                    stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -1494,9 +1697,9 @@ Now analyze the codebase and generate the JSON."""
                 )
 
                 output_lines = []
-                result_text = None  # Extracted from 'result' JSON line (stream-json)
 
-                # Read stdout line by line
+                # Read stdout line by line (plain --print mode outputs
+                # final text, so lines arrive when process completes)
                 while True:
                     line = process.stdout.readline()
                     if not line and process.poll() is not None:
@@ -1505,20 +1708,6 @@ Now analyze the codebase and generate the JSON."""
                         output_lines.append(line)
                         stripped = line.rstrip()
                         stream_callback(stripped)
-
-                        # For stream-json mode: extract the result text
-                        # from the final {"type":"result",...,"result":"..."} line
-                        if is_claude_cli and stripped.startswith("{"):
-                            try:
-                                parsed = json.loads(stripped)
-                                if (
-                                    isinstance(parsed, dict)
-                                    and parsed.get("type") == "result"
-                                    and isinstance(parsed.get("result"), str)
-                                ):
-                                    result_text = parsed["result"]
-                            except json.JSONDecodeError:
-                                pass
 
                 logger.info(
                     f"Agent subprocess completed. Total lines: {len(output_lines)}"
@@ -1539,16 +1728,13 @@ Now analyze the codebase and generate the JSON."""
                     )
                     raise ValueError(f"Agent failed: {stderr[:500]}")
 
-                # For stream-json mode: return extracted result text
-                # For plain text mode: return raw output
-                if result_text is not None:
-                    return result_text
                 return "".join(output_lines)
             else:
                 # Non-streaming mode (original behavior)
                 result = subprocess.run(
                     cmd,
                     cwd=repo_root,
+                    stdin=subprocess.DEVNULL,
                     capture_output=True,
                     text=True,
                     timeout=600,  # 10 minute timeout for ticket generation

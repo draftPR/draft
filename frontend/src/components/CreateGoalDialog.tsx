@@ -149,6 +149,7 @@ export function CreateGoalDialog({
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
                 disabled={loading}
                 rows={3}
+                className="max-h-40 overflow-y-auto resize-none"
               />
             </div>
 

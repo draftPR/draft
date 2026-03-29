@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { ProposedTicketsReview } from "@/components/ProposedTicketsReview";
 import { ReflectionDialog } from "@/components/ReflectionDialog";
 import { TicketGenerationProgress } from "@/components/TicketGenerationProgress";
-import { fetchGoal, deleteGoal, updateGoal, fetchDashboard } from "@/services/api";
+import { fetchGoal, deleteGoal, updateGoal, fetchDashboard, fetchAgentTeam } from "@/services/api";
 import type { Goal, ProposedTicket, DashboardResponse } from "@/types/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, Sparkles, AlertCircle, Calendar, Lightbulb, Zap, Trash2, DollarSign, Pencil, Save, X } from "lucide-react";
+import { Loader2, Sparkles, AlertCircle, Calendar, Lightbulb, Zap, Trash2, DollarSign, Pencil, Save, X, Users } from "lucide-react";
 
 interface GoalDetailDialogProps {
   goalId: string | null;
@@ -70,6 +70,7 @@ export function GoalDetailDialog({
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const [hasTeamPlanning, setHasTeamPlanning] = useState(false);
 
   const loadGoal = useCallback(async (id: string) => {
     setLoading(true);
@@ -105,8 +106,27 @@ export function GoalDetailDialog({
       // Reset state when opening
       setProposedTickets([]);
       setShowReview(false);
+      setHasTeamPlanning(false);
     }
   }, [goalId, open, loadGoal, loadCostData]);
+
+  // Check if board has a planning-capable agent team
+  useEffect(() => {
+    if (!goal?.board_id) return;
+    const PLANNING_ROLES = new Set(["pm", "code_explorer"]);
+    fetchAgentTeam(goal.board_id)
+      .then((team) => {
+        if (!team?.is_active || !team.members) {
+          setHasTeamPlanning(false);
+          return;
+        }
+        const roles = new Set(team.members.map((m) => m.role));
+        const hasLead = roles.has("team_lead");
+        const hasPlanningRole = [...PLANNING_ROLES].some((r) => roles.has(r));
+        setHasTeamPlanning(hasLead && hasPlanningRole);
+      })
+      .catch(() => setHasTeamPlanning(false));
+  }, [goal?.board_id]);
 
   const handleDeleteGoal = async () => {
     if (!goalId) return;
@@ -491,10 +511,16 @@ export function GoalDetailDialog({
                   <div className="space-y-3">
                     <h3 className="text-sm font-medium">AI Ticket Generation</h3>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Use AI to analyze this goal and generate proposed tickets with
-                      verification commands. The AI will examine the repository structure
-                      and create actionable work items.
+                      {hasTeamPlanning
+                        ? "Your agent team (PM + Code Explorer + Team Lead) will collaborate to analyze the goal and generate higher-quality tickets."
+                        : "Use AI to analyze this goal and generate proposed tickets with verification commands."}
                     </p>
+                    {hasTeamPlanning && (
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                        <Users className="h-3.5 w-3.5" />
+                        <span>Multi-agent planning enabled</span>
+                      </div>
+                    )}
 
                     {error && (
                       <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-xs">

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.agent_team import AgentTeam
     from app.models.board_repo import BoardRepo
     from app.models.goal import Goal
     from app.models.job import Job
@@ -76,4 +77,7 @@ class Board(Base):
     )
     board_repos: Mapped[list["BoardRepo"]] = relationship(
         "BoardRepo", back_populates="board", cascade="all, delete-orphan"
+    )
+    agent_team: Mapped["AgentTeam | None"] = relationship(
+        "AgentTeam", back_populates="board", uselist=False, cascade="all, delete-orphan"
     )

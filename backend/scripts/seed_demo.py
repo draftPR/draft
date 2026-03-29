@@ -30,11 +30,7 @@ BOARD_ID = "demo-board"
 
 
 def _load_demo_config(demo_repo_path: Path) -> dict:
-    """Load demo-repo/draft.yaml and set dynamic paths.
-
-    Reads the YAML config and sets the yolo_allowlist to the actual
-    demo-repo path so it works on any machine.
-    """
+    """Load demo-repo/draft.yaml and set dynamic paths."""
     yaml_path = demo_repo_path / "draft.yaml"
     if yaml_path.exists():
         with open(yaml_path) as f:
@@ -45,9 +41,6 @@ def _load_demo_config(demo_repo_path: Path) -> dict:
     # Parse through DraftConfig for proper defaults, then convert back
     config = DraftConfig.from_dict(raw)
     config_dict = config.to_dict()
-
-    # Set yolo_allowlist dynamically to the resolved demo-repo path
-    config_dict["execute_config"]["yolo_allowlist"] = [str(demo_repo_path)]
 
     return config_dict
 
@@ -77,7 +70,7 @@ async def seed_demo_data():
             print(f"ERROR: demo-repo not found at {demo_repo_path}")
             return
 
-        # Load demo config from draft.yaml and set dynamic yolo_allowlist
+        # Load demo config from draft.yaml
         board_config = _load_demo_config(demo_repo_path)
 
         # Create demo board
