@@ -1,6 +1,6 @@
 {
   "name": "draft-board",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "AI-powered local-first kanban board that uses AI agents to automatically implement tickets",
   "bin": {
     "draft-board": "./bin/cli.js"
