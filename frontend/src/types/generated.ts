@@ -3513,6 +3513,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/boards/{board_id}/messages/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Recent Messages
+         * @description Get recent messages for a board, optionally filtered by ticket.
+         *
+         *     Used by the Debug Panel to display inter-agent communication.
+         */
+        get: operations["get_recent_messages_boards__board_id__messages_recent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/version": {
         parameters: {
             query?: never;
@@ -4689,7 +4711,7 @@ export interface components {
          *     - TEST_REPORT: test framework report
          * @enum {string}
          */
-        EvidenceKind: "executor_meta" | "verify_meta" | "executor_stdout" | "executor_stderr" | "git_diff_stat" | "git_diff_patch" | "verify_stdout" | "verify_stderr" | "merge_stdout" | "merge_stderr" | "merge_meta" | "command_log" | "test_report";
+        EvidenceKind: "executor_meta" | "verify_meta" | "executor_stdout" | "executor_stderr" | "git_diff_stat" | "git_diff_patch" | "git_name_status" | "verify_stdout" | "verify_stderr" | "merge_stdout" | "merge_stderr" | "merge_meta" | "command_log" | "test_report";
         /**
          * EvidenceListResponse
          * @description Schema for list of evidence records.
@@ -5436,6 +5458,11 @@ export interface components {
             timeout: number;
             /** Preferred Executor */
             preferred_executor: string;
+            /**
+             * Goal Review On Done
+             * @default true
+             */
+            goal_review_on_done: boolean;
         };
         /**
          * PlannerConfigUpdate
@@ -5446,6 +5473,7 @@ export interface components {
             model?: string | null;
             /** Agent Path */
             agent_path?: string | null;
+            features?: components["schemas"]["PlannerFeaturesUpdate"] | null;
         };
         /**
          * PlannerFeaturesStatus
@@ -5458,6 +5486,16 @@ export interface components {
             propose_followups: boolean;
             /** Generate Reflections */
             generate_reflections: boolean;
+            /** Goal Review On Done */
+            goal_review_on_done: boolean;
+        };
+        /**
+         * PlannerFeaturesUpdate
+         * @description Partial update for planner feature flags.
+         */
+        PlannerFeaturesUpdate: {
+            /** Goal Review On Done */
+            goal_review_on_done?: boolean | null;
         };
         /**
          * PlannerHealthResponse
@@ -6019,10 +6057,16 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            /** Merge Attempted */
-            merge_attempted?: boolean;
-            /** Merge Success */
-            merge_success?: boolean;
+            /**
+             * Merge Attempted
+             * @default false
+             */
+            merge_attempted: boolean;
+            /**
+             * Merge Success
+             * @default false
+             */
+            merge_success: boolean;
             /** Merge Message */
             merge_message?: string | null;
         };
@@ -11994,6 +12038,40 @@ export interface operations {
         parameters: {
             query: {
                 ticket_id: string;
+            };
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_recent_messages_boards__board_id__messages_recent_get: {
+        parameters: {
+            query?: {
+                ticket_id?: string | null;
+                limit?: number;
             };
             header?: never;
             path: {

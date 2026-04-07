@@ -561,6 +561,7 @@ export interface PlannerConfigResponse {
   agent_path: string;
   timeout: number;
   preferred_executor: string;
+  goal_review_on_done: boolean;
 }
 
 export interface PlannerConfigUpdate {
