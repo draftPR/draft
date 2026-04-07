@@ -42,6 +42,28 @@ class TestCalculator:
         assert self.calc.square_root(9) == 3
         assert self.calc.square_root(16) == 4
 
+    def test_square_root_zero(self):
+        """Test square root of zero (boundary condition)."""
+        assert self.calc.square_root(0) == 0
+
+    def test_square_root_one(self):
+        """Test square root of one."""
+        assert self.calc.square_root(1) == 1
+
+    def test_square_root_non_perfect_square(self):
+        """Test square root of a non-perfect square."""
+        assert self.calc.square_root(2) == pytest.approx(1.41421356, rel=1e-6)
+
+    def test_square_root_large_number(self):
+        """Test square root of a very large number."""
+        assert self.calc.square_root(1_000_000) == 1000
+        assert self.calc.square_root(10**10) == pytest.approx(100_000, rel=1e-9)
+
+    def test_square_root_float_input(self):
+        """Test square root with float input."""
+        assert self.calc.square_root(2.25) == 1.5
+        assert self.calc.square_root(0.25) == 0.5
+
     def test_square_root_negative_raises(self):
         """Test that negative input raises ValueError."""
         with pytest.raises(ValueError):

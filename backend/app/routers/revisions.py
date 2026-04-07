@@ -134,6 +134,11 @@ async def get_revision_diff(
     # Parse diff stat to extract file information
     files = _parse_diff_stat(diff_stat) if diff_stat else []
 
+    # Merge name-status to catch empty/new files not in diff stat
+    name_status = await service.get_revision_name_status(revision_id)
+    if name_status:
+        files = _merge_name_status(files, name_status)
+
     return RevisionDiffResponse(
         revision_id=revision_id,
         diff_stat=diff_stat,
@@ -252,6 +257,49 @@ def _parse_diff_stat(diff_stat: str) -> list[DiffFile]:
                     status=status,
                 )
             )
+
+    return files
+
+
+def _merge_name_status(files: list[DiffFile], name_status: str) -> list[DiffFile]:
+    """Merge git diff --name-status output into the file list.
+
+    This catches files that don't appear in diff stat (e.g., empty new files).
+    Name-status format: "A\tpath/to/file" or "M\tpath/to/file" or "D\tpath/to/file"
+    """
+    STATUS_MAP = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}
+    existing_paths = {f.path for f in files}
+
+    for line in name_status.strip().split("\n"):
+        if not line.strip():
+            continue
+        parts = line.split("\t", 1)
+        if len(parts) < 2:
+            continue
+        status_code = parts[0].strip()
+        path = parts[1].strip()
+        if path not in existing_paths:
+            files.append(
+                DiffFile(
+                    path=path,
+                    additions=0,
+                    deletions=0,
+                    status=STATUS_MAP.get(status_code[0], "modified"),
+                )
+            )
+
+    # Update status for files that ARE in the list — use name-status for accuracy
+    status_from_ns: dict[str, str] = {}
+    for line in name_status.strip().split("\n"):
+        if not line.strip():
+            continue
+        parts = line.split("\t", 1)
+        if len(parts) >= 2:
+            status_from_ns[parts[1].strip()] = STATUS_MAP.get(parts[0].strip()[0], "modified")
+
+    for f in files:
+        if f.path in status_from_ns:
+            f.status = status_from_ns[f.path]
 
     return files
 
@@ -489,7 +537,7 @@ async def submit_review(
             ticket = await ticket_service.get_ticket_by_id(revision.ticket_id)
 
             # Detect target branch from board config or git
-            target_branch = "main"  # fallback
+            target_branch = None
             board = None
             if ticket.board_id:
                 from sqlalchemy import select as sql_select_board
@@ -502,6 +550,46 @@ async def submit_review(
                 board = board_result.scalar_one_or_none()
                 if board and board.default_branch:
                     target_branch = board.default_branch
+
+            # Auto-detect from git if not configured on the board
+            if not target_branch and board and board.repo_root:
+                import subprocess
+
+                try:
+                    # Try origin/HEAD first
+                    result = subprocess.run(
+                        ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+                        cwd=board.repo_root,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if result.returncode == 0:
+                        target_branch = result.stdout.strip().split("/")[-1]
+                except Exception:
+                    pass
+
+            if not target_branch and board and board.repo_root:
+                import subprocess
+
+                # Fallback: check which of main/master exists
+                for candidate in ("main", "master"):
+                    try:
+                        result = subprocess.run(
+                            ["git", "rev-parse", "--verify", candidate],
+                            cwd=board.repo_root,
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        if result.returncode == 0:
+                            target_branch = candidate
+                            break
+                    except Exception:
+                        pass
+
+            if not target_branch:
+                target_branch = "main"  # last resort fallback
 
             # CRITICAL: Do NOT transition to DONE yet - it triggers worktree cleanup!
             # We need the worktree to exist for PR creation or merge.
@@ -614,9 +702,12 @@ async def submit_review(
                         worktree_path = Path(workspace.worktree_path)
                         branch_name = workspace.branch_name
 
-                        # Get repo path
-                        workspace_service = WorkspaceService(db)
-                        repo_path = workspace_service.get_repo_path()
+                        # Get repo path from the board's repo_root (authoritative)
+                        if board and board.repo_root:
+                            repo_path = Path(board.repo_root)
+                        else:
+                            workspace_service = WorkspaceService(db)
+                            repo_path = workspace_service.get_repo_path()
 
                         # Ensure worktree exists
                         if not worktree_path.exists():

@@ -566,6 +566,9 @@ export interface PlannerConfigResponse {
 export interface PlannerConfigUpdate {
   model?: string;
   agent_path?: string;
+  features?: {
+    goal_review_on_done?: boolean;
+  };
 }
 
 export interface PlannerHealthResponse {

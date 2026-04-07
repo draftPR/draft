@@ -3,6 +3,7 @@ import { config } from "@/config";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, GitBranch, AlertCircle, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useBoardStore } from "@/stores/boardStore";
 
 interface Ticket {
   id: string;
@@ -43,6 +44,7 @@ interface TicketDAGViewProps {
 }
 
 export function TicketDAGView({ highlightedTicketId: propHighlightedTicketId }: TicketDAGViewProps = {}) {
+  const currentBoardId = useBoardStore((s) => s.currentBoardId);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,11 +75,17 @@ export function TicketDAGView({ highlightedTicketId: propHighlightedTicketId }: 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [highlightedTicketId]);
 
-  // Fetch tickets
+  // Fetch tickets for the current board
   useEffect(() => {
+    if (!currentBoardId) {
+      setTickets([]);
+      setLoading(false);
+      return;
+    }
+
     const fetchTickets = async () => {
       try {
-        const response = await fetch(`${config.backendBaseUrl}/board`);
+        const response = await fetch(`${config.backendBaseUrl}/boards/${currentBoardId}/board`);
         if (!response.ok) throw new Error("Failed to fetch tickets");
         const data = await response.json();
         // Flatten tickets from board columns
@@ -95,7 +103,7 @@ export function TicketDAGView({ highlightedTicketId: propHighlightedTicketId }: 
     // Poll every 3 seconds
     const interval = setInterval(fetchTickets, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentBoardId]);
 
   // Compute DAG layout
   const { nodes, edges, stats } = useMemo(() => {

@@ -94,6 +94,9 @@ class ReviewSummaryResponse(BaseModel):
     decision: ReviewDecision
     body: str
     created_at: datetime
+    merge_attempted: bool = False
+    merge_success: bool = False
+    merge_message: str | None = None
 
     model_config = {"from_attributes": True}
 

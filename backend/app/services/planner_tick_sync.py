@@ -431,34 +431,17 @@ def _pick_and_execute_next_sync(db) -> list[str]:
         if ticket.id in active_ticket_ids:
             continue
 
-        # Check dependency — push to BLOCKED if blocker isn't done
+        # Check dependency — skip if blocker isn't done (keep PLANNED)
         if ticket.blocked_by_ticket_id:
             blocker = ticket.blocked_by
             if blocker is None or blocker.state != TicketState.DONE.value:
                 blocker_title = blocker.title if blocker else "unknown"
                 logger.info(
-                    "Ticket %s blocked by incomplete %s (%s), moving to BLOCKED",
+                    "Ticket %s blocked by incomplete %s (%s), skipping (stays PLANNED)",
                     ticket.id,
                     ticket.blocked_by_ticket_id,
                     blocker_title,
                 )
-                ticket.state = TicketState.BLOCKED.value
-                event = TicketEvent(
-                    ticket_id=ticket.id,
-                    event_type=EventType.TRANSITIONED.value,
-                    from_state=TicketState.PLANNED.value,
-                    to_state=TicketState.BLOCKED.value,
-                    actor_type=ActorType.PLANNER.value,
-                    actor_id="planner",
-                    reason=f"Blocked by incomplete ticket: {blocker_title}",
-                    payload_json=json.dumps(
-                        {
-                            "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
-                            "blocked_by_title": blocker_title,
-                        }
-                    ),
-                )
-                db.add(event)
                 continue
 
         # Create execute job

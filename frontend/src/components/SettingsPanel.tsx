@@ -671,6 +671,7 @@ export function PlannerSettingsCard({
   const [model, setModel] = useState("");
   const [agentPath, setAgentPath] = useState("");
   const [preferredExecutor, setPreferredExecutor] = useState("claude");
+  const [goalReviewOnDone, setGoalReviewOnDone] = useState(true);
   const [health, setHealth] = useState<PlannerHealthResponse | null>(null);
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -685,6 +686,7 @@ export function PlannerSettingsCard({
         setModel(cfg.model);
         setAgentPath(cfg.agent_path);
         if (cfg.preferred_executor) setPreferredExecutor(cfg.preferred_executor);
+        if (cfg.goal_review_on_done !== undefined) setGoalReviewOnDone(cfg.goal_review_on_done);
         setLoaded(true);
       })
       .catch((err) => {
@@ -718,7 +720,11 @@ export function PlannerSettingsCard({
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      const updated = await updatePlannerConfig({ model, agent_path: agentPath }, boardId);
+      const updated = await updatePlannerConfig({
+        model,
+        agent_path: agentPath,
+        features: { goal_review_on_done: goalReviewOnDone },
+      }, boardId);
       setModel(updated.model);
       setAgentPath(updated.agent_path);
       playSound("success");
@@ -920,6 +926,23 @@ export function PlannerSettingsCard({
             </div>
           </>
         )}
+
+        {/* Goal review on done toggle */}
+        <div className="flex items-center justify-between py-2">
+          <div>
+            <p className="text-sm font-medium">Review goals on completion</p>
+            <p className="text-xs text-muted-foreground">
+              When a ticket is done, review the goal and propose new tickets if needed
+            </p>
+          </div>
+          <Switch
+            checked={goalReviewOnDone}
+            onCheckedChange={(checked) => {
+              setGoalReviewOnDone(checked);
+              onDirty?.();
+            }}
+          />
+        </div>
 
         {/* Action buttons */}
         <div className="flex items-center gap-2">

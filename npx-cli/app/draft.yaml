@@ -23,6 +23,8 @@ project:
 #   - Headless success with NO diff → blocked (reason: no changes)
 #   - Headless failure → blocked
 #   - Interactive (Cursor) → needs_human immediately
+#   - YOLO mode: configured per-board in UI (Board Settings)
+
 execute_config:
   # Timeout for executor CLI in seconds (default: 600 = 10 minutes)
   timeout: 600

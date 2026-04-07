@@ -50,6 +50,7 @@ class EvidenceKind(StrEnum):
     # Git diff evidence
     GIT_DIFF_STAT = "git_diff_stat"
     GIT_DIFF_PATCH = "git_diff_patch"
+    GIT_NAME_STATUS = "git_name_status"
 
     # Verification evidence
     VERIFY_STDOUT = "verify_stdout"

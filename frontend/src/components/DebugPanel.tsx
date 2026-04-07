@@ -10,11 +10,18 @@ import {
   fetchJobLogs,
   streamOrchestratorLogs,
   fetchQueueStatus,
+  fetchRecentBoardMessages,
+  fetchTeamExecutionStatus,
+  fetchAgentTeam,
   type SystemStatusResponse,
   type OrchestratorLogEntry,
   type RecentEvent,
   type QueueStatusResponse,
+  type BoardMessageItem,
+  type TeamAgentStatus,
+  type AgentTeam,
 } from "@/services/api";
+import { useBoardStore } from "@/stores/boardStore";
 import {
   Bug,
   X,
@@ -33,6 +40,7 @@ import {
   ListOrdered,
   Pause,
   GitBranch,
+  MessageSquare,
 } from "lucide-react";
 
 interface DebugPanelProps {
@@ -40,7 +48,7 @@ interface DebugPanelProps {
   onClose: () => void;
 }
 
-type TabType = "status" | "queue" | "dag" | "orchestrator" | "agent" | "events";
+type TabType = "status" | "queue" | "dag" | "orchestrator" | "agent" | "comms" | "events";
 
 function formatTime(timestamp: string): string {
   try {
@@ -94,11 +102,34 @@ function StateBadge({ state }: { state: string }) {
   );
 }
 
+const ROLE_COLORS: Record<string, string> = {
+  team_lead: "bg-blue-500/15 text-blue-600 border-blue-500/30",
+  developer: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30",
+  code_reviewer: "bg-amber-500/15 text-amber-600 border-amber-500/30",
+  qa: "bg-purple-500/15 text-purple-600 border-purple-500/30",
+  pm: "bg-pink-500/15 text-pink-600 border-pink-500/30",
+  frontend_dev: "bg-cyan-500/15 text-cyan-600 border-cyan-500/30",
+  backend_dev: "bg-teal-500/15 text-teal-600 border-teal-500/30",
+  code_explorer: "bg-indigo-500/15 text-indigo-600 border-indigo-500/30",
+  security_engineer: "bg-red-500/15 text-red-600 border-red-500/30",
+  devops_engineer: "bg-orange-500/15 text-orange-600 border-orange-500/30",
+};
+
+const PULSE_STATUS_COLORS: Record<string, string> = {
+  working: "text-emerald-500",
+  thinking: "text-blue-500",
+  waiting: "text-amber-500",
+  reviewing: "text-purple-500",
+  done: "text-green-600",
+  failed: "text-red-500",
+};
+
 export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
+  const currentBoardId = useBoardStore((s) => s.currentBoardId);
   const [activeTab, setActiveTab] = useState<TabType>("status");
   const [isMinimized, setIsMinimized] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
-  
+
   // Data states
   const [systemStatus, setSystemStatus] = useState<SystemStatusResponse | null>(null);
   const [queueStatus, setQueueStatus] = useState<QueueStatusResponse | null>(null);
@@ -106,6 +137,11 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [agentLogs, setAgentLogs] = useState<string>("");
+
+  // Comms tab state
+  const [boardMessages, setBoardMessages] = useState<BoardMessageItem[]>([]);
+  const [agentSessions, setAgentSessions] = useState<TeamAgentStatus[]>([]);
+  const [agentTeam, setAgentTeam] = useState<AgentTeam | null>(null);
   
   // UI states
   const [loading, setLoading] = useState(false);
@@ -169,6 +205,31 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
     }
   }, []);
 
+  // Load comms data (messages + agent sessions)
+  const loadCommsData = useCallback(async () => {
+    if (!currentBoardId) return;
+    try {
+      // Get the executing ticket ID from running jobs
+      const executingTicketId = systemStatus?.running_jobs?.[0]?.ticket_id;
+
+      const [messages, team] = await Promise.all([
+        fetchRecentBoardMessages(currentBoardId, executingTicketId),
+        fetchAgentTeam(currentBoardId),
+      ]);
+      setBoardMessages(messages);
+      setAgentTeam(team);
+
+      if (executingTicketId) {
+        const sessions = await fetchTeamExecutionStatus(currentBoardId, executingTicketId);
+        setAgentSessions(sessions);
+      } else {
+        setAgentSessions([]);
+      }
+    } catch (err) {
+      console.error("Failed to load comms data:", err);
+    }
+  }, [currentBoardId, systemStatus?.running_jobs]);
+
   // Start streaming orchestrator logs
   const startStreaming = useCallback(() => {
     if (eventSourceRef.current) {
@@ -210,6 +271,9 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
     loadQueueStatus();
     loadOrchestratorLogs();
     loadRecentEvents();
+    if (activeTab === "comms") {
+      loadCommsData();
+    }
 
     // Poll every 2 seconds
     const interval = setInterval(() => {
@@ -223,13 +287,16 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
       if (selectedJobId && activeTab === "agent") {
         loadAgentLogs(selectedJobId);
       }
+      if (activeTab === "comms") {
+        loadCommsData();
+      }
     }, 2000);
 
     return () => {
       clearInterval(interval);
       stopStreaming();
     };
-  }, [isOpen, activeTab, selectedJobId, loadSystemStatus, loadQueueStatus, loadOrchestratorLogs, loadRecentEvents, loadAgentLogs, stopStreaming]);
+  }, [isOpen, activeTab, selectedJobId, loadSystemStatus, loadQueueStatus, loadOrchestratorLogs, loadRecentEvents, loadAgentLogs, loadCommsData, stopStreaming]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -258,6 +325,7 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
     { id: "dag", label: "DAG", icon: <GitBranch className="h-3.5 w-3.5" /> },
     { id: "orchestrator", label: "Orchestrator", icon: <Zap className="h-3.5 w-3.5" /> },
     { id: "agent", label: "Agent", icon: <Terminal className="h-3.5 w-3.5" /> },
+    { id: "comms", label: "Comms", icon: <MessageSquare className="h-3.5 w-3.5" /> },
     { id: "events", label: "Events", icon: <ScrollText className="h-3.5 w-3.5" /> },
   ];
 
@@ -645,6 +713,90 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
                   <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                     <Terminal className="h-8 w-8 mb-2 opacity-50" />
                     <p>Select a running job to view logs</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Comms Tab */}
+          {activeTab === "comms" && (
+            <div className="h-full flex flex-col">
+              {/* Agent sessions bar */}
+              {agentSessions.length > 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 border-b overflow-x-auto">
+                  <span className="text-xs text-muted-foreground shrink-0">Agents:</span>
+                  {agentSessions.map((session) => {
+                    const member = agentTeam?.members.find(
+                      (m) => m.id === session.team_member_id
+                    );
+                    const role = member?.role || "unknown";
+                    const displayName = member?.display_name || role;
+                    return (
+                      <div
+                        key={session.id}
+                        className="flex items-center gap-1.5 shrink-0"
+                      >
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[9px] px-1.5",
+                            ROLE_COLORS[role] || "bg-gray-500/15 text-gray-600"
+                          )}
+                        >
+                          {displayName}
+                        </Badge>
+                        <span
+                          className={cn(
+                            "text-[10px] font-medium",
+                            PULSE_STATUS_COLORS[session.last_pulse_status || session.status] ||
+                              "text-muted-foreground"
+                          )}
+                        >
+                          {session.last_pulse_status || session.status}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Message feed */}
+              <div className="flex-1 overflow-y-auto p-2">
+                {boardMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                    <MessageSquare className="h-8 w-8 mb-2 opacity-50" />
+                    <p>No agent messages yet</p>
+                    <p className="text-[10px] mt-1">
+                      Messages will appear here during multi-agent execution
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {boardMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className="flex items-start gap-2 p-1.5 rounded hover:bg-muted/30 text-xs"
+                      >
+                        <span className="text-muted-foreground shrink-0 w-14 font-mono text-[10px]">
+                          {formatTime(msg.created_at)}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[9px] px-1.5 shrink-0",
+                            ROLE_COLORS[msg.sender_role] ||
+                              "bg-gray-500/15 text-gray-600"
+                          )}
+                        >
+                          {msg.sender_role || "unknown"}
+                        </Badge>
+                        <span className="flex-1 whitespace-pre-wrap break-words">
+                          {msg.content}
+                        </span>
+                      </div>
+                    ))}
+                    <div ref={logsEndRef} />
                   </div>
                 )}
               </div>

@@ -6019,6 +6019,12 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Merge Attempted */
+            merge_attempted?: boolean;
+            /** Merge Success */
+            merge_success?: boolean;
+            /** Merge Message */
+            merge_message?: string | null;
         };
         /**
          * RevisionDetailResponse

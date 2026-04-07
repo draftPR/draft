@@ -102,7 +102,18 @@ def git_merge_worktree_branch(
             else:
                 logger.warning(f"Divergence check failed: {result.stderr}")
 
-        # 4. Checkout target branch
+        # 4. Clean untracked files that could conflict with merge
+        # (e.g. __pycache__/*.pyc files created by test runs)
+        logger.info("Cleaning untracked files that could block merge...")
+        subprocess.run(
+            ["git", "clean", "-fd"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        # 5. Checkout target branch
         logger.info(f"Checking out {target_branch}...")
         result = subprocess.run(
             ["git", "checkout", target_branch],
@@ -114,7 +125,7 @@ def git_merge_worktree_branch(
         if result.returncode != 0:
             raise GitMergeError(f"Failed to checkout {target_branch}: {result.stderr}")
 
-        # 4. Pull latest from target branch
+        # 6. Pull latest from target branch
         logger.info(f"Pulling latest {target_branch}...")
         result = subprocess.run(
             ["git", "pull", "origin", target_branch],
@@ -126,7 +137,7 @@ def git_merge_worktree_branch(
         if result.returncode != 0:
             logger.warning(f"Git pull failed (may not have remote): {result.stderr}")
 
-        # 5. Merge the branch (squash or regular)
+        # 7. Merge the branch (squash or regular)
         if squash:
             # Squash merge - all commits become one (like Vibe Kanban!)
             logger.info(f"Squash merging {branch_name} into {target_branch}...")
@@ -230,7 +241,7 @@ def git_merge_worktree_branch(
 
             logger.info("Merge successful")
 
-        # 6. Get merge commit hash (only if we didn't already set it)
+        # 8. Get merge commit hash (only if we didn't already set it)
         if "merge_commit" not in locals():
             result = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
@@ -241,7 +252,7 @@ def git_merge_worktree_branch(
             )
             merge_commit = result.stdout.strip() if result.returncode == 0 else None
 
-        # 7. Push to remote (if requested)
+        # 9. Push to remote (if requested)
         if push_to_remote:
             logger.info(f"Pushing {target_branch} to remote...")
             result = subprocess.run(
@@ -255,7 +266,7 @@ def git_merge_worktree_branch(
                 logger.warning(f"Push failed: {result.stderr}")
                 # Don't fail the merge if push fails
 
-        # 8. Delete branch (if requested)
+        # 10. Delete branch (if requested)
         if delete_branch_after:
             logger.info(f"Deleting branch {branch_name}...")
             result = subprocess.run(

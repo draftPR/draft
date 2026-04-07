@@ -214,3 +214,32 @@ async def get_all_messages(
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+@router.get("/recent", response_model=list[MessageResponse])
+async def get_recent_messages(
+    board_id: str,
+    ticket_id: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get recent messages for a board, optionally filtered by ticket.
+
+    Used by the Debug Panel to display inter-agent communication.
+    """
+    from sqlalchemy import select as sa_select
+
+    from app.models.agent_team import BoardMessage
+
+    stmt = (
+        sa_select(BoardMessage)
+        .where(BoardMessage.board_id == board_id)
+        .order_by(BoardMessage.id.desc())
+        .limit(limit)
+    )
+    if ticket_id:
+        stmt = stmt.where(BoardMessage.ticket_id == ticket_id)
+
+    result = await db.execute(stmt)
+    # Reverse to chronological order
+    return list(reversed(list(result.scalars().all())))

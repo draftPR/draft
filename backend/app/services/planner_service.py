@@ -74,6 +74,9 @@ REFLECTION_MARKER = "planner_reflection"
 # Payload marker for follow-up link
 FOLLOWUP_MARKER = "planner_followup_created"
 
+# Payload marker for goal review (prevents re-triggering)
+GOAL_REVIEW_MARKER = "goal_reviewed"
+
 # Lock settings
 PLANNER_LOCK_KEY = "planner_tick"
 LOCK_STALE_MINUTES = 10  # Consider lock stale after this many minutes
@@ -279,6 +282,17 @@ class PlannerService:
                 else:
                     reflection_actions = await self._generate_reflections()
                     actions.extend(reflection_actions)
+
+            # 4.5. Goal review on ticket completion
+            if self.config.features.goal_review_on_done:
+                goal_review_actions = await self._review_goals_for_done_tickets()
+                actions.extend(goal_review_actions)
+                if goal_review_actions:
+                    add_orchestrator_log(
+                        "INFO",
+                        f"Goal review generated {len(goal_review_actions)} new ticket(s)",
+                        {"count": len(goal_review_actions)},
+                    )
 
             # 5. UDAR incremental replanning (Phase 3)
             if (
@@ -546,33 +560,14 @@ class PlannerService:
                     )
                     break
                 else:
-                    # Blocker is not done, move ticket to BLOCKED state
+                    # Blocker is not done — skip this ticket, keep it PLANNED
                     blocker_title = (
                         ticket.blocked_by.title if ticket.blocked_by else "unknown"
                     )
                     logger.info(
                         f"Ticket {ticket.id} is blocked by incomplete ticket "
-                        f"{ticket.blocked_by_ticket_id} ({blocker_title}), moving to BLOCKED"
+                        f"{ticket.blocked_by_ticket_id} ({blocker_title}), skipping (stays PLANNED)"
                     )
-                    ticket.state = TicketState.BLOCKED.value
-
-                    # Create event for the transition
-                    event = TicketEvent(
-                        ticket_id=ticket.id,
-                        event_type=EventType.TRANSITIONED.value,
-                        from_state=TicketState.PLANNED.value,
-                        to_state=TicketState.BLOCKED.value,
-                        actor_type=ActorType.PLANNER.value,
-                        actor_id="planner",
-                        reason=f"Blocked by incomplete ticket: {blocker_title}",
-                        payload_json=json.dumps(
-                            {
-                                "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
-                                "blocked_by_title": blocker_title,
-                            }
-                        ),
-                    )
-                    self.db.add(event)
                     # Continue to check next ticket
             else:
                 # No blocker, can be executed
@@ -698,34 +693,15 @@ class PlannerService:
                         f"but blocker is now DONE, can proceed"
                     )
                 else:
-                    # Blocker is not done, move ticket to BLOCKED state
+                    # Blocker is not done — skip this ticket, keep it PLANNED
                     blocker_title = (
                         ticket.blocked_by.title if ticket.blocked_by else "unknown"
                     )
                     logger.info(
                         f"Ticket {ticket.id} is blocked by incomplete ticket "
-                        f"{ticket.blocked_by_ticket_id} ({blocker_title}), moving to BLOCKED"
+                        f"{ticket.blocked_by_ticket_id} ({blocker_title}), skipping (stays PLANNED)"
                     )
-                    ticket.state = TicketState.BLOCKED.value
                     blocked_count += 1
-
-                    # Create event for the transition
-                    event = TicketEvent(
-                        ticket_id=ticket.id,
-                        event_type=EventType.TRANSITIONED.value,
-                        from_state=TicketState.PLANNED.value,
-                        to_state=TicketState.BLOCKED.value,
-                        actor_type=ActorType.PLANNER.value,
-                        actor_id="planner",
-                        reason=f"Blocked by incomplete ticket: {blocker_title}",
-                        payload_json=json.dumps(
-                            {
-                                "blocked_by_ticket_id": ticket.blocked_by_ticket_id,
-                                "blocked_by_title": blocker_title,
-                            }
-                        ),
-                    )
-                    self.db.add(event)
                     continue  # Skip to next ticket
 
             queue_position += 1
@@ -1292,6 +1268,161 @@ Generate a follow-up ticket proposal as JSON."""
                     details={"summary": reflection.summary},
                 )
             )
+
+        return actions
+
+    async def _review_goals_for_done_tickets(self) -> list[PlannerAction]:
+        """Review goals when tickets complete and generate new tickets if needed.
+
+        When a ticket reaches DONE, this checks the parent goal's progress.
+        If there are no other active tickets for the goal and the goal may
+        need more work, it calls TicketGenerationService to propose new tickets.
+
+        Existing tickets (including DONE ones) are passed as context to avoid
+        duplicates.
+
+        Returns:
+            List of PlannerActions for newly proposed tickets.
+        """
+        from app.models.goal import Goal
+
+        actions: list[PlannerAction] = []
+
+        # Find DONE tickets that haven't been goal-reviewed yet
+        done_result = await self.db.execute(
+            select(Ticket)
+            .where(
+                and_(
+                    Ticket.state == TicketState.DONE.value,
+                    Ticket.goal_id.isnot(None),
+                )
+            )
+            .options(selectinload(Ticket.events))
+        )
+        done_tickets = list(done_result.scalars().all())
+
+        if not done_tickets:
+            return actions
+
+        # Filter to those not yet reviewed
+        unreviewed_tickets = []
+        for ticket in done_tickets:
+            has_review = any(
+                event.payload_json and GOAL_REVIEW_MARKER in event.payload_json
+                for event in ticket.events
+            )
+            if not has_review:
+                unreviewed_tickets.append(ticket)
+
+        if not unreviewed_tickets:
+            return actions
+
+        # Group by goal_id
+        goals_to_review: dict[str, list[Ticket]] = {}
+        for ticket in unreviewed_tickets:
+            goals_to_review.setdefault(ticket.goal_id, []).append(ticket)
+
+        for goal_id, done_for_goal in goals_to_review.items():
+            # Check if there are still active tickets for this goal
+            active_result = await self.db.execute(
+                select(Ticket).where(
+                    and_(
+                        Ticket.goal_id == goal_id,
+                        Ticket.state.in_([
+                            TicketState.PLANNED.value,
+                            TicketState.EXECUTING.value,
+                            TicketState.VERIFYING.value,
+                            TicketState.NEEDS_HUMAN.value,
+                        ]),
+                    )
+                )
+            )
+            active_tickets = list(active_result.scalars().all())
+
+            if active_tickets:
+                logger.info(
+                    f"Goal {goal_id} still has {len(active_tickets)} active ticket(s), "
+                    "skipping goal review"
+                )
+                # Mark these tickets as reviewed so we don't keep checking
+                for ticket in done_for_goal:
+                    event = TicketEvent(
+                        ticket_id=ticket.id,
+                        event_type=EventType.COMMENT.value,
+                        from_state=ticket.state,
+                        to_state=ticket.state,
+                        actor_type=ActorType.PLANNER.value,
+                        actor_id="planner",
+                        reason="Goal review deferred: active tickets remain",
+                        payload_json=json.dumps({GOAL_REVIEW_MARKER: True, "deferred": True}),
+                    )
+                    self.db.add(event)
+                continue
+
+            # Load the goal
+            goal_result = await self.db.execute(
+                select(Goal).where(Goal.id == goal_id)
+            )
+            goal = goal_result.scalar_one_or_none()
+            if not goal:
+                continue
+
+            # Mark all done tickets for this goal as reviewed BEFORE generating
+            # (prevents re-triggering on next tick)
+            for ticket in done_for_goal:
+                event = TicketEvent(
+                    ticket_id=ticket.id,
+                    event_type=EventType.COMMENT.value,
+                    from_state=ticket.state,
+                    to_state=ticket.state,
+                    actor_type=ActorType.PLANNER.value,
+                    actor_id="planner",
+                    reason="Goal review triggered",
+                    payload_json=json.dumps({GOAL_REVIEW_MARKER: True}),
+                )
+                self.db.add(event)
+
+            # Generate new tickets via TicketGenerationService
+            try:
+                import asyncio
+
+                from app.services.ticket_generation_service import (
+                    TicketGenerationService,
+                )
+
+                gen_service = TicketGenerationService(self.db)
+                new_tickets = await gen_service.generate_from_goal(
+                    goal_id=goal_id,
+                )
+
+                if new_tickets:
+                    logger.info(
+                        f"Goal review for '{goal.title}' generated "
+                        f"{len(new_tickets)} new ticket(s)"
+                    )
+                    for t in new_tickets:
+                        actions.append(
+                            PlannerAction(
+                                action_type=PlannerActionType.GOAL_REVIEWED,
+                                ticket_id=t.id,
+                                ticket_title=t.title,
+                                details={
+                                    "goal_id": goal_id,
+                                    "goal_title": goal.title,
+                                    "action": "proposed_from_goal_review",
+                                },
+                            )
+                        )
+                else:
+                    logger.info(
+                        f"Goal review for '{goal.title}': no new tickets needed"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to review goal {goal_id}: {e}",
+                    exc_info=True,
+                )
 
         return actions
 

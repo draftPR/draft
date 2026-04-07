@@ -248,8 +248,8 @@ async def generate_tickets_stream(
         try:
             from app.services.cursor_log_normalizer import CursorLogNormalizer
 
-            # Send initial status
-            yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Starting ticket generation...'})}\n\n"
+            # Send initial phase
+            yield f"data: {json_lib.dumps({'type': 'phase', 'id': 'preparing', 'label': 'Preparing...'})}\n\n"
             await asyncio.sleep(0.05)
 
             # Use our own DB session (not request-scoped) so it survives SSE disconnects
@@ -260,8 +260,6 @@ async def generate_tickets_stream(
                 from app.models.board import Board
                 from app.models.goal import Goal
                 from app.services.config_service import DraftConfig
-
-                yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Loading goal and board configuration...'})}\n\n"
 
                 goal_result = await db.execute(
                     sa_select(Goal).where(Goal.id == goal_id)
@@ -282,8 +280,6 @@ async def generate_tickets_stream(
 
                 config = DraftConfig.from_board_config(board_config_dict)
 
-                yield f"data: {json_lib.dumps({'type': 'status', 'message': f'Using model: {config.planner_config.model}'})}\n\n"
-
                 service = TicketGenerationService(db, config=config.planner_config)
 
                 # Create a queue for streaming agent output
@@ -293,16 +289,21 @@ async def generate_tickets_stream(
                 # Normalizer to parse CLI JSON output into structured entries
                 normalizer = CursorLogNormalizer()
 
-                def stream_callback(line: str):
-                    """Called from subprocess thread when agent outputs a line."""
+                def stream_callback(data):
+                    """Called from subprocess thread with a str (raw line) or dict (phase update)."""
                     try:
-                        loop.call_soon_threadsafe(
-                            output_queue.put_nowait, ("agent_output", line)
-                        )
+                        if isinstance(data, dict):
+                            loop.call_soon_threadsafe(
+                                output_queue.put_nowait, ("phase", data)
+                            )
+                        else:
+                            loop.call_soon_threadsafe(
+                                output_queue.put_nowait, ("agent_output", data)
+                            )
                     except Exception:
                         pass
 
-                yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Launching agent subprocess...'})}\n\n"
+                yield f"data: {json_lib.dumps({'type': 'phase', 'id': 'preparing', 'label': 'Preparing...', 'state': 'done'})}\n\n"
 
                 # Start generation task
                 generation_task = asyncio.create_task(
@@ -338,19 +339,29 @@ async def generate_tickets_stream(
                         )
                     return results
 
+                def _handle_queue_item(msg_type, data):
+                    """Yield SSE frames for a queue item."""
+                    results = []
+                    if msg_type == "phase":
+                        # Structured phase update from service
+                        phase_event = {"type": "phase", **data}
+                        results.append(f"data: {json_lib.dumps(phase_event)}\n\n")
+                    elif msg_type == "agent_output":
+                        normalized_chunks = _normalize_and_yield(data)
+                        if normalized_chunks:
+                            results.extend(normalized_chunks)
+                        else:
+                            results.append(f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n")
+                    return results
+
                 # Stream agent output as it comes in
                 while not generation_task.done():
                     try:
                         msg_type, data = await asyncio.wait_for(
                             output_queue.get(), timeout=0.1
                         )
-                        if msg_type == "agent_output":
-                            normalized_chunks = _normalize_and_yield(data)
-                            if normalized_chunks:
-                                for chunk in normalized_chunks:
-                                    yield chunk
-                            else:
-                                yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+                        for frame in _handle_queue_item(msg_type, data):
+                            yield frame
                     except TimeoutError:
                         continue
 
@@ -365,13 +376,8 @@ async def generate_tickets_stream(
                 # Drain any remaining messages
                 while not output_queue.empty():
                     msg_type, data = await output_queue.get()
-                    if msg_type == "agent_output":
-                        normalized_chunks = _normalize_and_yield(data)
-                        if normalized_chunks:
-                            for chunk in normalized_chunks:
-                                yield chunk
-                        else:
-                            yield f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+                    for frame in _handle_queue_item(msg_type, data):
+                        yield frame
 
                 # Flush any remaining buffered entries from normalizer
                 for entry in normalizer.finalize():
@@ -393,7 +399,7 @@ async def generate_tickets_stream(
 
                 # Stream each created ticket
                 if result.tickets:
-                    yield f"data: {json_lib.dumps({'type': 'status', 'message': f'Created {len(result.tickets)} ticket(s)'})}\n\n"
+                    yield f"data: {json_lib.dumps({'type': 'phase', 'id': 'done', 'label': f'Created {len(result.tickets)} ticket(s)'})}\n\n"
                     for ticket in result.tickets:
                         desc = ticket.description or ""
                         desc_short = desc[:150] + "..." if len(desc) > 150 else desc
@@ -409,7 +415,7 @@ async def generate_tickets_stream(
                         yield f"data: {json_lib.dumps({'type': 'ticket', 'ticket': ticket_data})}\n\n"
                         await asyncio.sleep(0.05)
                 else:
-                    yield f"data: {json_lib.dumps({'type': 'status', 'message': 'Agent finished but generated no tickets.'})}\n\n"
+                    yield f"data: {json_lib.dumps({'type': 'phase', 'id': 'done', 'label': 'Agent finished but generated no tickets'})}\n\n"
 
                 # Send completion (always — even for 0 tickets so frontend gets onComplete)
                 yield f"data: {json_lib.dumps({'type': 'complete', 'count': len(result.tickets)})}\n\n"

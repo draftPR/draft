@@ -1,4 +1,4 @@
-.PHONY: setup setup-backend setup-frontend run dev-backend dev-frontend db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean generate-types test test-backend test-frontend
+.PHONY: setup setup-backend setup-frontend run dev-backend dev-frontend db-migrate lint lint-backend lint-frontend format format-backend format-frontend clean generate-types test test-backend test-frontend test-integration test-integration-ui
 
 # Default target
 help:
@@ -21,9 +21,11 @@ help:
 	@echo "  make db-migrate     - Run Alembic database migrations"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test           - Run all tests (backend + frontend)"
-	@echo "  make test-backend   - Run backend pytest tests"
-	@echo "  make test-frontend  - Run frontend vitest tests"
+	@echo "  make test              - Run all tests (backend + frontend)"
+	@echo "  make test-backend      - Run backend pytest tests"
+	@echo "  make test-frontend     - Run frontend vitest tests"
+	@echo "  make test-integration  - Run full-flow integration tests (requires 'make run')"
+	@echo "  make test-integration-ui - Run integration tests with Playwright UI debugger"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  make lint           - Run linters for both frontend and backend"
@@ -97,6 +99,15 @@ test-backend:
 
 test-frontend:
 	cd frontend && npx vitest run
+
+test-integration:
+	cd frontend && npx playwright test --config playwright-integration.config.ts
+
+test-integration-headed:
+	cd frontend && npx playwright test --config playwright-integration.config.ts --headed
+
+test-integration-ui:
+	cd frontend && npx playwright test --config playwright-integration.config.ts --ui
 
 # Type generation
 generate-types:

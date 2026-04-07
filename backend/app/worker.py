@@ -343,6 +343,47 @@ def _get_active_team(board_id: str | None):
         return None
 
 
+def _pick_agent_for_ticket(
+    team_data: dict, title: str, description: str | None
+) -> dict:
+    """Pick the best team member to execute a ticket based on its content.
+
+    Simple keyword-based matching. Falls back to the first developer-type
+    agent, or the first non-lead member, or the team lead.
+    """
+    members = team_data.get("members", [])
+    text = f"{title} {description or ''}".lower()
+
+    # Keyword → role mapping for smart assignment
+    role_keywords = {
+        "frontend_dev": ["frontend", "ui", "css", "react", "component", "layout", "style"],
+        "backend_dev": ["backend", "api", "endpoint", "server", "route", "database", "db"],
+        "qa_engineer": ["test", "qa", "coverage", "spec", "assert"],
+        "security_engineer": ["security", "auth", "permission", "vulnerability", "xss", "csrf"],
+        "database_expert": ["migration", "schema", "sql", "query", "index", "database"],
+        "devops_engineer": ["deploy", "docker", "ci", "cd", "pipeline", "infra"],
+    }
+
+    # Try keyword match
+    for role, keywords in role_keywords.items():
+        if any(kw in text for kw in keywords):
+            match = next((m for m in members if m["role"] == role), None)
+            if match:
+                return match
+
+    # Fallback priority: developer > code_explorer > first non-lead > lead
+    for preferred_role in ["developer", "code_explorer"]:
+        match = next((m for m in members if m["role"] == preferred_role), None)
+        if match:
+            return match
+
+    non_leads = [m for m in members if m["role"] != "team_lead"]
+    if non_leads:
+        return non_leads[0]
+
+    return members[0]
+
+
 def _run_team_execution(
     job_id: str,
     ticket_id: str,
@@ -1469,9 +1510,29 @@ def capture_git_diff(
     untracked_files: list[str] = []
 
     try:
-        # First get the diff stat for tracked file changes (both staged and unstaged)
+        # Detect the merge base to diff against (handles committed changes)
+        # If executor committed changes, `git diff HEAD` shows nothing.
+        # We need to diff against the branch point from the base branch.
+        diff_base = "HEAD"
+        try:
+            # Find the fork point from the default branch
+            for candidate in ("main", "master"):
+                merge_base_result = subprocess.run(
+                    ["git", "merge-base", candidate, "HEAD"],
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if merge_base_result.returncode == 0:
+                    diff_base = merge_base_result.stdout.strip()
+                    break
+        except Exception:
+            pass  # Fall back to HEAD
+
+        # First get the diff stat for tracked file changes
         stat_result = subprocess.run(
-            ["git", "diff", "HEAD", "--stat"],
+            ["git", "diff", diff_base, "--stat"],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -1479,9 +1540,9 @@ def capture_git_diff(
         )
         diff_stat = stat_result.stdout.strip() if stat_result.stdout else ""
 
-        # Then get the full patch for tracked files (both staged and unstaged)
+        # Then get the full patch for tracked files
         patch_result = subprocess.run(
-            ["git", "diff", "HEAD"],
+            ["git", "diff", diff_base],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -1489,6 +1550,19 @@ def capture_git_diff(
         )
         diff_patch = patch_result.stdout.strip() if patch_result.stdout else ""
         has_tracked_changes = bool(diff_patch)
+
+        # Capture name-status for file tree (includes empty files)
+        name_status_result = subprocess.run(
+            ["git", "diff", diff_base, "--name-status"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        name_status_path = evidence_dir / f"{evidence_id}.name_status"
+        name_status_path.write_text(
+            name_status_result.stdout.strip() if name_status_result.stdout else ""
+        )
 
         # Also check for untracked files (new files created by executor)
         # These won't show up in git diff but represent real work done
@@ -1508,6 +1582,15 @@ def capture_git_diff(
                     if not file_path.startswith(".draft"):
                         untracked_files.append(file_path)
             has_untracked_files = len(untracked_files) > 0
+
+        # Append untracked files to name_status
+        if untracked_files:
+            existing_name_status = name_status_path.read_text()
+            additions = "\n".join(f"A\t{f}" for f in untracked_files)
+            if existing_name_status:
+                name_status_path.write_text(f"{existing_name_status}\n{additions}")
+            else:
+                name_status_path.write_text(additions)
 
         # Determine if there are actual changes (tracked OR untracked)
         has_changes = has_tracked_changes or has_untracked_files
@@ -2247,242 +2330,42 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         return {"job_id": job_id, "status": "canceled"}
 
     # =========================================================================
-    # MULTI-AGENT TEAM MODE — check if board has active team
+    # TEAM-AWARE EXECUTION — orchestrator picks the best agent for this ticket
     # =========================================================================
     active_team = _get_active_team(ticket.board_id)
     if active_team and len(active_team.get("members", [])) > 0:
+        assigned = _pick_agent_for_ticket(active_team, ticket.title, ticket.description)
         write_log(
             log_path,
-            f"Multi-agent team mode: {active_team['name']} ({len(active_team['members'])} members)",
+            f"Team '{active_team['name']}' active — assigned to: "
+            f"{assigned['display_name']} ({assigned['role']})",
         )
 
-        team_success, team_reason, team_duration_ms = _run_team_execution(
-            job_id=job_id,
-            ticket_id=ticket_id,
-            board_id=ticket.board_id,
-            team_data=active_team,
-            worktree_path=worktree_path,
-            ticket_title=ticket.title,
-            ticket_description=ticket.description,
-            timeout=execute_config.timeout,
-            yolo_enabled=yolo_enabled,
-            log_path=log_path,
-        )
-
-        if team_reason == "canceled":
-            write_log(log_path, "Team execution canceled.")
-            return {"job_id": job_id, "status": "canceled"}
-
-        # Set variables expected by shared post-execution code
-        executor_exit_code = 0 if team_success else 1
-        executor_duration_ms = team_duration_ms
-
-        # Create EXECUTOR_META evidence for team mode
-        executor_meta_id = str(uuid.uuid4())
-        executor_meta = {
-            "exit_code": executor_exit_code,
-            "duration_ms": executor_duration_ms,
-            "executor_type": "team",
-            "mode": "multi_agent",
-            "team_name": active_team["name"],
-            "member_count": len(active_team["members"]),
-            "members": [
-                {
-                    "role": m["role"],
-                    "display_name": m["display_name"],
-                    "executor": m["executor_type"],
-                }
-                for m in active_team["members"]
-            ],
-            "completion_reason": team_reason,
-            "yolo_enabled": yolo_enabled,
-            "timeout_configured": execute_config.timeout,
-        }
-        executor_meta_path = evidence_dir / f"{executor_meta_id}.meta.json"
-        executor_meta_path.write_text(json.dumps(executor_meta, indent=2))
-        create_evidence_record(
-            ticket_id=ticket_id,
-            job_id=job_id,
-            command="team_execution_metadata",
-            exit_code=executor_exit_code,
-            stdout_path=str(executor_meta_path),
-            stderr_path="",
-            evidence_id=executor_meta_id,
-            kind=EvidenceKind.EXECUTOR_META,
-        )
-        evidence_records.append(executor_meta_id)
-
-        # Gather combined team logs as EXECUTOR_STDOUT evidence
-        combined_log_path = _gather_team_logs(job_id, evidence_dir)
-        if combined_log_path:
-            team_log_evidence_id = str(uuid.uuid4())
-            create_evidence_record(
-                ticket_id=ticket_id,
-                job_id=job_id,
-                command="team_execution_combined_log",
-                exit_code=executor_exit_code,
-                stdout_path=combined_log_path,
-                stderr_path="",
-                evidence_id=team_log_evidence_id,
-                kind=EvidenceKind.EXECUTOR_STDOUT,
+        # Use the assigned member's executor if specified, otherwise use default
+        if assigned.get("executor_type"):
+            write_log(
+                log_path,
+                f"Using member executor: {assigned['executor_type']}",
             )
-            evidence_records.append(team_log_evidence_id)
 
-        write_log(
-            log_path,
-            f"Team execution {'succeeded' if team_success else 'failed'}: {team_reason} ({executor_duration_ms}ms)",
-        )
-
-        # === Jump to shared diff capture and state transitions ===
-        # Capture git diff
-        write_log(log_path, "Capturing git diff...")
-        diff_stat_evidence_id = str(uuid.uuid4())
-        diff_patch_evidence_id = str(uuid.uuid4())
-
-        diff_exit_code, diff_stat_path, diff_patch_path, diff_stat, has_changes = (
-            capture_git_diff(
-                cwd=worktree_path,
-                evidence_dir=evidence_dir,
-                evidence_id=diff_stat_evidence_id,
-                repo_root=main_repo_path,
-            )
-        )
-
-        create_evidence_record(
-            ticket_id=ticket_id,
-            job_id=job_id,
-            command="git diff --stat",
-            exit_code=diff_exit_code,
-            stdout_path=diff_stat_path,
-            stderr_path="",
-            evidence_id=diff_stat_evidence_id,
-            kind=EvidenceKind.GIT_DIFF_STAT,
-        )
-        evidence_records.append(diff_stat_evidence_id)
-
-        create_evidence_record(
-            ticket_id=ticket_id,
-            job_id=job_id,
-            command="git diff",
-            exit_code=diff_exit_code,
-            stdout_path=diff_patch_path,
-            stderr_path="",
-            evidence_id=diff_patch_evidence_id,
-            kind=EvidenceKind.GIT_DIFF_PATCH,
-        )
-        evidence_records.append(diff_patch_evidence_id)
-
-        write_log(log_path, f"Git diff summary:\n{diff_stat}")
-        write_log(log_path, f"Has changes: {has_changes}")
-
-        # Auto-commit if there are changes
-        if has_changes and executor_exit_code == 0:
-            write_log(log_path, "Auto-committing team changes in worktree...")
+        # Inject the agent's behavior prompt as additional context for the executor
+        if assigned.get("behavior_prompt"):
+            # Prepend the role-specific behavior to the prompt file
             try:
-                subprocess.run(
-                    ["git", "add", "-A"],
-                    cwd=worktree_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
+                prompt_content = prompt_file.read_text()
+                role_header = (
+                    f"# Agent Role: {assigned['display_name']}\n"
+                    f"{assigned['behavior_prompt']}\n\n"
+                    "---\n\n"
                 )
-                commit_result = subprocess.run(
-                    ["git", "commit", "-m", f"feat: {ticket.title} (team execution)"],
-                    cwd=worktree_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if commit_result.returncode == 0:
-                    write_log(log_path, "Changes committed successfully.")
-                else:
-                    write_log(
-                        log_path, f"Git commit warning: {commit_result.stderr.strip()}"
-                    )
+                prompt_file.write_text(role_header + prompt_content)
+                write_log(log_path, f"Injected role prompt for {assigned['role']}")
             except Exception as e:
-                write_log(log_path, f"Auto-commit failed (non-fatal): {e}")
+                write_log(log_path, f"Warning: failed to inject role prompt: {e}")
 
-        # State transitions
-        if executor_exit_code != 0:
-            write_log(log_path, f"Team execution FAILED: {team_reason}")
-            transition_ticket_sync(
-                ticket_id,
-                TicketState.BLOCKED,
-                reason=f"Team execution failed: {team_reason}",
-                payload={
-                    "executor": "team",
-                    "exit_code": executor_exit_code,
-                    "evidence_ids": evidence_records,
-                    "diff_summary": diff_stat,
-                    "team_name": active_team["name"],
-                },
-                actor_id="execute_worker",
-            )
-            update_job_finished(job_id, JobStatus.FAILED, exit_code=executor_exit_code)
-            return {
-                "job_id": job_id,
-                "status": "failed",
-                "worktree": str(worktree_path),
-                "executor": "team",
-                "reason": team_reason,
-            }
-        elif not has_changes:
-            write_log(log_path, "Team produced no changes. Transitioning to blocked.")
-            transition_ticket_sync(
-                ticket_id,
-                TicketState.BLOCKED,
-                reason="Multi-agent team execution completed but produced no code changes",
-                payload={
-                    "executor": "team",
-                    "evidence_ids": evidence_records,
-                    "team_name": active_team["name"],
-                    "skip_followup": True,
-                },
-                actor_id="execute_worker",
-            )
-            update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
-            return {
-                "job_id": job_id,
-                "status": "no_changes",
-                "worktree": str(worktree_path),
-                "executor": "team",
-            }
-        else:
-            write_log(log_path, "Team execution succeeded with changes!")
-            # Create revision
-            revision = create_revision_for_job(
-                ticket_id=ticket_id,
-                job_id=job_id,
-                diff_stat_evidence_id=diff_stat_evidence_id,
-                diff_patch_evidence_id=diff_patch_evidence_id,
-            )
-
-            transition_ticket_sync(
-                ticket_id,
-                TicketState.VERIFYING,
-                reason=f"Team execution completed with changes ({active_team['name']})",
-                payload={
-                    "executor": "team",
-                    "evidence_ids": evidence_records,
-                    "diff_summary": diff_stat,
-                    "team_name": active_team["name"],
-                    "revision_id": revision.id if revision else None,
-                },
-                actor_id="execute_worker",
-            )
-            update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
-
-            # Auto-enqueue verification
-            _enqueue_verify_job_sync(ticket_id)
-
-            return {
-                "job_id": job_id,
-                "status": "verifying",
-                "worktree": str(worktree_path),
-                "executor": "team",
-                "has_changes": True,
-                "diff_summary": diff_stat,
-            }
+        # Fall through to the normal single-agent execution below
+        # (no separate team execution — just use the standard CLI path)
+        pass
 
     # =========================================================================
     # INTERACTIVE EXECUTOR (Cursor) - Hand off to user immediately
@@ -2707,6 +2590,22 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         kind=EvidenceKind.GIT_DIFF_PATCH,
     )
     evidence_records.append(diff_patch_evidence_id)
+
+    # Create name-status evidence for file tree in revision viewer
+    name_status_evidence_id = str(uuid.uuid4())
+    name_status_file = evidence_dir / f"{diff_stat_evidence_id}.name_status"
+    if name_status_file.exists():
+        create_evidence_record(
+            ticket_id=ticket_id,
+            job_id=job_id,
+            command="git diff --name-status",
+            exit_code=0,
+            stdout_path=str(name_status_file),
+            stderr_path="",
+            evidence_id=name_status_evidence_id,
+            kind=EvidenceKind.GIT_NAME_STATUS,
+        )
+        evidence_records.append(name_status_evidence_id)
 
     write_log(log_path, f"Git diff summary:\n{diff_stat}")
     write_log(log_path, f"Has changes: {has_changes}")

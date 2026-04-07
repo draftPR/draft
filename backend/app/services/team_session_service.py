@@ -638,6 +638,198 @@ class TeamSessionService:
             "Start immediately — post your analysis to the board."
         )
 
+    # ------------------------------------------------------------------
+    # Research-only team launch (orchestrator-driven ticket generation)
+    # ------------------------------------------------------------------
+
+    def launch_research_agents(
+        self,
+        board_id: str,
+        goal_title: str,
+        goal_description: str | None,
+        repo_root: Path,
+        team: AgentTeam,
+        existing_tickets: list[str],
+        api_base_url: str = "http://localhost:8000",
+    ) -> tuple[list[TeamAgentSession], str]:
+        """Launch research agents to gather context for ticket generation.
+
+        Unlike launch_planning_team(), this does NOT launch the Team Lead.
+        Only worker agents (PM, Code Explorer, etc.) are launched to gather
+        information. The orchestrator (TicketGenerationService) will use
+        their findings to generate tickets via the single-agent path.
+
+        Returns:
+            Tuple of (sessions, synthetic_ticket_id) for polling.
+        """
+        if not tmux_manager.is_tmux_available():
+            raise RuntimeError(
+                "tmux is required for multi-agent research but is not installed."
+            )
+
+        synthetic_ticket_id = f"research-{uuid4().hex[:12]}"
+        inject_board_cli(repo_root, api_base_url)
+
+        # Only launch worker agents — skip the Team Lead / orchestrator
+        workers = [
+            m
+            for m in team.members
+            if m.receive_mode != "all" and m.role != "team_lead"
+        ]
+        if not workers:
+            raise ValueError(
+                "No research-capable worker agents in team (only Team Lead found)."
+            )
+
+        desc = goal_description or "No additional description."
+        roster_lines = [f"  - {m.display_name} ({m.role})" for m in workers]
+        roster_str = "\n".join(roster_lines)
+
+        existing_str = ""
+        if existing_tickets:
+            existing_str = (
+                "\n## Existing Tickets (avoid duplicates)\n"
+                + "\n".join(f"- {t}" for t in existing_tickets)
+                + "\n"
+            )
+
+        sessions: list[TeamAgentSession] = []
+        launched_tmux_names: list[str] = []
+        dummy_job_id = f"research-{uuid4().hex[:12]}"
+
+        try:
+            for member in workers:
+                session = self._launch_agent(
+                    ticket_id=synthetic_ticket_id,
+                    board_id=board_id,
+                    job_id=dummy_job_id,
+                    member=member,
+                    worktree_path=repo_root,
+                    roster_str=roster_str,
+                    api_base_url=api_base_url,
+                    yolo_mode=True,
+                )
+                sessions.append(session)
+                launched_tmux_names.append(session.tmux_session_name)
+                self.board_service.subscribe(
+                    board_id, synthetic_ticket_id, session.session_uuid
+                )
+
+                prompt = self._build_research_agent_prompt(
+                    goal_title=goal_title,
+                    goal_description=desc,
+                    member=member,
+                    existing_tickets_str=existing_str,
+                )
+                tmux_manager.send_text(session.tmux_session_name, prompt)
+
+            self.db.commit()
+            logger.info(
+                "Launched %d research agents for goal '%s'",
+                len(sessions),
+                goal_title,
+            )
+            return sessions, synthetic_ticket_id
+
+        except Exception as exc:
+            logger.error(
+                "Research agent launch failed after %d/%d agents: %s",
+                len(launched_tmux_names),
+                len(workers),
+                exc,
+            )
+            for name in launched_tmux_names:
+                try:
+                    tmux_manager.kill_session(name)
+                except Exception:
+                    pass
+            for s in sessions:
+                s.status = "failed"
+                s.ended_at = datetime.now(UTC)
+            try:
+                self.db.commit()
+            except Exception:
+                self.db.rollback()
+            raise
+
+    def collect_research_findings(
+        self,
+        board_id: str,
+        ticket_id: str,
+    ) -> dict[str, str]:
+        """Collect research findings from the message board.
+
+        Returns:
+            Dict mapping sender_role → concatenated message content.
+        """
+        messages = self.board_service.get_all_messages(board_id, ticket_id)
+        findings: dict[str, list[str]] = {}
+
+        for msg in messages:
+            role = msg.sender_role or "unknown"
+            if role not in findings:
+                findings[role] = []
+            findings[role].append(msg.content)
+
+        # Merge per-role messages into single strings
+        return {role: "\n\n".join(msgs) for role, msgs in findings.items()}
+
+    def _build_research_agent_prompt(
+        self,
+        goal_title: str,
+        goal_description: str,
+        member: AgentTeamMember,
+        existing_tickets_str: str = "",
+    ) -> str:
+        """Build a focused research prompt for a worker agent."""
+        behavior = member.behavior_prompt or f"You are {member.display_name}."
+
+        role_task = ""
+        if member.role == "pm":
+            role_task = (
+                "## Your Research Task\n"
+                "Analyze this goal and post your findings to the board:\n"
+                "1. Break the goal into concrete requirements\n"
+                "2. Define acceptance criteria for each requirement\n"
+                "3. Identify edge cases, risks, and dependencies\n"
+                "4. Suggest priority ordering (P0=critical, P1=high, P2=medium, P3=low)\n"
+                "5. Post your COMPLETE analysis as a SINGLE message to the board\n\n"
+            )
+        elif member.role == "code_explorer":
+            role_task = (
+                "## Your Research Task\n"
+                "Explore the codebase and post your findings to the board:\n"
+                "1. Find files and modules relevant to the goal\n"
+                "2. Identify existing patterns, utilities, and abstractions to reuse\n"
+                "3. Note dependencies and potential conflicts\n"
+                "4. Estimate complexity for different parts of the goal\n"
+                "5. Post your COMPLETE analysis as a SINGLE message to the board\n\n"
+                "Focus on reading and understanding — do NOT modify any files.\n"
+            )
+        else:
+            role_task = (
+                "## Your Research Task\n"
+                "Analyze the goal from your area of expertise.\n"
+                "Post your COMPLETE findings as a SINGLE message to the board.\n"
+            )
+
+        return (
+            f"{behavior}\n\n"
+            f"# Research Task — Goal: {goal_title}\n\n"
+            f"## Description\n{goal_description}\n\n"
+            f"{existing_tickets_str}"
+            f"{role_task}"
+            "## Communication\n"
+            "Post your findings using:\n"
+            '.draft/board-cli.sh post "YOUR COMPLETE ANALYSIS HERE"\n\n'
+            "## Important\n"
+            "- Post ONE comprehensive message with ALL your findings\n"
+            "- Do NOT wait for instructions from anyone\n"
+            "- Do NOT ask questions — just analyze and post\n"
+            "- Be thorough but concise\n"
+            "- Start immediately\n"
+        )
+
     def stop_team(self, ticket_id: str) -> int:
         """Stop all agent sessions for a ticket. Returns count stopped."""
         stmt = select(TeamAgentSession).where(
@@ -714,6 +906,9 @@ class TeamSessionService:
                 last_activity = (
                     getattr(session, "last_pulse_at", None) or session.created_at
                 )
+                # Ensure timezone-aware for comparison with now (UTC)
+                if last_activity and last_activity.tzinfo is None:
+                    last_activity = last_activity.replace(tzinfo=UTC)
                 if (
                     last_activity
                     and (now - last_activity).total_seconds() > agent_timeout_seconds

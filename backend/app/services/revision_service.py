@@ -3,7 +3,7 @@
 import hashlib
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -277,6 +277,35 @@ class RevisionService:
             )
 
         return diff_stat, diff_patch
+
+    async def get_revision_name_status(self, revision_id: str) -> str | None:
+        """Get the name-status output for a revision's job.
+
+        Returns file paths with their add/modify/delete status, including
+        empty new files that don't appear in diff stat.
+        """
+        from app.models.evidence import Evidence, EvidenceKind
+
+        revision = await self.get_revision_by_id(revision_id)
+        if not revision.job_id:
+            return None
+
+        repo_root = await self._get_repo_root_for_ticket(revision.ticket_id)
+
+        # Find the name-status evidence for this job
+        result = await self.db.execute(
+            select(Evidence).where(
+                and_(
+                    Evidence.job_id == revision.job_id,
+                    Evidence.kind == EvidenceKind.GIT_NAME_STATUS,
+                )
+            )
+        )
+        evidence = result.scalar_one_or_none()
+        if not evidence:
+            return None
+
+        return await self._read_evidence_content(evidence, repo_root)
 
     async def get_revision_diff_summary(self, revision_id: str) -> str | None:
         """Get only the diff stat (summary) for a revision.

@@ -25,16 +25,18 @@ import {
   ChevronRight,
   Link,
   ArrowRight,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { config } from "@/config";
+
+// ── Types ──
 
 interface TicketGenerationProgressProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   goalId: string;
   onComplete: () => void;
-  /** Called when user clicks "Show me tickets" — should close all dialogs */
   onShowTickets?: () => void;
 }
 
@@ -56,9 +58,24 @@ interface TicketInfo {
   blocked_by_title?: string | null;
 }
 
+interface PhaseInfo {
+  id: string;
+  label: string;
+  progress?: { current: number; total: number };
+  detail?: string;
+  state?: string;
+}
+
+interface ReasoningLine {
+  id: number;
+  text: string;
+  type: "thinking" | "tool" | "info";
+}
+
 interface StreamEvent {
   type:
     | "status"
+    | "phase"
     | "agent_output"
     | "agent_normalized"
     | "ticket"
@@ -68,7 +85,72 @@ interface StreamEvent {
   entry?: NormalizedEntry;
   ticket?: TicketInfo;
   count?: number;
+  // phase fields
+  id?: string;
+  label?: string;
+  progress?: { current: number; total: number };
+  detail?: string;
+  state?: string;
+  phase?: string;
 }
+
+// ── Helpers ──
+
+const MAX_REASONING_LINES = 6;
+let reasoningIdCounter = 0;
+
+/** Extract a clean, human-readable line from a thinking block. */
+function extractThinkingSummary(content: string): string | null {
+  const lines = content.split("\n").filter((l) => l.trim().length > 10);
+  if (lines.length === 0) return null;
+  // Take the first substantive line, clean up filler
+  let line = lines[0].trim();
+  // Strip common LLM filler prefixes
+  line = line.replace(
+    /^(I'll |I will |I need to |I should |Let me |Now I'll |Now let me |OK,? |Okay,? |Alright,? |So,? )/i,
+    ""
+  );
+  // Capitalize first letter
+  line = line.charAt(0).toUpperCase() + line.slice(1);
+  // Truncate
+  if (line.length > 100) line = line.slice(0, 97) + "...";
+  return line;
+}
+
+/** Extract a compact description from a tool_use entry. */
+function extractToolSummary(entry: NormalizedEntry): string | null {
+  const action = entry.action_type;
+  const content = entry.content.trim();
+  if (!content) return null;
+
+  // Extract filename from content (first path-like token)
+  const pathMatch = content.match(
+    /(?:^|\s)([\w./-]+\.[\w]+|src\/[^\s]+|app\/[^\s]+|[\w/-]+\/[\w.]+)/
+  );
+  const filename = pathMatch?.[1];
+
+  switch (action) {
+    case "read_file":
+      return filename ? `Reading \`${filename}\`` : "Reading file";
+    case "write_file":
+    case "edit_file":
+      return filename ? `Editing \`${filename}\`` : "Editing file";
+    case "list_dir":
+      return filename
+        ? `Exploring \`${filename}\``
+        : "Exploring directory";
+    case "search":
+      return `Searching codebase`;
+    case "shell":
+      return `Running command`;
+    default:
+      return entry.tool_name
+        ? `Using ${entry.tool_name}`
+        : "Working...";
+  }
+}
+
+// ── Raw Detail Components (for collapsible section) ──
 
 const ENTRY_ICONS: Record<string, typeof Brain> = {
   thinking: Brain,
@@ -195,11 +277,8 @@ function AssistantEntry({
                 )}
               </>
             )}
-            <span className="text-[10px] text-emerald-400/70 ml-auto">
-              {contentLength > 0 && `${contentLength} chars`}
-            </span>
           </div>
-          {(!isLong || expanded) ? (
+          {!isLong || expanded ? (
             <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words mt-0.5 leading-relaxed font-mono max-h-[300px] overflow-y-auto">
               {entry.content}
             </pre>
@@ -277,6 +356,8 @@ function NormalizedEntryView({
   }
 }
 
+// ── Ticket Summary Components ──
+
 const PRIORITY_CONFIG: Record<
   number,
   { label: string; color: string; bg: string; border: string }
@@ -308,8 +389,7 @@ const PRIORITY_CONFIG: Record<
 };
 
 function PriorityBadge({ priority }: { priority: number }) {
-  const pCfg =
-    PRIORITY_CONFIG[priority] || PRIORITY_CONFIG[2];
+  const pCfg = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG[2];
   return (
     <span
       className={cn(
@@ -350,6 +430,112 @@ function TicketSummaryCard({ ticket }: { ticket: TicketInfo }) {
   );
 }
 
+// ── Phase Indicator ──
+
+function PhaseIndicator({ phase }: { phase: PhaseInfo | null }) {
+  if (!phase) return null;
+
+  const isDone = phase.state === "done" || phase.id === "done";
+  const hasProgress = phase.progress && phase.progress.total > 0;
+
+  return (
+    <div className="flex items-center gap-3 px-1 py-2">
+      {isDone ? (
+        <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+      ) : (
+        <Loader2 className="h-4 w-4 animate-spin text-blue-500 flex-shrink-0" />
+      )}
+      <div className="flex-1 min-w-0">
+        <p
+          className={cn(
+            "text-sm font-medium",
+            isDone ? "text-green-700" : "text-gray-800"
+          )}
+        >
+          {phase.label}
+        </p>
+        {hasProgress && !isDone && (
+          <div className="mt-1.5">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-500 ease-out"
+                  style={{
+                    width: `${Math.round((phase.progress!.current / phase.progress!.total) * 100)}%`,
+                  }}
+                />
+              </div>
+              <span className="text-[11px] text-gray-500 tabular-nums flex-shrink-0">
+                {phase.progress!.current}/{phase.progress!.total}
+              </span>
+            </div>
+            {phase.detail && (
+              <p className="text-[11px] text-gray-500 mt-1">
+                {phase.detail}
+              </p>
+            )}
+          </div>
+        )}
+        {phase.detail && !hasProgress && !isDone && (
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            {phase.detail}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Reasoning Feed ──
+
+function ReasoningFeed({ lines }: { lines: ReasoningLine[] }) {
+  const feedRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (feedRef.current) {
+      feedRef.current.scrollTop = feedRef.current.scrollHeight;
+    }
+  }, [lines]);
+
+  if (lines.length === 0) return null;
+
+  return (
+    <div
+      ref={feedRef}
+      className="space-y-1 max-h-[200px] overflow-y-auto"
+    >
+      {lines.map((line) => (
+        <div
+          key={line.id}
+          className="flex items-start gap-2 px-1 animate-in fade-in slide-in-from-bottom-1 duration-300"
+        >
+          {line.type === "thinking" ? (
+            <Brain className="h-3 w-3 mt-0.5 flex-shrink-0 text-violet-400" />
+          ) : line.type === "tool" ? (
+            <FileCode className="h-3 w-3 mt-0.5 flex-shrink-0 text-gray-400" />
+          ) : (
+            <Bot className="h-3 w-3 mt-0.5 flex-shrink-0 text-blue-400" />
+          )}
+          <p
+            className={cn(
+              "text-xs leading-relaxed",
+              line.type === "thinking"
+                ? "text-violet-600/80 italic"
+                : line.type === "tool"
+                  ? "text-gray-600 font-mono"
+                  : "text-blue-600"
+            )}
+          >
+            {line.text}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Main Component ──
+
 export function TicketGenerationProgress({
   open,
   onOpenChange,
@@ -361,54 +547,73 @@ export function TicketGenerationProgress({
     Map<number, NormalizedEntry>
   >(new Map());
   const [rawLines, setRawLines] = useState<string[]>([]);
-  const [statusMessages, setStatusMessages] = useState<string[]>([]);
+  const [currentPhase, setCurrentPhase] = useState<PhaseInfo | null>(null);
+  const [reasoningLines, setReasoningLines] = useState<ReasoningLine[]>([]);
   const [tickets, setTickets] = useState<TicketInfo[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [ticketCount, setTicketCount] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
+  const [showRawDetails, setShowRawDetails] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const onCompleteRef = useRef(onComplete);
   const onOpenChangeRef = useRef(onOpenChange);
   const onShowTicketsRef = useRef(onShowTickets);
-  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
-  useEffect(() => { onOpenChangeRef.current = onOpenChange; }, [onOpenChange]);
-  useEffect(() => { onShowTicketsRef.current = onShowTickets; }, [onShowTickets]);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+  useEffect(() => {
+    onShowTicketsRef.current = onShowTickets;
+  }, [onShowTickets]);
 
-  // Auto-scroll to bottom (only when not in summary view)
+  // Auto-scroll (only when not in summary view)
   useEffect(() => {
     if (scrollRef.current && !showSummary) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [normalizedEntries, rawLines, statusMessages, tickets, showSummary]);
+  }, [reasoningLines, tickets, showSummary]);
 
   // Auto-transition to summary when generation completes with tickets
   useEffect(() => {
     if (isComplete && ticketCount > 0 && tickets.length > 0) {
-      // Short delay so the user sees the completion message briefly
       const timer = setTimeout(() => setShowSummary(true), 600);
       return () => clearTimeout(timer);
     }
   }, [isComplete, ticketCount, tickets.length]);
 
+  // Add a reasoning line (keeps max N recent lines)
+  const addReasoningLine = (text: string, type: ReasoningLine["type"]) => {
+    setReasoningLines((prev) => {
+      const next = [
+        ...prev,
+        { id: ++reasoningIdCounter, text, type },
+      ];
+      return next.length > MAX_REASONING_LINES
+        ? next.slice(-MAX_REASONING_LINES)
+        : next;
+    });
+  };
+
   useEffect(() => {
     if (!open) return;
 
-    // Reset state at the start of a new stream
-    const resetState = () => {
-      setNormalizedEntries(new Map());
-      setRawLines([]);
-      setStatusMessages([]);
-      setTickets([]);
-      setIsComplete(false);
-      setHasError(false);
-      setErrorMessage(null);
-      setTicketCount(0);
-      setShowSummary(false);
-    };
-    resetState();
+    // Reset state
+    setNormalizedEntries(new Map());
+    setRawLines([]);
+    setCurrentPhase(null);
+    setReasoningLines([]);
+    setTickets([]);
+    setIsComplete(false);
+    setHasError(false);
+    setErrorMessage(null);
+    setTicketCount(0);
+    setShowSummary(false);
+    setShowRawDetails(false);
 
     const eventSource = new EventSource(
       `${config.backendBaseUrl}/goals/${goalId}/generate-tickets/stream`
@@ -419,11 +624,25 @@ export function TicketGenerationProgress({
       try {
         data = JSON.parse(event.data);
       } catch {
-        console.warn('SSE: ignoring non-JSON frame', event.data);
+        console.warn("SSE: ignoring non-JSON frame", event.data);
         return;
       }
 
       switch (data.type) {
+        case "phase":
+          setCurrentPhase({
+            id: data.id || data.phase || "unknown",
+            label: data.label || "",
+            progress: data.progress,
+            detail: data.detail,
+            state: data.state,
+          });
+          // Add detail as reasoning line if present
+          if (data.detail) {
+            addReasoningLine(data.detail, "info");
+          }
+          break;
+
         case "agent_normalized":
           if (data.entry) {
             setNormalizedEntries((prev) => {
@@ -431,6 +650,15 @@ export function TicketGenerationProgress({
               updated.set(data.entry!.sequence, data.entry!);
               return updated;
             });
+            // Extract reasoning from normalized entries
+            const entry = data.entry;
+            if (entry.entry_type === "thinking") {
+              const summary = extractThinkingSummary(entry.content);
+              if (summary) addReasoningLine(summary, "thinking");
+            } else if (entry.entry_type === "tool_use") {
+              const summary = extractToolSummary(entry);
+              if (summary) addReasoningLine(summary, "tool");
+            }
           }
           break;
 
@@ -459,9 +687,10 @@ export function TicketGenerationProgress({
           eventSource.close();
           break;
 
+        // Legacy: handle any remaining status events
         case "status":
           if (data.message) {
-            setStatusMessages((prev) => [...prev, data.message!]);
+            addReasoningLine(data.message, "info");
           }
           break;
 
@@ -473,7 +702,6 @@ export function TicketGenerationProgress({
     eventSource.onerror = (error) => {
       console.error("SSE error:", error);
       eventSource.close();
-      // Only show "Connection lost" if we haven't already received a server error or completion
       setIsComplete((wasComplete) => {
         if (!wasComplete) {
           setHasError((hadError) => {
@@ -500,18 +728,16 @@ export function TicketGenerationProgress({
     (a, b) => a.sequence - b.sequence
   );
   const hasNormalized = sortedEntries.length > 0;
-  const hasContent = hasNormalized || rawLines.length > 0 || statusMessages.length > 0;
+  const hasRawContent = hasNormalized || rawLines.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[680px] max-h-[85vh] flex flex-col"
+        className="sm:max-w-[580px] max-h-[85vh] flex flex-col"
         onInteractOutside={(e) => {
-          // Prevent closing by clicking outside while generating
           if (!isComplete && !hasError) e.preventDefault();
         }}
         onEscapeKeyDown={(e) => {
-          // Prevent closing by Escape while generating
           if (!isComplete && !hasError) e.preventDefault();
         }}
       >
@@ -519,8 +745,8 @@ export function TicketGenerationProgress({
           <DialogTitle className="flex items-center gap-2">
             {!isComplete && !hasError && (
               <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
               </span>
             )}
             {isComplete && !showSummary && (
@@ -528,12 +754,12 @@ export function TicketGenerationProgress({
             )}
             {hasError && <XCircle className="h-5 w-5 text-red-600" />}
             {showSummary
-              ? `✅ ${ticketCount} Ticket${ticketCount !== 1 ? "s" : ""} Generated`
+              ? `${ticketCount} Ticket${ticketCount !== 1 ? "s" : ""} Generated`
               : isComplete
                 ? "Tickets Generated"
                 : hasError
                   ? "Generation Failed"
-                  : "Agent Generating Tickets"}
+                  : "Generating Tickets"}
           </DialogTitle>
           <DialogDescription>
             {showSummary
@@ -542,14 +768,13 @@ export function TicketGenerationProgress({
                 ? `Created ${ticketCount} ticket(s) successfully`
                 : hasError
                   ? errorMessage
-                  : "Watching the AI agent analyze your codebase and plan tickets..."}
+                  : "AI is analyzing your codebase and planning work"}
           </DialogDescription>
         </DialogHeader>
 
         {showSummary ? (
           /* ── Summary / Approval View ── */
           <div className="flex-1 min-h-0 max-h-[500px] overflow-y-auto py-2">
-            {/* Summary stats bar */}
             {(() => {
               const highCount = tickets.filter(
                 (t) => t.priority <= 1
@@ -559,13 +784,9 @@ export function TicketGenerationProgress({
               ).length;
               const stats: string[] = [];
               if (highCount > 0)
-                stats.push(
-                  `${highCount} high priority`
-                );
+                stats.push(`${highCount} high priority`);
               if (depCount > 0)
-                stats.push(
-                  `${depCount} with dependencies`
-                );
+                stats.push(`${depCount} with dependencies`);
               if (stats.length === 0) return null;
               return (
                 <div className="mb-3 px-1">
@@ -575,8 +796,6 @@ export function TicketGenerationProgress({
                 </div>
               );
             })()}
-
-            {/* Ticket cards */}
             <div className="space-y-2 px-1">
               {tickets.map((ticket) => (
                 <TicketSummaryCard
@@ -587,127 +806,117 @@ export function TicketGenerationProgress({
             </div>
           </div>
         ) : (
-          /* ── Chain-of-thought Stream View ── */
+          /* ── Progress Stream View ── */
           <div
             ref={scrollRef}
-            className="flex-1 min-h-0 max-h-[500px] overflow-y-auto space-y-1.5 py-2"
+            className="flex-1 min-h-0 max-h-[500px] overflow-y-auto py-2 space-y-3"
           >
-            {/* Status messages (shown before agent output arrives) */}
-            {statusMessages.map((msg, idx) => {
-              const isLastStatus =
-                idx === statusMessages.length - 1;
-              const showSpinner =
-                isLastStatus &&
-                !isComplete &&
-                !hasError &&
-                !hasNormalized;
+            {/* Phase indicator — single animated line */}
+            <PhaseIndicator phase={currentPhase} />
 
-              return (
-                <div
-                  key={`status-${idx}`}
-                  className="py-1.5 px-2.5 rounded border-l-2 border-l-blue-300 bg-blue-50/30"
-                >
-                  <div className="flex items-center gap-2">
-                    {showSpinner ? (
-                      <Loader2 className="h-3 w-3 animate-spin text-blue-400 flex-shrink-0" />
-                    ) : (
-                      <Check className="h-3 w-3 text-blue-400 flex-shrink-0" />
-                    )}
-                    <p className="text-xs text-blue-600">
-                      {msg}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
+            {/* AI reasoning feed */}
+            <ReasoningFeed lines={reasoningLines} />
 
-            {/* Normalized entries (structured agent output) */}
-            {hasNormalized &&
-              sortedEntries.map((entry, idx) => (
-                <NormalizedEntryView
-                  key={entry.sequence}
-                  entry={entry}
-                  isStreaming={
-                    !isComplete &&
-                    !hasError &&
-                    idx === sortedEntries.length - 1
-                  }
-                />
-              ))}
-
-            {/* Raw fallback lines (if no normalized entries) */}
-            {!hasNormalized &&
-              rawLines.length > 0 &&
-              rawLines.map((line, idx) => (
-                <div
-                  key={idx}
-                  className="py-1 px-2.5 text-xs font-mono text-gray-600 whitespace-pre-wrap break-words"
-                >
-                  {line}
-                </div>
-              ))}
-
-            {/* Created tickets */}
-            {tickets.map((ticket) => (
-              <div
-                key={ticket.id}
-                className="py-1.5 px-2.5 rounded border-l-2 border-l-green-400 bg-green-50/50"
-              >
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-green-500" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-medium text-green-600 uppercase tracking-wider">
-                        Created
-                      </span>
-                      <span className="text-[10px] text-green-500/70">
-                        P{ticket.priority}
-                      </span>
+            {/* Created tickets (shown inline during generation) */}
+            {tickets.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                {tickets.map((ticket) => (
+                  <div
+                    key={ticket.id}
+                    className="flex items-start gap-2 px-1 animate-in fade-in slide-in-from-bottom-1 duration-300"
+                  >
+                    <CheckCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-green-500" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-green-500/70 font-medium">
+                          P{ticket.priority}
+                        </span>
+                        <p className="text-xs text-gray-700 font-medium truncate">
+                          {ticket.title}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-700 font-medium mt-0.5">
-                      {ticket.title}
-                    </p>
                   </div>
-                </div>
-              </div>
-            ))}
-
-            {/* Completion message */}
-            {isComplete && (
-              <div className="py-2 px-2.5 rounded border-l-2 border-l-green-500 bg-green-50/70">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-600" />
-                  <p className="text-sm font-medium text-green-700">
-                    Generation complete — {ticketCount}{" "}
-                    ticket(s) created
-                  </p>
-                </div>
+                ))}
               </div>
             )}
 
-            {/* Error message */}
+            {/* Completion */}
+            {isComplete && (
+              <div className="flex items-center gap-2 px-1 pt-1">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+                <p className="text-sm font-medium text-green-700">
+                  Done — {ticketCount} ticket{ticketCount !== 1 ? "s" : ""}{" "}
+                  created
+                </p>
+              </div>
+            )}
+
+            {/* Error */}
             {hasError && (
-              <div className="py-2 px-2.5 rounded border-l-2 border-l-red-400 bg-red-50/70">
-                <div className="flex items-start gap-2">
-                  <XCircle className="h-4 w-4 mt-0.5 text-red-500" />
-                  <p className="text-sm text-red-700">
-                    {errorMessage}
-                  </p>
-                </div>
+              <div className="flex items-start gap-2 px-1 pt-1">
+                <XCircle className="h-4 w-4 mt-0.5 text-red-500" />
+                <p className="text-sm text-red-700">{errorMessage}</p>
               </div>
             )}
 
             {/* Empty state */}
-            {!hasContent &&
+            {!currentPhase &&
+              reasoningLines.length === 0 &&
               !isComplete &&
               !hasError && (
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
                   <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
                   <span className="text-sm text-gray-500">
-                    Starting agent...
+                    Starting...
                   </span>
                 </div>
               )}
+
+            {/* Collapsible raw agent output */}
+            {hasRawContent && (
+              <div className="pt-2 border-t border-gray-100">
+                <button
+                  onClick={() => setShowRawDetails(!showRawDetails)}
+                  className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <Eye className="h-3 w-3" />
+                  {showRawDetails
+                    ? "Hide raw output"
+                    : "Show raw output"}
+                  {showRawDetails ? (
+                    <ChevronDown className="h-3 w-3" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3" />
+                  )}
+                </button>
+                {showRawDetails && (
+                  <div className="mt-2 space-y-1.5 max-h-[300px] overflow-y-auto">
+                    {hasNormalized &&
+                      sortedEntries.map((entry, idx) => (
+                        <NormalizedEntryView
+                          key={entry.sequence}
+                          entry={entry}
+                          isStreaming={
+                            !isComplete &&
+                            !hasError &&
+                            idx === sortedEntries.length - 1
+                          }
+                        />
+                      ))}
+                    {!hasNormalized &&
+                      rawLines.map((line, idx) => (
+                        <div
+                          key={idx}
+                          className="py-1 px-2.5 text-xs font-mono text-gray-600 whitespace-pre-wrap break-words"
+                        >
+                          {line}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

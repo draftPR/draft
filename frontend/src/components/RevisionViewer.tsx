@@ -147,25 +147,26 @@ export function RevisionViewer({
     
     setIsSubmitting(true);
     try {
-      await submitReview(selectedRevisionId, {
+      const result = await submitReview(selectedRevisionId, {
         decision,
         summary,
         auto_run_fix: autoRunFix,
         create_pr: createPr,
       });
-      
-      let successMessage: string;
+
       if (decision === "approved") {
         if (createPr) {
-          successMessage = "Revision approved! GitHub PR created.";
+          toast.success("Revision approved! GitHub PR created.");
+        } else if (result.merge_attempted && !result.merge_success) {
+          toast.error(
+            `Revision approved but merge failed: ${result.merge_message || "Unknown error"}`
+          );
         } else {
-          successMessage = "Revision approved! Changes merged to main.";
+          toast.success("Revision approved! Changes merged to main.");
         }
       } else {
-        successMessage = "Changes requested. Agent will re-run to address feedback.";
+        toast.success("Changes requested. Agent will re-run to address feedback.");
       }
-      
-      toast.success(successMessage);
       
       onRevisionUpdated();
     } catch (error) {
@@ -296,18 +297,37 @@ export function RevisionViewer({
                     <button
                       key={file.path}
                       onClick={() => setSelectedFile(file.path)}
+                      title={file.path}
                       className={`w-full text-left p-2 rounded text-xs transition-colors ${
                         selectedFile === file.path
                           ? "bg-muted text-foreground"
                           : "text-foreground hover:bg-muted/50"
                       }`}
                     >
-                      <div className="truncate font-mono text-[11px]">
-                        {file.path.split("/").pop()}
+                      <div className="flex items-center gap-1 truncate font-mono text-[11px]">
+                        {file.status === "added" && (
+                          <span className="text-emerald-600 font-bold shrink-0">A</span>
+                        )}
+                        {file.status === "deleted" && (
+                          <span className="text-red-600 font-bold shrink-0">D</span>
+                        )}
+                        {file.status === "renamed" && (
+                          <span className="text-blue-600 font-bold shrink-0">R</span>
+                        )}
+                        {file.status === "modified" && (
+                          <span className="text-amber-600 font-bold shrink-0">M</span>
+                        )}
+                        <span className="truncate">{file.path.split("/").pop()}</span>
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5 text-[10px]">
-                        <span className="text-emerald-600">+{file.additions}</span>
-                        <span className="text-red-600">-{file.deletions}</span>
+                      <div className="flex items-center gap-2 mt-0.5 text-[10px] ml-4">
+                        {file.additions === 0 && file.deletions === 0 ? (
+                          <span className="text-muted-foreground italic">empty file</span>
+                        ) : (
+                          <>
+                            <span className="text-emerald-600">+{file.additions}</span>
+                            <span className="text-red-600">-{file.deletions}</span>
+                          </>
+                        )}
                         {unresolvedFileComments > 0 && (
                           <span className="text-orange-600 flex items-center gap-0.5">
                             <MessageSquare className="h-2.5 w-2.5" />

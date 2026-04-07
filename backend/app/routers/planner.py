@@ -35,6 +35,7 @@ class PlannerFeaturesStatus(BaseModel):
     auto_execute: bool
     propose_followups: bool
     generate_reflections: bool
+    goal_review_on_done: bool
 
 
 class LastTickStats(BaseModel):
@@ -284,6 +285,7 @@ async def get_planner_status(
             auto_execute=config.features.auto_execute,
             propose_followups=config.features.propose_followups,
             generate_reflections=config.features.generate_reflections,
+            goal_review_on_done=config.features.goal_review_on_done,
         ),
         max_followups_per_ticket=config.max_followups_per_ticket,
         max_followups_per_tick=config.max_followups_per_tick,

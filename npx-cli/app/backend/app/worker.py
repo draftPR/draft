@@ -2144,7 +2144,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     write_log(log_path, f"Worktree validated: branch={validation_result.branch}")
 
     # =========================================================================
-    # YOLO MODE CHECK
+    # YOLO MODE CHECK (refuse if enabled but allowlist empty)
     # =========================================================================
     yolo_status = execute_config.check_yolo_status()
     model_info = (

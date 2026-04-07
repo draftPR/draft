@@ -70,6 +70,12 @@ TEAM_PLANNING_TIMEOUT = 300
 # Poll interval for team planning sessions (seconds)
 TEAM_PLANNING_POLL_INTERVAL = 5
 
+# Research phase: shorter timeout since agents only read/analyze
+TEAM_RESEARCH_TIMEOUT = 90
+
+# Poll interval for research agents
+TEAM_RESEARCH_POLL_INTERVAL = 3
+
 # JSON schema for ticket output (shared between single-agent and team prompts)
 TICKET_JSON_SCHEMA = """\
 ```json
@@ -211,15 +217,16 @@ class TicketGenerationService:
         team = await self._get_planning_team(board) if board else None
         if team:
             logger.info(
-                "Board has planning-capable team (%d members). Using team generation.",
+                "Board has planning-capable team (%d members). "
+                "Using team research → orchestrator generation.",
                 len(team.members),
             )
             if stream_callback:
                 stream_callback(
-                    "[TEAM] Launching multi-agent planning team..."
+                    {"phase": "researching", "label": "Launching research agents"}
                 )
             agent_response = await asyncio.to_thread(
-                self._generate_with_team,
+                self._generate_with_team_research,
                 goal,
                 board,
                 team,
@@ -238,7 +245,7 @@ class TicketGenerationService:
             )
             if stream_callback:
                 stream_callback(
-                    f"[DEBUG] Prompt built ({len(prompt)} chars). Calling agent..."
+                    {"phase": "generating", "label": "AI analyzing your codebase"}
                 )
             agent_response = await asyncio.to_thread(
                 self._call_agent_for_tickets,
@@ -553,7 +560,7 @@ class TicketGenerationService:
             return team
         return None
 
-    def _generate_with_team(
+    def _generate_with_team_research(
         self,
         goal: Goal,
         board,
@@ -562,106 +569,207 @@ class TicketGenerationService:
         existing_tickets: list[tuple[str, str]],
         stream_callback=None,
     ) -> str:
-        """Launch a planning team and collect the generated ticket JSON.
+        """Two-phase ticket generation: team research → orchestrator synthesis.
 
-        Runs synchronously (called via asyncio.to_thread from generate_from_goal).
+        Phase 1: Launch research agents (PM, Code Explorer, etc.) to gather
+                 codebase context and requirements analysis.
+        Phase 2: Feed their findings into the single-agent ticket generator
+                 (the same reliable path used without a team).
+
+        Runs synchronously (called via asyncio.to_thread).
 
         Returns:
-            The raw JSON response string from the team lead's DONE message.
+            The raw JSON response string with generated tickets.
         """
-        import time
-
         from app.database_sync import get_sync_db
         from app.services.team_session_service import TeamSessionService
 
         existing_titles = [title for _, title in existing_tickets]
 
-        with get_sync_db() as sync_db:
-            team_service = TeamSessionService(sync_db)
+        # ── Phase 1: Launch research agents and collect findings ──
+        findings: dict[str, str] = {}
 
-            sessions, synthetic_ticket_id = team_service.launch_planning_team(
-                board_id=board.id,
-                goal_title=goal.title,
-                goal_description=goal.description,
-                repo_root=repo_root,
-                team=team,
-                existing_tickets=existing_titles,
-                ticket_json_schema=TICKET_JSON_SCHEMA,
-            )
+        try:
+            with get_sync_db() as sync_db:
+                team_service = TeamSessionService(sync_db)
 
-            if stream_callback:
-                stream_callback(
-                    f"[TEAM] Launched {len(sessions)} agents. Waiting for results..."
+                sessions, research_ticket_id = (
+                    team_service.launch_research_agents(
+                        board_id=board.id,
+                        goal_title=goal.title,
+                        goal_description=goal.description,
+                        repo_root=repo_root,
+                        team=team,
+                        existing_tickets=existing_titles,
+                    )
                 )
 
-            # Poll for completion
-            start = time.monotonic()
-            while time.monotonic() - start < TEAM_PLANNING_TIMEOUT:
-                time.sleep(TEAM_PLANNING_POLL_INTERVAL)
-
-                # Check completion
-                is_done = team_service.check_team_completion(
-                    ticket_id=synthetic_ticket_id,
-                    board_id=board.id,
-                )
-
-                if is_done:
-                    break
-
-                # Log progress periodically
-                elapsed = int(time.monotonic() - start)
-                if elapsed % 30 == 0 and stream_callback:
+                if stream_callback:
                     stream_callback(
-                        f"[TEAM] Planning in progress... ({elapsed}s elapsed)"
+                        {
+                            "phase": "researching",
+                            "label": "Agents researching your codebase",
+                            "progress": {"current": 0, "total": len(sessions)},
+                        }
                     )
 
-            # Extract result from board messages
-            from app.services.message_board_service import MessageBoardService
+                # Poll until agents post findings or timeout
+                findings = self._poll_research_findings(
+                    team_service=team_service,
+                    ticket_id=research_ticket_id,
+                    board_id=board.id,
+                    num_agents=len(sessions),
+                    stream_callback=stream_callback,
+                )
 
-            board_service = MessageBoardService(sync_db)
-            messages = board_service.get_all_messages(
-                board.id, synthetic_ticket_id
+                # Clean up tmux sessions
+                team_service.stop_team(research_ticket_id)
+
+        except Exception as exc:
+            logger.warning(
+                "Research agent phase failed: %s. "
+                "Falling back to standard generation.",
+                exc,
+            )
+            if stream_callback:
+                stream_callback(
+                    {
+                        "phase": "generating",
+                        "label": "Research unavailable, generating directly",
+                    }
+                )
+
+        # ── Phase 2: Build enriched prompt and generate via single agent ──
+        if findings:
+            if stream_callback:
+                roles = ", ".join(findings.keys())
+                stream_callback(
+                    {
+                        "phase": "generating",
+                        "label": f"Planning tickets using {roles} research",
+                    }
+                )
+            prompt = self._build_research_enriched_prompt(
+                goal, findings, existing_tickets
+            )
+        else:
+            if stream_callback:
+                stream_callback(
+                    {"phase": "generating", "label": "AI planning your tickets"}
+                )
+            prompt = self._build_agent_ticket_generation_prompt(
+                goal, False, existing_tickets
             )
 
-            # Find the DONE message from the lead
-            done_content = ""
-            for msg in reversed(messages):
-                if msg.content.strip().upper().startswith("DONE:"):
-                    if (
-                        "lead" in msg.sender_role.lower()
-                        or "orchestrator" in msg.sender_role.lower()
-                    ):
-                        done_content = msg.content.strip()
-                        break
+        return self._call_agent_for_tickets(prompt, repo_root, stream_callback)
 
-            # Clean up team
-            team_service.stop_team(synthetic_ticket_id)
+    def _poll_research_findings(
+        self,
+        team_service,
+        ticket_id: str,
+        board_id: str,
+        num_agents: int,
+        stream_callback=None,
+    ) -> dict[str, str]:
+        """Poll message board for research agent findings.
 
-            if not done_content:
-                logger.warning(
-                    "Planning team did not produce a DONE message within timeout. "
-                    "Falling back to last board message."
+        Returns:
+            Dict mapping role → findings text.
+        """
+        import time
+
+        start = time.monotonic()
+        last_count = 0
+
+        while time.monotonic() - start < TEAM_RESEARCH_TIMEOUT:
+            time.sleep(TEAM_RESEARCH_POLL_INTERVAL)
+
+            findings = team_service.collect_research_findings(
+                board_id, ticket_id
+            )
+
+            # Log progress when new findings arrive
+            current_count = len(findings)
+            if current_count > last_count:
+                # Find the newly reported role(s)
+                new_roles = [r for r in findings if r not in (getattr(self, '_last_reported_roles', set()))]
+                self._last_reported_roles = set(findings.keys())
+                last_count = current_count
+                if stream_callback:
+                    detail = f"{', '.join(new_roles)} reported" if new_roles else None
+                    stream_callback(
+                        {
+                            "phase": "researching",
+                            "progress": {"current": current_count, "total": num_agents},
+                            "detail": detail,
+                        }
+                    )
+
+            # All agents reported — done
+            if current_count >= num_agents:
+                break
+
+            # Periodic progress (no more spammy "Waiting..." text)
+            elapsed = int(time.monotonic() - start)
+            if elapsed % 15 == 0 and stream_callback:
+                stream_callback(
+                    {
+                        "phase": "researching",
+                        "progress": {"current": current_count, "total": num_agents},
+                    }
                 )
-                # Try to find any message with JSON content
-                for msg in reversed(messages):
-                    if '"tickets"' in msg.content:
-                        done_content = msg.content
-                        break
 
-            if not done_content:
-                raise ValueError(
-                    "Planning team did not produce ticket output. "
-                    "Check tmux logs for details."
-                )
+        final = team_service.collect_research_findings(board_id, ticket_id)
+        logger.info(
+            "Research phase complete: %d/%d agents reported findings",
+            len(final),
+            num_agents,
+        )
+        return final
 
-            if stream_callback:
-                stream_callback("[TEAM] Planning complete. Processing tickets...")
+    def _build_research_enriched_prompt(
+        self,
+        goal: Goal,
+        findings: dict[str, str],
+        existing_tickets: list[tuple[str, str]],
+    ) -> str:
+        """Build ticket generation prompt enriched with team research findings."""
+        # Start with the standard prompt structure
+        base_prompt = self._build_agent_ticket_generation_prompt(
+            goal, False, existing_tickets
+        )
 
-            # Strip "DONE:" prefix if present
-            if done_content.upper().startswith("DONE:"):
-                done_content = done_content[5:].strip()
+        # Build research context section
+        research_sections = []
+        role_display = {
+            "pm": "Product Manager Analysis",
+            "code_explorer": "Codebase Analysis",
+            "frontend_dev": "Frontend Analysis",
+            "backend_dev": "Backend Analysis",
+            "qa_engineer": "QA Analysis",
+            "security_engineer": "Security Analysis",
+            "database_expert": "Database Analysis",
+            "devops_engineer": "DevOps Analysis",
+        }
 
-            return done_content
+        for role, content in findings.items():
+            title = role_display.get(role, f"{role.replace('_', ' ').title()} Analysis")
+            # Truncate very long findings to avoid prompt overflow
+            truncated = content[:3000] if len(content) > 3000 else content
+            research_sections.append(f"### {title}\n{truncated}")
+
+        research_context = "\n\n".join(research_sections)
+
+        return (
+            f"{base_prompt}\n\n"
+            "# Team Research Findings\n\n"
+            "Your team has analyzed the goal and codebase. "
+            "Use their findings below to create better, more specific tickets:\n\n"
+            f"{research_context}\n\n"
+            "Use these findings to create precise, well-scoped tickets "
+            "that reference specific files, patterns, and dependencies "
+            "identified by the team."
+        )
 
     async def analyze_codebase(
         self,
@@ -1532,9 +1640,8 @@ Now analyze the codebase and generate the JSON."""
 
         if stream_callback:
             stream_callback(
-                f"[DEBUG] Using LLM API model: {llm.model if hasattr(llm, 'model') else 'unknown'}"
+                {"phase": "generating", "label": "AI planning your tickets"}
             )
-            stream_callback("[Generating tickets via LLM API...]")
 
         # Gather repo context for the LLM
         try:
@@ -1559,7 +1666,9 @@ Now analyze the codebase and generate the JSON."""
             )
             logger.info(f"LLM API response length: {len(response.content)} chars")
             if stream_callback:
-                stream_callback("[LLM API response received]")
+                stream_callback(
+                    {"phase": "generating", "label": "Processing results"}
+                )
             return response.content
         except Exception as e:
             raise ValueError(

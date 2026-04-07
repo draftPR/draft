@@ -219,6 +219,7 @@ class PlannerFeaturesConfig:
     propose_followups: bool = False
     generate_reflections: bool = False
     validate_tickets: bool = False
+    goal_review_on_done: bool = True
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PlannerFeaturesConfig":
@@ -228,6 +229,7 @@ class PlannerFeaturesConfig:
             propose_followups=data.get("propose_followups", False),
             generate_reflections=data.get("generate_reflections", False),
             validate_tickets=data.get("validate_tickets", False),
+            goal_review_on_done=data.get("goal_review_on_done", True),
         )
 
 

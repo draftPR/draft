@@ -430,6 +430,7 @@ class PlannerActionType(str):
     ENQUEUED_EXECUTE = "enqueued_execute"
     PROPOSED_FOLLOWUP = "proposed_followup"
     GENERATED_REFLECTION = "generated_reflection"
+    GOAL_REVIEWED = "goal_reviewed"
     SKIPPED = "skipped"
 
 

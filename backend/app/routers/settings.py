@@ -48,6 +48,13 @@ class PlannerConfigResponse(BaseModel):
     agent_path: str
     timeout: int
     preferred_executor: str  # From execute_config, so frontend knows the CLI type
+    goal_review_on_done: bool = True
+
+
+class PlannerFeaturesUpdate(BaseModel):
+    """Partial update for planner feature flags."""
+
+    goal_review_on_done: bool | None = None
 
 
 class PlannerConfigUpdate(BaseModel):
@@ -55,6 +62,7 @@ class PlannerConfigUpdate(BaseModel):
 
     model: str | None = None
     agent_path: str | None = None
+    features: PlannerFeaturesUpdate | None = None
 
 
 class PlannerHealthResponse(BaseModel):
@@ -176,6 +184,7 @@ async def get_planner_config(
         agent_path=planner.agent_path,
         timeout=planner.timeout,
         preferred_executor=config.execute_config.preferred_executor,
+        goal_review_on_done=planner.features.goal_review_on_done,
     )
 
 
@@ -198,6 +207,10 @@ async def update_planner_config(
             update_dict["agent_path"] = data.model.removeprefix("cli/")
     if data.agent_path is not None:
         update_dict["agent_path"] = data.agent_path
+    if data.features is not None:
+        features_dict = data.features.model_dump(exclude_none=True)
+        if features_dict:
+            update_dict.setdefault("features", {}).update(features_dict)
 
     if update_dict:
         existing = board.config or {}
@@ -213,6 +226,7 @@ async def update_planner_config(
         agent_path=planner.agent_path,
         timeout=planner.timeout,
         preferred_executor=config.execute_config.preferred_executor,
+        goal_review_on_done=planner.features.goal_review_on_done,
     )
 
 

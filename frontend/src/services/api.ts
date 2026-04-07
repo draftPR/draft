@@ -1313,3 +1313,15 @@ export async function fetchTeamExecutionStatus(
     `/boards/${boardId}/team/status?ticket_id=${ticketId}`
   );
 }
+
+export async function fetchRecentBoardMessages(
+  boardId: string,
+  ticketId?: string,
+  limit: number = 100
+): Promise<BoardMessageItem[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (ticketId) params.set("ticket_id", ticketId);
+  return apiFetch<BoardMessageItem[]>(
+    `/boards/${boardId}/messages/recent?${params}`
+  );
+}
