@@ -351,7 +351,9 @@ async def generate_tickets_stream(
                         if normalized_chunks:
                             results.extend(normalized_chunks)
                         else:
-                            results.append(f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n")
+                            results.append(
+                                f"data: {json_lib.dumps({'type': 'agent_output', 'message': data})}\n\n"
+                            )
                     return results
 
                 # Stream agent output as it comes in

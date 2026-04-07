@@ -672,9 +672,7 @@ class TeamSessionService:
 
         # Only launch worker agents — skip the Team Lead / orchestrator
         workers = [
-            m
-            for m in team.members
-            if m.receive_mode != "all" and m.role != "team_lead"
+            m for m in team.members if m.receive_mode != "all" and m.role != "team_lead"
         ]
         if not workers:
             raise ValueError(

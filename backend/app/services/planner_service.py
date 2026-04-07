@@ -1328,12 +1328,14 @@ Generate a follow-up ticket proposal as JSON."""
                 select(Ticket).where(
                     and_(
                         Ticket.goal_id == goal_id,
-                        Ticket.state.in_([
-                            TicketState.PLANNED.value,
-                            TicketState.EXECUTING.value,
-                            TicketState.VERIFYING.value,
-                            TicketState.NEEDS_HUMAN.value,
-                        ]),
+                        Ticket.state.in_(
+                            [
+                                TicketState.PLANNED.value,
+                                TicketState.EXECUTING.value,
+                                TicketState.VERIFYING.value,
+                                TicketState.NEEDS_HUMAN.value,
+                            ]
+                        ),
                     )
                 )
             )
@@ -1354,15 +1356,15 @@ Generate a follow-up ticket proposal as JSON."""
                         actor_type=ActorType.PLANNER.value,
                         actor_id="planner",
                         reason="Goal review deferred: active tickets remain",
-                        payload_json=json.dumps({GOAL_REVIEW_MARKER: True, "deferred": True}),
+                        payload_json=json.dumps(
+                            {GOAL_REVIEW_MARKER: True, "deferred": True}
+                        ),
                     )
                     self.db.add(event)
                 continue
 
             # Load the goal
-            goal_result = await self.db.execute(
-                select(Goal).where(Goal.id == goal_id)
-            )
+            goal_result = await self.db.execute(select(Goal).where(Goal.id == goal_id))
             goal = goal_result.scalar_one_or_none()
             if not goal:
                 continue
@@ -1384,8 +1386,6 @@ Generate a follow-up ticket proposal as JSON."""
 
             # Generate new tickets via TicketGenerationService
             try:
-                import asyncio
-
                 from app.services.ticket_generation_service import (
                     TicketGenerationService,
                 )

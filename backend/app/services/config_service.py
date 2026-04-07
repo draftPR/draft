@@ -79,7 +79,9 @@ class ExecuteConfig:
     preferred_executor: str = "claude"  # "claude" (headless) or "cursor" (interactive)
     executor_model: str | None = None  # Optional model override for executor
     max_parallel_jobs: int = 1  # Max concurrent execute jobs (1 = sequential)
-    yolo_mode: bool = True  # Skip permission prompts (default on, toggle in Board Settings)
+    yolo_mode: bool = (
+        True  # Skip permission prompts (default on, toggle in Board Settings)
+    )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ExecuteConfig":

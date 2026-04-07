@@ -356,10 +356,33 @@ def _pick_agent_for_ticket(
 
     # Keyword → role mapping for smart assignment
     role_keywords = {
-        "frontend_dev": ["frontend", "ui", "css", "react", "component", "layout", "style"],
-        "backend_dev": ["backend", "api", "endpoint", "server", "route", "database", "db"],
+        "frontend_dev": [
+            "frontend",
+            "ui",
+            "css",
+            "react",
+            "component",
+            "layout",
+            "style",
+        ],
+        "backend_dev": [
+            "backend",
+            "api",
+            "endpoint",
+            "server",
+            "route",
+            "database",
+            "db",
+        ],
         "qa_engineer": ["test", "qa", "coverage", "spec", "assert"],
-        "security_engineer": ["security", "auth", "permission", "vulnerability", "xss", "csrf"],
+        "security_engineer": [
+            "security",
+            "auth",
+            "permission",
+            "vulnerability",
+            "xss",
+            "csrf",
+        ],
         "database_expert": ["migration", "schema", "sql", "query", "index", "database"],
         "devops_engineer": ["deploy", "docker", "ci", "cd", "pipeline", "infra"],
     }

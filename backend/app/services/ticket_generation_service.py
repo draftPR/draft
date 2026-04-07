@@ -254,9 +254,7 @@ class TicketGenerationService:
                 stream_callback,
             )
 
-        logger.info(
-            f"Agent completed. Response length: {len(agent_response)} chars"
-        )
+        logger.info(f"Agent completed. Response length: {len(agent_response)} chars")
 
         # Parse and validate response
         data = self._parse_agent_json_response(agent_response)
@@ -593,15 +591,13 @@ class TicketGenerationService:
             with get_sync_db() as sync_db:
                 team_service = TeamSessionService(sync_db)
 
-                sessions, research_ticket_id = (
-                    team_service.launch_research_agents(
-                        board_id=board.id,
-                        goal_title=goal.title,
-                        goal_description=goal.description,
-                        repo_root=repo_root,
-                        team=team,
-                        existing_tickets=existing_titles,
-                    )
+                sessions, research_ticket_id = team_service.launch_research_agents(
+                    board_id=board.id,
+                    goal_title=goal.title,
+                    goal_description=goal.description,
+                    repo_root=repo_root,
+                    team=team,
+                    existing_tickets=existing_titles,
                 )
 
                 if stream_callback:
@@ -627,8 +623,7 @@ class TicketGenerationService:
 
         except Exception as exc:
             logger.warning(
-                "Research agent phase failed: %s. "
-                "Falling back to standard generation.",
+                "Research agent phase failed: %s. Falling back to standard generation.",
                 exc,
             )
             if stream_callback:
@@ -684,15 +679,17 @@ class TicketGenerationService:
         while time.monotonic() - start < TEAM_RESEARCH_TIMEOUT:
             time.sleep(TEAM_RESEARCH_POLL_INTERVAL)
 
-            findings = team_service.collect_research_findings(
-                board_id, ticket_id
-            )
+            findings = team_service.collect_research_findings(board_id, ticket_id)
 
             # Log progress when new findings arrive
             current_count = len(findings)
             if current_count > last_count:
                 # Find the newly reported role(s)
-                new_roles = [r for r in findings if r not in (getattr(self, '_last_reported_roles', set()))]
+                new_roles = [
+                    r
+                    for r in findings
+                    if r not in (getattr(self, "_last_reported_roles", set()))
+                ]
                 self._last_reported_roles = set(findings.keys())
                 last_count = current_count
                 if stream_callback:
@@ -1666,9 +1663,7 @@ Now analyze the codebase and generate the JSON."""
             )
             logger.info(f"LLM API response length: {len(response.content)} chars")
             if stream_callback:
-                stream_callback(
-                    {"phase": "generating", "label": "Processing results"}
-                )
+                stream_callback({"phase": "generating", "label": "Processing results"})
             return response.content
         except Exception as e:
             raise ValueError(

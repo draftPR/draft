@@ -295,7 +295,9 @@ def _merge_name_status(files: list[DiffFile], name_status: str) -> list[DiffFile
             continue
         parts = line.split("\t", 1)
         if len(parts) >= 2:
-            status_from_ns[parts[1].strip()] = STATUS_MAP.get(parts[0].strip()[0], "modified")
+            status_from_ns[parts[1].strip()] = STATUS_MAP.get(
+                parts[0].strip()[0], "modified"
+            )
 
     for f in files:
         if f.path in status_from_ns:
