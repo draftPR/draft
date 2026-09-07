@@ -33,6 +33,11 @@ class TicketUpdate(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     priority: int | None = Field(None, ge=0, le=100)
+    executor_profile: str | None = Field(
+        None,
+        max_length=100,
+        description="Named executor profile from draft.yaml. Null = board default.",
+    )
 
 
 class TicketResponse(BaseModel):
@@ -44,6 +49,12 @@ class TicketResponse(BaseModel):
     description: str | None
     state: TicketState
     priority: int | None
+    executor_profile: str | None = Field(
+        None, description="Named executor profile used to run this ticket"
+    )
+    parent_ticket_id: str | None = Field(
+        None, description="Parent ticket this one was split from (if any)"
+    )
     sort_order: int | None = Field(
         None, description="Manual sort order within state column"
     )

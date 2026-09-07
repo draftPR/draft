@@ -24,6 +24,15 @@ class ExecutorType(StrEnum):
     CURSOR = "cursor"  # Interactive executor - requires human completion
 
 
+# CLI flag that selects a model, per executor. Missing = no model override.
+MODEL_FLAGS: dict[ExecutorType, str] = {
+    ExecutorType.CLAUDE: "--model",
+    ExecutorType.CURSOR_AGENT: "--model",
+    ExecutorType.CODEX: "-m",
+    ExecutorType.GEMINI: "-m",
+}
+
+
 class ExecutorMode(StrEnum):
     """Execution mode for the executor."""
 
@@ -67,6 +76,21 @@ class ExecutorInfo:
         """Check if this executor requires human interaction."""
         return self.mode == ExecutorMode.INTERACTIVE
 
+    def _with_overrides(
+        self,
+        cmd: list[str],
+        model: str | None = None,
+        extra_flags: list[str] | None = None,
+        **_ignored,
+    ) -> list[str]:
+        """Append model selection and executor-profile extra flags to a command."""
+        flag = MODEL_FLAGS.get(self.executor_type)
+        if model and model != "auto" and flag:
+            cmd = [*cmd, flag, model]
+        if extra_flags:
+            cmd = [*cmd, *extra_flags]
+        return cmd
+
     def get_apply_command(
         self,
         prompt_file: Path,
@@ -99,7 +123,7 @@ class ExecutorInfo:
             #   Worktree isolation already provides the safety boundary.
             prompt_content = prompt_file.read_text()
             cmd = [self.command, "--print", "--dangerously-skip-permissions"]
-            return cmd, prompt_content
+            return self._with_overrides(cmd, **kwargs), prompt_content
         elif self.executor_type == ExecutorType.CURSOR_AGENT:
             # Cursor Agent CLI with non-interactive mode:
             # - --print: Non-interactive mode that prints response and exits
@@ -119,18 +143,26 @@ class ExecutorInfo:
             ]
             if yolo_mode:
                 cmd.append("--force")
-            return cmd, prompt_content
+            return self._with_overrides(cmd, **kwargs), prompt_content
         elif self.executor_type == ExecutorType.CODEX:
-            # OpenAI Codex CLI with non-interactive mode:
-            # - --print: Non-interactive mode that prints response and exits
-            # - --auto-edit: Automatically apply edits to files
-            # - --full-auto: ONLY if yolo_mode is enabled (skip all confirmations)
-            # Prompt is piped via stdin to avoid ARG_MAX limits
+            # OpenAI Codex CLI headless mode is `codex exec` (verified against
+            # codex-cli 0.153.0; there is no --print/--auto-edit/--full-auto on exec).
+            # - -C: working root; --skip-git-repo-check: worktrees are fine
+            # - sandbox: workspace-write by default; yolo bypasses approvals+sandbox
+            # Prompt is read from stdin when no positional prompt is given.
             prompt_content = prompt_file.read_text()
-            cmd = [self.command, "--print", "--auto-edit"]
+            cmd = [
+                self.command,
+                "exec",
+                "-C",
+                str(worktree_path),
+                "--skip-git-repo-check",
+            ]
             if yolo_mode:
-                cmd.append("--full-auto")
-            return cmd, prompt_content
+                cmd.append("--dangerously-bypass-approvals-and-sandbox")
+            else:
+                cmd.extend(["-s", "workspace-write"])
+            return self._with_overrides(cmd, **kwargs), prompt_content
         elif self.executor_type == ExecutorType.GEMINI:
             # Google Gemini CLI with non-interactive mode:
             # - --print: Non-interactive mode that prints response and exits
@@ -140,31 +172,31 @@ class ExecutorInfo:
             cmd = [self.command, "--print"]
             if yolo_mode:
                 cmd.append("--yolo")
-            return cmd, prompt_content
+            return self._with_overrides(cmd, **kwargs), prompt_content
         elif self.executor_type == ExecutorType.DROID:
             prompt_content = prompt_file.read_text()
             cmd = [self.command, "--print"]
             if yolo_mode:
                 cmd.append("--dangerously-skip-permissions")
-            return cmd, prompt_content
+            return self._with_overrides(cmd, **kwargs), prompt_content
         elif self.executor_type == ExecutorType.QWEN:
             prompt_content = prompt_file.read_text()
             cmd = [self.command, "--print"]
             if yolo_mode:
                 cmd.append("--yolo")
-            return cmd, prompt_content
+            return self._with_overrides(cmd, **kwargs), prompt_content
         elif self.executor_type == ExecutorType.OPENCODE:
             prompt_content = prompt_file.read_text()
             cmd = [self.command, "--print"]
             if yolo_mode:
                 cmd.append("--yolo")
-            return cmd, prompt_content
+            return self._with_overrides(cmd, **kwargs), prompt_content
         elif self.executor_type == ExecutorType.AMP:
             prompt_content = prompt_file.read_text()
             cmd = [self.command, "--print"]
             if yolo_mode:
                 cmd.append("--yolo")
-            return cmd, prompt_content
+            return self._with_overrides(cmd, **kwargs), prompt_content
         elif self.executor_type == ExecutorType.CURSOR:
             # Cursor CLI is INTERACTIVE ONLY
             # It opens the editor with the worktree. User must complete changes manually.
@@ -384,6 +416,7 @@ class PromptBundleBuilder:
         feedback_bundle: dict | None = None,
         related_tickets_context: dict | None = None,
         verify_commands: list[str] | None = None,
+        split_max_children: int | None = None,
     ) -> Path:
         """
         Build a prompt bundle file for the executor CLI.
@@ -400,6 +433,8 @@ class PromptBundleBuilder:
                     "goal_title": str  # optional goal title
                 }
             verify_commands: Current verification commands from draft.yaml.
+            split_max_children: If set, allow the executor to split the task into
+                up to this many sub-tickets by writing .draft/subtasks.json.
 
         Returns:
             Path to the created prompt file.
@@ -415,6 +450,7 @@ class PromptBundleBuilder:
             feedback_bundle=feedback_bundle,
             related_tickets_context=related_tickets_context,
             verify_commands=verify_commands,
+            split_max_children=split_max_children,
         )
 
         # Write the prompt file
@@ -430,6 +466,7 @@ class PromptBundleBuilder:
         feedback_bundle: dict | None = None,
         related_tickets_context: dict | None = None,
         verify_commands: list[str] | None = None,
+        split_max_children: int | None = None,
     ) -> str:
         """
         Generate the content for the prompt bundle.
@@ -512,6 +549,9 @@ class PromptBundleBuilder:
                - Any path adaptations you made from the ticket description
         """)
 
+        if split_max_children:
+            prompt += self._format_split_section(split_max_children)
+
         # Add verification scoping instructions
         if verify_commands:
             commands_str = "\n".join(f"  - `{cmd}`" for cmd in verify_commands)
@@ -540,6 +580,32 @@ class PromptBundleBuilder:
             prompt += f"\n## Additional Context\n\n{additional_context}\n"
 
         return prompt
+
+    def _format_split_section(self, max_children: int) -> str:
+        """Tell the executor it may split the task into sub-tickets instead."""
+        return dedent(f"""\
+            ## Splitting Large Tasks (optional)
+
+            If this task is too big for one focused change (several independent areas,
+            or more than roughly 10 files), do NOT implement it. Instead write the file
+            `.draft/subtasks.json` in this working directory:
+
+            ```json
+            {{"subtasks": [
+              {{"title": "...", "description": "...", "blocked_by": null, "complexity": "simple"}}
+            ]}}
+            ```
+
+            Rules:
+            - 2 to {max_children} subtasks, each independently implementable and verifiable
+            - `description` must be self-contained: its implementer will NOT see this ticket
+            - `blocked_by` is the exact `title` of another subtask, only for real ordering
+              dependencies; otherwise null
+            - `complexity` is your estimate: "simple", "medium", or "complex"
+            - After writing the file, stop. Do not modify any other files.
+
+            If the task fits in one change, implement it directly and do not create this file.
+        """)
 
     def _format_related_tickets_section(self, related_tickets_context: dict) -> str:
         """

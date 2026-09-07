@@ -196,7 +196,13 @@ class TicketService:
         # Trigger workspace cleanup for terminal states.
         # Note: DONE can transition back to EXECUTING (human requests changes),
         # in which case WorkspaceService.ensure_workspace() will recreate it.
-        if is_terminal_state(to_state) and not skip_cleanup:
+        # Sub-tickets keep their branch: the planner merges it into the parent
+        # once all siblings are DONE, then cleans up.
+        if (
+            is_terminal_state(to_state)
+            and not skip_cleanup
+            and not ticket.parent_ticket_id
+        ):
             await self._cleanup_workspace_async(ticket_id)
 
         # Auto-trigger verification when entering verifying state

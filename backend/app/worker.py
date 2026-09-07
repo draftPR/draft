@@ -48,8 +48,6 @@ from app.services.worktree_validator import WorktreeValidator
 from app.state_machine import ActorType, EventType, TicketState
 
 # Multi-agent team execution constants
-TEAM_POLL_INTERVAL = 5  # seconds between completion checks
-TEAM_LOG_INTERVAL = 30  # seconds between status log lines
 
 # Thread-local storage for job context (THREAD-SAFE)
 _job_context = threading.local()
@@ -291,315 +289,6 @@ def check_canceled(job_id: str) -> bool:
     with get_sync_db() as db:
         job = db.query(Job).filter(Job.id == job_id).first()
         return job is not None and job.status == JobStatus.CANCELED.value
-
-
-def _get_active_team(board_id: str | None):
-    """Check if the board has an active agent team. Returns (team, members) or (None, None)."""
-    if not board_id:
-        return None
-    try:
-        from app.models.agent_team import AgentTeam, AgentTeamMember
-
-        with get_sync_db() as db:
-            team = (
-                db.query(AgentTeam)
-                .filter(AgentTeam.board_id == board_id, AgentTeam.is_active.is_(True))
-                .first()
-            )
-            if not team:
-                return None
-            # Eagerly load members before closing session
-            members = (
-                db.query(AgentTeamMember)
-                .filter(AgentTeamMember.team_id == team.id)
-                .order_by(AgentTeamMember.sort_order)
-                .all()
-            )
-            if not members:
-                return None
-            # Return as dicts to avoid detached instance issues
-            team_data = {
-                "id": team.id,
-                "board_id": team.board_id,
-                "name": team.name,
-                "is_active": team.is_active,
-                "members": [
-                    {
-                        "id": m.id,
-                        "role": m.role,
-                        "display_name": m.display_name,
-                        "executor_type": m.executor_type,
-                        "behavior_prompt": m.behavior_prompt,
-                        "receive_mode": m.receive_mode,
-                        "is_required": m.is_required,
-                        "sort_order": m.sort_order,
-                    }
-                    for m in members
-                ],
-            }
-            return team_data
-    except Exception as e:
-        logger.warning(f"Failed to check active team for board {board_id}: {e}")
-        return None
-
-
-def _pick_agent_for_ticket(
-    team_data: dict, title: str, description: str | None
-) -> dict:
-    """Pick the best team member to execute a ticket based on its content.
-
-    Simple keyword-based matching. Falls back to the first developer-type
-    agent, or the first non-lead member, or the team lead.
-    """
-    members = team_data.get("members", [])
-    text = f"{title} {description or ''}".lower()
-
-    # Keyword → role mapping for smart assignment
-    role_keywords = {
-        "frontend_dev": [
-            "frontend",
-            "ui",
-            "css",
-            "react",
-            "component",
-            "layout",
-            "style",
-        ],
-        "backend_dev": [
-            "backend",
-            "api",
-            "endpoint",
-            "server",
-            "route",
-            "database",
-            "db",
-        ],
-        "qa_engineer": ["test", "qa", "coverage", "spec", "assert"],
-        "security_engineer": [
-            "security",
-            "auth",
-            "permission",
-            "vulnerability",
-            "xss",
-            "csrf",
-        ],
-        "database_expert": ["migration", "schema", "sql", "query", "index", "database"],
-        "devops_engineer": ["deploy", "docker", "ci", "cd", "pipeline", "infra"],
-    }
-
-    # Try keyword match
-    for role, keywords in role_keywords.items():
-        if any(kw in text for kw in keywords):
-            match = next((m for m in members if m["role"] == role), None)
-            if match:
-                return match
-
-    # Fallback priority: developer > code_explorer > first non-lead > lead
-    for preferred_role in ["developer", "code_explorer"]:
-        match = next((m for m in members if m["role"] == preferred_role), None)
-        if match:
-            return match
-
-    non_leads = [m for m in members if m["role"] != "team_lead"]
-    if non_leads:
-        return non_leads[0]
-
-    return members[0]
-
-
-def _run_team_execution(
-    job_id: str,
-    ticket_id: str,
-    board_id: str,
-    team_data: dict,
-    worktree_path: Path,
-    ticket_title: str,
-    ticket_description: str | None,
-    timeout: int,
-    yolo_enabled: bool,
-    log_path: Path,
-) -> tuple[bool, str, int]:
-    """
-    Run multi-agent team execution with polling.
-
-    Returns:
-        (success, reason, duration_ms)
-        success=True means team completed (DONE posted or all exited cleanly)
-        success=False means timeout, cancellation, or crash
-    """
-    import time as _time
-
-    from app.services.team_session_service import TeamSessionService
-
-    start_time = _time.time()
-    last_log_time = start_time
-
-    write_log(
-        log_path,
-        f"Launching agent team '{team_data['name']}' with {len(team_data['members'])} members...",
-        job_id=job_id,
-    )
-    log_stream_publisher.push(
-        job_id,
-        LogLevel.INFO,
-        f"[team] Launching {len(team_data['members'])} agents...",
-    )
-
-    # Launch team
-    try:
-        from app.models.agent_team import AgentTeam
-
-        with get_sync_db() as db:
-            # Reload the full AgentTeam model from DB (launch_team expects ORM object)
-            team_obj = (
-                db.query(AgentTeam).filter(AgentTeam.id == team_data["id"]).first()
-            )
-            if not team_obj:
-                raise RuntimeError(f"Team {team_data['id']} not found in DB")
-            # Eagerly load members
-            _ = team_obj.members
-
-            team_service = TeamSessionService(db)
-            sessions = team_service.launch_team(
-                ticket_id=ticket_id,
-                board_id=board_id,
-                job_id=job_id,
-                team=team_obj,
-                worktree_path=Path(worktree_path),
-                ticket_title=ticket_title,
-                ticket_description=ticket_description or "",
-                yolo_mode=yolo_enabled,
-            )
-            write_log(
-                log_path,
-                f"Launched {len(sessions)} agent sessions",
-                job_id=job_id,
-            )
-            for sess in sessions:
-                write_log(
-                    log_path,
-                    f"  - {sess.tmux_session_name} ({sess.status})",
-                    job_id=job_id,
-                )
-    except Exception as e:
-        write_log(log_path, f"ERROR: Failed to launch team: {e}", job_id=job_id)
-        duration_ms = int((_time.time() - start_time) * 1000)
-        return (False, f"launch_failed: {e}", duration_ms)
-
-    # Poll for completion
-    try:
-        while True:
-            _time.sleep(TEAM_POLL_INTERVAL)
-            elapsed = _time.time() - start_time
-
-            # 1. Cancellation check
-            if check_canceled(job_id):
-                write_log(log_path, "Job canceled during team execution", job_id=job_id)
-                with get_sync_db() as db:
-                    TeamSessionService(db).stop_team(ticket_id)
-                duration_ms = int(elapsed * 1000)
-                return (False, "canceled", duration_ms)
-
-            # 2. Completion check
-            with get_sync_db() as db:
-                ts = TeamSessionService(db)
-                if ts.check_team_completion(ticket_id, board_id):
-                    write_log(
-                        log_path,
-                        f"Team completed after {int(elapsed)}s",
-                        job_id=job_id,
-                    )
-                    log_stream_publisher.push(
-                        job_id,
-                        LogLevel.INFO,
-                        f"[team] All agents completed ({int(elapsed)}s)",
-                    )
-                    ts.stop_team(ticket_id)  # cleanup lingering sessions
-                    duration_ms = int(elapsed * 1000)
-                    return (True, "completed", duration_ms)
-
-                # 3. Periodic status log
-                now = _time.time()
-                if now - last_log_time >= TEAM_LOG_INTERVAL:
-                    statuses = ts.get_team_status(ticket_id)
-                    alive = [s for s in statuses if s.get("is_alive")]
-                    summary_parts = []
-                    for s in alive:
-                        pulse = s.get("pulse_status", "working")
-                        name = s.get("tmux_session_name", "?")
-                        summary_parts.append(f"{name}: {pulse}")
-                    status_line = f"[team] {len(alive)}/{len(statuses)} agents running ({int(elapsed)}s)"
-                    write_log(log_path, status_line, job_id=job_id)
-                    if summary_parts:
-                        write_log(
-                            log_path,
-                            f"  Status: {'; '.join(summary_parts[:5])}",
-                            job_id=job_id,
-                        )
-                    log_stream_publisher.push(job_id, LogLevel.INFO, status_line)
-                    last_log_time = now
-
-            # 4. Timeout check
-            if elapsed >= timeout:
-                write_log(
-                    log_path,
-                    f"Team execution timed out after {int(elapsed)}s (limit: {timeout}s)",
-                    job_id=job_id,
-                )
-                log_stream_publisher.push(
-                    job_id,
-                    LogLevel.ERROR,
-                    f"[team] Timed out after {int(elapsed)}s",
-                )
-                with get_sync_db() as db:
-                    TeamSessionService(db).stop_team(ticket_id)
-                duration_ms = int(elapsed * 1000)
-                return (False, "timeout", duration_ms)
-
-    except Exception as e:
-        write_log(log_path, f"Team execution error: {e}", job_id=job_id)
-        try:
-            with get_sync_db() as db:
-                TeamSessionService(db).stop_team(ticket_id)
-        except Exception:
-            pass
-        raise
-
-
-def _gather_team_logs(job_id: str, evidence_dir: Path) -> str | None:
-    """Gather all agent logs into a combined file for evidence. Returns path or None."""
-    try:
-        from app.models.agent_team import TeamAgentSession
-
-        with get_sync_db() as db:
-            sessions = (
-                db.query(TeamAgentSession)
-                .filter(TeamAgentSession.job_id == job_id)
-                .all()
-            )
-            if not sessions:
-                return None
-
-            combined_log_id = str(uuid.uuid4())
-            combined_log_path = evidence_dir / f"{combined_log_id}.team_log"
-            with open(combined_log_path, "w") as f:
-                for sess in sessions:
-                    f.write(f"\n{'=' * 60}\n")
-                    f.write(f"Agent: {sess.tmux_session_name}\n")
-                    f.write(f"Status: {sess.status}\n")
-                    f.write(f"{'=' * 60}\n\n")
-                    if sess.log_path and Path(sess.log_path).exists():
-                        try:
-                            content = Path(sess.log_path).read_text(errors="replace")
-                            f.write(content)
-                        except Exception as e:
-                            f.write(f"[Error reading log: {e}]\n")
-                    else:
-                        f.write("[No log file available]\n")
-            return str(combined_log_path)
-    except Exception as e:
-        logger.warning(f"Failed to gather team logs: {e}")
-        return None
 
 
 def get_evidence_dir(
@@ -1822,6 +1511,61 @@ Analyze why no code changes were produced and categorize the result."""
         )
 
 
+def _handle_split_sync(
+    ticket_id: str,
+    job_id: str,
+    worktree_path: Path,
+    config: DraftConfig,
+    log_path: Path,
+) -> dict | None:
+    """If the executor wrote .draft/subtasks.json, split the ticket.
+
+    Creates child tickets, marks the job succeeded and blocks the parent until
+    the children complete. Returns the task result dict, or None when there is
+    no (valid) subtasks file so the caller continues with normal handling.
+    """
+    from app.services.split_service import (
+        SUBTASKS_RELPATH,
+        SubtasksError,
+        create_child_tickets_sync,
+        parse_subtasks,
+    )
+
+    subtasks_file = worktree_path / SUBTASKS_RELPATH
+    if not subtasks_file.exists():
+        return None
+    try:
+        raw = subtasks_file.read_text()
+        subtasks = parse_subtasks(raw, config.routing_config.max_children)
+    except (OSError, SubtasksError) as exc:
+        write_log(log_path, f"WARNING: ignoring invalid {SUBTASKS_RELPATH}: {exc}")
+        return None
+    finally:
+        subtasks_file.unlink(missing_ok=True)
+
+    write_log(log_path, f"Executor requested split into {len(subtasks)} sub-tickets:")
+    for st in subtasks:
+        dep = f" (blocked by: {st.blocked_by})" if st.blocked_by else ""
+        write_log(log_path, f"  - [{st.complexity or '?'}] {st.title}{dep}")
+
+    try:
+        child_ids = create_child_tickets_sync(ticket_id, subtasks, config)
+    except Exception as exc:
+        write_log(log_path, f"ERROR: failed to create sub-tickets: {exc}")
+        return None
+
+    update_job_finished(job_id, JobStatus.SUCCEEDED, exit_code=0)
+    transition_ticket_sync(
+        ticket_id,
+        TicketState.BLOCKED,
+        reason=f"Split into {len(child_ids)} sub-tickets",
+        payload={"skip_followup": True, "split_children": child_ids},
+        actor_id="execute_worker",
+    )
+    write_log(log_path, f"Created sub-tickets: {', '.join(child_ids)}")
+    return {"job_id": job_id, "status": "split", "children": child_ids}
+
+
 def create_manual_work_followup_sync(
     parent_ticket_id: str,
     parent_ticket_title: str,
@@ -2002,69 +1746,6 @@ def _get_related_tickets_context_sync(ticket_id: str) -> dict | None:
         )
 
 
-def execute_ticket_task(job_id: str) -> dict:
-    """
-    Execute task for a ticket using Claude Code CLI (headless) or Cursor CLI (interactive).
-
-    Execution Modes:
-        - Claude CLI (headless): Runs automatically, transitions based on result.
-        - Cursor CLI (interactive): Prepares workspace + prompt, then hands off to user.
-
-    State Transitions:
-        - Headless success with diff → verifying
-        - Headless success with NO diff → blocked (reason: no changes produced)
-        - Headless failure → blocked
-        - Interactive (Cursor) → needs_human immediately
-
-    YOLO Mode:
-        If yolo_mode is enabled in config AND the repo is in the allowlist,
-        Claude CLI runs with --dangerously-skip-permissions. Otherwise it runs
-        in permissioned mode (may require user approval for certain operations).
-    """
-    # Enable real-time log streaming for this job
-    set_current_job(job_id)
-
-    try:
-        return _execute_ticket_task_impl(job_id)
-    except Exception as e:
-        # Catch-all: if _execute_ticket_task_impl crashes with an unhandled
-        # exception, properly fail the job and block the ticket instead of
-        # leaving them in a zombie RUNNING/EXECUTING state.
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(
-            f"execute_ticket_task crashed for job {job_id}: {e}",
-            exc_info=True,
-        )
-        try:
-            update_job_finished(job_id, JobStatus.FAILED, exit_code=1)
-        except Exception:
-            pass
-        try:
-            # Try to find the ticket_id from the job to transition it
-            result = get_job_with_ticket(job_id)
-            if result:
-                _, ticket = result
-                transition_ticket_sync(
-                    ticket.id,
-                    TicketState.BLOCKED,
-                    reason=f"Execution crashed: {e}",
-                    actor_id="execute_worker",
-                )
-        except Exception:
-            pass
-        return {
-            "job_id": job_id,
-            "status": "failed",
-            "error": f"Unexpected error: {e}",
-        }
-    finally:
-        # Signal streaming finished and clean up
-        stream_finished(job_id)
-        set_current_job(None)
-
-
 def _execute_ticket_task_impl(job_id: str) -> dict:
     """Implementation of execute_ticket_task (separated for streaming wrapper)."""
     # Get job and ticket info
@@ -2210,6 +1891,24 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     execute_config = config.execute_config
     planner_config = config.planner_config
 
+    # Per-ticket executor profile overrides board defaults (executor, timeout,
+    # model, extra flags). Unknown profile name falls back to board defaults.
+    profile = None
+    if ticket.executor_profile:
+        profile = config.executor_profiles.get(ticket.executor_profile)
+        if profile is None:
+            write_log(
+                log_path,
+                f"WARNING: executor profile '{ticket.executor_profile}' not found "
+                f"in board config; using board defaults",
+            )
+    exec_preferred = (
+        profile.executor_type if profile else execute_config.preferred_executor
+    )
+    exec_timeout = profile.timeout if profile else execute_config.timeout
+    exec_model = (profile.model if profile else None) or execute_config.executor_model
+    exec_extra_flags = list(profile.extra_flags) if profile else []
+
     # Use board's repo_root as the authoritative main repo path.
     # Falls back to GIT_REPO_PATH env var / default only when no board repo_root.
     if board_repo_root:
@@ -2253,14 +1952,11 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # YOLO MODE CHECK (refuse if enabled but allowlist empty)
     # =========================================================================
     yolo_status = execute_config.check_yolo_status()
-    model_info = (
-        f", model={execute_config.executor_model}"
-        if execute_config.executor_model
-        else ""
-    )
+    model_info = f", model={exec_model}" if exec_model else ""
+    profile_info = f", profile={profile.name}" if profile else ""
     write_log(
         log_path,
-        f"Execute config: timeout={execute_config.timeout}s, preferred_executor={execute_config.preferred_executor}{model_info}",
+        f"Execute config: timeout={exec_timeout}s, preferred_executor={exec_preferred}{model_info}{profile_info}",
     )
 
     yolo_enabled = yolo_status == YoloStatus.ALLOWED
@@ -2269,7 +1965,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     # Detect available executor CLI
     try:
         executor_info = ExecutorService.detect_executor(
-            preferred=execute_config.preferred_executor,
+            preferred=exec_preferred,
             agent_path=planner_config.agent_path,
         )
         write_log(
@@ -2333,6 +2029,13 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     verify_commands = (
         config.verify_config.commands if config.verify_config.commands else None
     )
+    # Let the executor split this ticket into sub-tickets (depth 1: children
+    # never split again). Config: routing_config.allow_split.
+    split_max_children = (
+        config.routing_config.max_children
+        if config.routing_config.allow_split and not ticket.parent_ticket_id
+        else None
+    )
     prompt_file = prompt_builder.build_prompt(
         ticket_title=ticket.title,
         ticket_description=ticket.description,
@@ -2340,6 +2043,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         additional_context=additional_context,
         related_tickets_context=related_tickets_context,
         verify_commands=verify_commands,
+        split_max_children=split_max_children,
     )
     write_log(log_path, f"Prompt bundle created at: {prompt_file}")
 
@@ -2351,44 +2055,6 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     if check_canceled(job_id):
         write_log(log_path, "Job canceled, stopping execution.")
         return {"job_id": job_id, "status": "canceled"}
-
-    # =========================================================================
-    # TEAM-AWARE EXECUTION — orchestrator picks the best agent for this ticket
-    # =========================================================================
-    active_team = _get_active_team(ticket.board_id)
-    if active_team and len(active_team.get("members", [])) > 0:
-        assigned = _pick_agent_for_ticket(active_team, ticket.title, ticket.description)
-        write_log(
-            log_path,
-            f"Team '{active_team['name']}' active — assigned to: "
-            f"{assigned['display_name']} ({assigned['role']})",
-        )
-
-        # Use the assigned member's executor if specified, otherwise use default
-        if assigned.get("executor_type"):
-            write_log(
-                log_path,
-                f"Using member executor: {assigned['executor_type']}",
-            )
-
-        # Inject the agent's behavior prompt as additional context for the executor
-        if assigned.get("behavior_prompt"):
-            # Prepend the role-specific behavior to the prompt file
-            try:
-                prompt_content = prompt_file.read_text()
-                role_header = (
-                    f"# Agent Role: {assigned['display_name']}\n"
-                    f"{assigned['behavior_prompt']}\n\n"
-                    "---\n\n"
-                )
-                prompt_file.write_text(role_header + prompt_content)
-                write_log(log_path, f"Injected role prompt for {assigned['role']}")
-            except Exception as e:
-                write_log(log_path, f"Warning: failed to inject role prompt: {e}")
-
-        # Fall through to the normal single-agent execution below
-        # (no separate team execution — just use the standard CLI path)
-        pass
 
     # =========================================================================
     # INTERACTIVE EXECUTOR (Cursor) - Hand off to user immediately
@@ -2460,21 +2126,18 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         prompt_file,
         worktree_path,
         yolo_mode=yolo_enabled,
-        model=execute_config.executor_model,
+        model=exec_model,
+        extra_flags=exec_extra_flags,
     )
 
     # Add session continuation flag if available
     if session_flag:
         executor_command = executor_command + session_flag.split()
 
-    # Log command (without full prompt content)
-    if yolo_enabled:
-        write_log(
-            log_path,
-            f"Command: {executor_command[0]} --print --dangerously-skip-permissions <prompt>",
-        )
-    else:
-        write_log(log_path, f"Command: {executor_command[0]} --print <prompt>")
+    # Log command (prompt goes via stdin, so this is the full argv)
+    command_display = " ".join(executor_command) + " <prompt via stdin>"
+    write_log(log_path, f"Command: {command_display}")
+    if not yolo_enabled:
         write_log(
             log_path,
             "NOTE: Running in permissioned mode. Some operations may require approval.",
@@ -2494,7 +2157,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             evidence_dir=evidence_dir,
             evidence_id=executor_evidence_id,
             repo_root=main_repo_path,
-            timeout=execute_config.timeout,
+            timeout=exec_timeout,
             job_id=job_id,  # Enable real-time streaming
             normalize_logs=should_normalize,  # Parse cursor-agent JSON for nice display
             stdin_content=executor_stdin,  # Pipe prompt via stdin (ARG_MAX safety)
@@ -2512,9 +2175,10 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
         "duration_ms": executor_duration_ms,
         "executor_type": executor_info.executor_type.value,
         "mode": executor_info.mode.value,
-        "command": f"{executor_command[0]} --print {'--dangerously-skip-permissions ' if yolo_enabled else ''}<prompt>",
+        "command": command_display,
+        "executor_profile": profile.name if profile else None,
         "yolo_enabled": yolo_enabled,
-        "timeout_configured": execute_config.timeout,
+        "timeout_configured": exec_timeout,
     }
     executor_meta_path = evidence_dir / f"{executor_meta_id}.meta.json"
     executor_meta_path.write_text(json.dumps(executor_meta, indent=2))
@@ -2536,7 +2200,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
     create_evidence_record(
         ticket_id=ticket_id,
         job_id=job_id,
-        command=f"{executor_command[0]} --print {'--dangerously-skip-permissions ' if yolo_enabled else ''}<prompt>",
+        command=command_display,
         exit_code=executor_exit_code,
         stdout_path=executor_stdout_path,
         stderr_path=executor_stderr_path,
@@ -2632,6 +2296,18 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
 
     write_log(log_path, f"Git diff summary:\n{diff_stat}")
     write_log(log_path, f"Has changes: {has_changes}")
+
+    # Executor may have chosen to split instead of implementing.
+    if split_max_children:
+        split_result = _handle_split_sync(
+            ticket_id=ticket_id,
+            job_id=job_id,
+            worktree_path=worktree_path,
+            config=config,
+            log_path=log_path,
+        )
+        if split_result is not None:
+            return split_result
 
     # Auto-commit changes in worktree so they can be merged later.
     # The diff/patch evidence has already been captured above.

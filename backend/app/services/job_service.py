@@ -90,9 +90,7 @@ class JobService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_job(
-        self, ticket_id: str, kind: JobKind, variant: str | None = None
-    ) -> Job:
+    async def create_job(self, ticket_id: str, kind: JobKind) -> Job:
         """
         Create a new job and enqueue the corresponding Celery task.
 
@@ -101,7 +99,6 @@ class JobService:
         Args:
             ticket_id: The UUID of the ticket
             kind: The kind of job (execute or verify)
-            variant: Optional execution variant (default, plan, qa, review)
 
         Returns:
             The created Job instance with celery_task_id set
@@ -286,22 +283,6 @@ class JobService:
                 logger.warning(f"No active subprocess found for job {job_id}")
         except Exception as e:
             logger.error(f"Failed to kill subprocess for job {job_id}: {e}")
-
-        # Stop any team agent sessions for this job's ticket
-        try:
-            from app.database_sync import get_sync_db
-            from app.services.team_session_service import TeamSessionService
-
-            def _stop_team():
-                with get_sync_db() as sync_db:
-                    ts = TeamSessionService(sync_db)
-                    return ts.stop_team(job.ticket_id)
-
-            stopped = await asyncio.to_thread(_stop_team)
-            if stopped:
-                logger.info(f"Stopped {stopped} team agent sessions for job {job_id}")
-        except Exception as e:
-            logger.debug(f"Team cleanup during cancel (non-fatal): {e}")
 
         await self.db.refresh(job)
         return job

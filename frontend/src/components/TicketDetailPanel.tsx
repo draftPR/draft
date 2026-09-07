@@ -24,6 +24,7 @@ import {
   mergeTicket,
   fetchTicketJobs,
   fetchTicketDependents,
+  fetchTicketChildren,
   fetchTicket,
   executeTicket,
   transitionTicket,
@@ -137,6 +138,7 @@ export function TicketDetailPanel() {
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [dependents, setDependents] = useState<Ticket[]>([]);
+  const [children, setChildren] = useState<Ticket[]>([]);
   const [mergeStatus, setMergeStatus] = useState<MergeStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   // Evidence loads as part of loadAll; the outer `loading` flag covers it
@@ -175,11 +177,16 @@ export function TicketDetailPanel() {
       .catch(() => {});
   }, []);
 
+  // Default the selector to the profile persisted on the ticket
+  useEffect(() => {
+    setSelectedProfile(ticket?.executor_profile ?? "");
+  }, [ticket?.id, ticket?.executor_profile]);
+
   const loadAll = useCallback(async (ticketId: string) => {
     setLoading(true);
     setError(null);
     try {
-      const [t, evts, evi, revs, sts, jbs, deps, cst] = await Promise.all([
+      const [t, evts, evi, revs, sts, jbs, deps, cst, kids] = await Promise.all([
         fetchTicket(ticketId),
         fetchTicketEvents(ticketId).catch(() => ({ events: [] })),
         fetchTicketEvidence(ticketId).catch(() => ({ evidence: [] })),
@@ -188,8 +195,10 @@ export function TicketDetailPanel() {
         fetchTicketJobs(ticketId).catch(() => ({ jobs: [] })),
         fetchTicketDependents(ticketId).catch(() => []),
         fetchConflictStatus(ticketId).catch(() => null),
+        fetchTicketChildren(ticketId).catch(() => []),
       ]);
       setTicket(t);
+      setChildren(kids);
       setEvents(evts.events);
       setEvidence(evi.evidence);
       setRevisions(revs.revisions);
@@ -913,6 +922,41 @@ export function TicketDetailPanel() {
                 <p className="text-[11px] text-muted-foreground">
                   Queue the next instruction while the agent is working. It will auto-execute when done.
                 </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Sub-tickets (split) */}
+        {(ticket.parent_ticket_id || children.length > 0) && (
+          <div className="space-y-4">
+            <h3 className="section-label flex items-center gap-2">
+              <GitBranch className="h-3.5 w-3.5" />
+              {ticket.parent_ticket_id ? "Split from" : `Split into ${children.length} sub-tickets`}
+            </h3>
+            {ticket.parent_ticket_id && (
+              <button
+                className="text-[12px] text-left underline-offset-2 hover:underline text-foreground"
+                onClick={() => handleNavigateToTicket(ticket.parent_ticket_id!)}
+              >
+                Open parent ticket
+              </button>
+            )}
+            {children.length > 0 && (
+              <div className="bg-muted/40 rounded-lg p-3 space-y-1.5">
+                {children.map((child) => (
+                  <button
+                    key={child.id}
+                    className="w-full text-left text-[12px] flex items-center gap-2 p-2 rounded hover:bg-muted transition-colors"
+                    onClick={() => handleNavigateToTicket(child.id)}
+                  >
+                    <span className="flex-1 truncate text-foreground">{child.title}</span>
+                    {child.executor_profile && (
+                      <span className="text-[10px] text-muted-foreground">{child.executor_profile}</span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground">{STATE_DISPLAY_NAMES[child.state]}</span>
+                  </button>
+                ))}
               </div>
             )}
           </div>

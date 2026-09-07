@@ -3,7 +3,7 @@ import { Draggable } from "@hello-pangea/dnd";
 import type { Ticket } from "@/types/api";
 import { TicketState } from "@/types/api";
 import { cn } from "@/lib/utils";
-import { Play, Loader2, X, Lock, Target } from "lucide-react";
+import { Play, Loader2, X, Lock, Target, GitBranch } from "lucide-react";
 import { toast } from "sonner";
 import { deleteTicket } from "@/services/api";
 import { BlockingIndicator } from "@/components/BlockingIndicator";
@@ -117,6 +117,12 @@ export const TicketCard = memo(function TicketCard({ ticket, index, onClick, onE
             {ticket.goal_title && (
               <div className="text-[10px] text-muted-foreground flex items-center gap-1 mb-1">
                 <Target className="h-2.5 w-2.5" /> {ticket.goal_title}
+              </div>
+            )}
+            {ticket.parent_ticket_id && (
+              <div className="text-[10px] text-muted-foreground flex items-center gap-1 mb-1">
+                <GitBranch className="h-2.5 w-2.5" /> sub-ticket
+                {ticket.executor_profile && <span>· {ticket.executor_profile}</span>}
               </div>
             )}
             <div className="flex items-start justify-between gap-2">

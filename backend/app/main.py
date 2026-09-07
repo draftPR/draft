@@ -484,7 +484,8 @@ if _frontend_dist_path.exists():
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
         """Serve the SPA index.html for client-side routing."""
-        file_path = _frontend_dist_path / full_path
-        if file_path.is_file():
+        # Resolve and confine to dist dir; `full_path` is client-controlled.
+        file_path = (_frontend_dist_path / full_path).resolve()
+        if file_path.is_relative_to(_frontend_dist_path.resolve()) and file_path.is_file():
             return FileResponse(file_path)
         return FileResponse(_frontend_dist_path / "index.html")

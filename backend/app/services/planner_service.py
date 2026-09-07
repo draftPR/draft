@@ -53,12 +53,10 @@ from app.models.job import Job, JobKind, JobStatus
 from app.models.planner_lock import PlannerLock
 from app.models.ticket import Ticket
 from app.models.ticket_event import TicketEvent
-
-# Deferred import to avoid circular dependency with async database
-# from app.services.orchestrator_log import add_orchestrator_log  # imported inside methods
 from app.schemas.planner import PlannerAction, PlannerActionType, PlannerTickResponse
 from app.services.config_service import PlannerConfig
 from app.services.llm_service import LLMService
+from app.services.orchestrator_log import add_orchestrator_log
 from app.state_machine import ActorType, EventType, TicketState
 
 if TYPE_CHECKING:
@@ -170,9 +168,6 @@ class PlannerService:
         The lock acquire may rollback on IntegrityError, which would wipe any
         previously staged changes. Do not add DB writes before _acquire_lock().
         """
-        # Local import to avoid circular dependency with async database at module load
-        from app.services.orchestrator_log import add_orchestrator_log
-
         actions: list[PlannerAction] = []
         jobs_to_enqueue: list[str] = []  # Job IDs to enqueue AFTER commit
 
@@ -1391,9 +1386,10 @@ Generate a follow-up ticket proposal as JSON."""
                 )
 
                 gen_service = TicketGenerationService(self.db)
-                new_tickets = await gen_service.generate_from_goal(
+                gen_result = await gen_service.generate_from_goal(
                     goal_id=goal_id,
                 )
+                new_tickets = gen_result.tickets
 
                 if new_tickets:
                     logger.info(
@@ -1582,12 +1578,18 @@ Generate a follow-up ticket proposal as JSON."""
         )
         recent_done = done_result.scalars().all()
 
-        # Filter to only unanalyzed tickets
-        unanalyzed = [
-            t
-            for t in recent_done
-            if not (t.metadata_ and t.metadata_.get("udar_analyzed_at"))
-        ]
+        # Filter to only unanalyzed tickets. Analysis is recorded as a COMMENT
+        # event with an `udar_analyzed_at` payload (Ticket has no metadata column).
+        analyzed_ids: set[str] = set()
+        if recent_done:
+            analyzed_result = await self.db.execute(
+                select(TicketEvent.ticket_id).where(
+                    TicketEvent.ticket_id.in_([t.id for t in recent_done]),
+                    TicketEvent.payload_json.like('%"udar_analyzed_at"%'),
+                )
+            )
+            analyzed_ids = set(analyzed_result.scalars().all())
+        unanalyzed = [t for t in recent_done if t.id not in analyzed_ids]
 
         if not unanalyzed:
             logger.debug("No unanalyzed completed tickets for UDAR replanning")
@@ -1621,11 +1623,25 @@ Generate a follow-up ticket proposal as JSON."""
             )
 
             # Mark tickets as analyzed to avoid duplicate analysis
+            analyzed_at = datetime.utcnow().isoformat()
             for ticket in tickets_to_analyze:
-                if not ticket.metadata_:
-                    ticket.metadata_ = {}
-                ticket.metadata_["udar_analyzed_at"] = datetime.utcnow().isoformat()
-                ticket.metadata_["udar_batch_id"] = ticket_ids[0]  # Track batch
+                self.db.add(
+                    TicketEvent(
+                        ticket_id=ticket.id,
+                        event_type=EventType.COMMENT.value,
+                        from_state=ticket.state,
+                        to_state=ticket.state,
+                        actor_type=ActorType.PLANNER.value,
+                        actor_id="planner",
+                        reason="UDAR replanning analyzed this ticket",
+                        payload_json=json.dumps(
+                            {
+                                "udar_analyzed_at": analyzed_at,
+                                "udar_batch_id": ticket_ids[0],
+                            }
+                        ),
+                    )
+                )
 
             # Create PlannerActions for created follow-ups
             if result["follow_ups_created"] > 0:

@@ -435,6 +435,13 @@ export async function fetchTicketDependents(
 }
 
 /**
+ * Fetch sub-tickets this ticket was split into
+ */
+export async function fetchTicketChildren(ticketId: string): Promise<Ticket[]> {
+  return apiFetch<Ticket[]>(`/tickets/${ticketId}/children`);
+}
+
+/**
  * Fetch stdout content for an evidence record
  */
 export async function fetchEvidenceStdout(evidenceId: string): Promise<string> {

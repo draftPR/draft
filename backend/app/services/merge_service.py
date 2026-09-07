@@ -113,6 +113,14 @@ class MergeService:
         if ticket is None:
             raise ResourceNotFoundError("Ticket", ticket_id)
 
+        # Sub-tickets are merged into their parent by the planner, never into
+        # the default branch directly.
+        if ticket.parent_ticket_id:
+            raise ValidationError(
+                "This is a sub-ticket; it is merged into its parent automatically. "
+                "Merge the parent ticket instead."
+            )
+
         # Validate ticket state
         if ticket.state != TicketState.DONE.value:
             raise ValidationError(

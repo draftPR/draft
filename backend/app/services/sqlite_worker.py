@@ -233,26 +233,14 @@ _worker: SQLiteWorker | None = None
 def get_worker() -> SQLiteWorker:
     """Get or create the global SQLite worker.
 
-    Reads max_parallel_jobs from the first board's DB config (or code defaults).
+    Pool size is the highest max_parallel_jobs across boards, read once at
+    startup. Changing the setting requires a backend restart.
     """
     global _worker
     if _worker is None:
-        max_workers = 1
-        try:
-            from sqlalchemy import select as sa_select
+        from app.services.planner_tick_sync import get_max_parallel_jobs
 
-            from app.database_sync import get_sync_db
-            from app.models.board import Board
-            from app.services.config_service import DraftConfig
-
-            with get_sync_db() as db:
-                board = db.execute(sa_select(Board).limit(1)).scalar_one_or_none()
-                board_config = board.config if board and board.config else None
-
-            config = DraftConfig.from_board_config(board_config)
-            max_workers = config.execute_config.max_parallel_jobs
-        except Exception:
-            pass  # Fall back to 1
+        max_workers = get_max_parallel_jobs()
         _worker = SQLiteWorker(max_workers=max_workers)
         if max_workers > 1:
             logger.info(f"Parallel execution enabled: max_parallel_jobs={max_workers}")
@@ -304,15 +292,6 @@ def setup_worker() -> SQLiteWorker:
                         reason=f"Execution crashed: {e}",
                         actor_id="execute_worker",
                     )
-                    # Clean up any team sessions on crash
-                    try:
-                        from app.database_sync import get_sync_db
-                        from app.services.team_session_service import TeamSessionService
-
-                        with get_sync_db() as sync_db:
-                            TeamSessionService(sync_db).stop_team(ticket.id)
-                    except Exception:
-                        pass
             except Exception:
                 pass
             return {"job_id": job_id, "status": "failed", "error": str(e)}

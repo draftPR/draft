@@ -290,6 +290,10 @@ async def update_ticket(
         ticket.description = data.description
     if "priority" in data.model_fields_set:
         ticket.priority = data.priority
+    if "executor_profile" in data.model_fields_set:
+        if data.executor_profile:
+            await _validate_executor_profile(db, ticket, data.executor_profile)
+        ticket.executor_profile = data.executor_profile or None
 
     await db.flush()
     await db.refresh(ticket)
@@ -305,10 +309,34 @@ async def update_ticket(
         description=ticket.description,
         state=ticket.state,
         priority=ticket.priority,
+        executor_profile=ticket.executor_profile,
+        parent_ticket_id=ticket.parent_ticket_id,
         blocked_by_ticket_id=ticket.blocked_by_ticket_id,
         created_at=ticket.created_at,
         updated_at=ticket.updated_at,
     )
+
+
+async def _validate_executor_profile(
+    db: AsyncSession, ticket: Ticket, profile_name: str
+) -> None:
+    """Raise 400 if `profile_name` is not defined in the ticket's board config."""
+    from app.models.board import Board
+    from app.services.config_service import DraftConfig
+
+    # Profiles live in the board config (DB), not draft.yaml on disk.
+    board_result = await db.execute(
+        select(Board).where(Board.id == ticket.goal.board_id)
+    )
+    board = board_result.scalar_one_or_none()
+    board_config = board.config if board and board.config else None
+    config = DraftConfig.from_board_config(board_config)
+    if profile_name not in config.executor_profiles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown executor profile: '{profile_name}'. "
+            f"Available: {list(config.executor_profiles.keys())}",
+        )
 
 
 @router.post(
@@ -714,25 +742,13 @@ async def execute_ticket(
     ticket_service = TicketService(db)
     ticket = await ticket_service.get_ticket_by_id(ticket_id)
 
-    # Validate executor profile if specified
+    # Validate and persist executor profile if specified. The worker reads
+    # `ticket.executor_profile` at run time, so this is what makes the
+    # query param actually take effect.
     if executor_profile:
-        from app.models.board import Board
-        from app.services.config_service import DraftConfig
-
-        # Load profiles from the ticket's board config (DB, not YAML)
-        board_result = await db.execute(
-            select(Board).where(Board.id == ticket.goal.board_id)
-        )
-        board = board_result.scalar_one_or_none()
-        board_config = board.config if board and board.config else None
-        config = DraftConfig.from_board_config(board_config)
-        profile = config.executor_profiles.get(executor_profile)
-        if not profile:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown executor profile: '{executor_profile}'. "
-                f"Available: {list(config.executor_profiles.keys())}",
-            )
+        await _validate_executor_profile(db, ticket, executor_profile)
+        ticket.executor_profile = executor_profile
+        await db.commit()
 
     # Validate ticket can transition to EXECUTING
     current_state = ticket.state_enum
@@ -1053,6 +1069,27 @@ async def get_ticket_dependents(
     dependent_tickets = list(result.scalars().all())
 
     return [TicketResponse.model_validate(t) for t in dependent_tickets]
+
+
+@router.get(
+    "/{ticket_id}/children",
+    response_model=list[TicketResponse],
+    summary="Get sub-tickets this ticket was split into",
+)
+async def get_ticket_children(
+    ticket_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[TicketResponse]:
+    """Return tickets whose parent_ticket_id is this ticket, in split order."""
+    service = TicketService(db)
+    await service.get_ticket_by_id(ticket_id)
+
+    result = await db.execute(
+        select(Ticket)
+        .where(Ticket.parent_ticket_id == ticket_id)
+        .order_by(Ticket.sort_order.asc().nullslast(), Ticket.created_at)
+    )
+    return [TicketResponse.model_validate(t) for t in result.scalars().all()]
 
 
 @router.post(

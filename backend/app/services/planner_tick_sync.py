@@ -121,6 +121,17 @@ def run_planner_tick_sync() -> dict:
     for job_id in jobs_to_enqueue:
         _enqueue_celery_job_sync(job_id)
 
+    # 2b. Split parents whose sub-tickets are all DONE: merge children into
+    # the parent branch and hand the parent to verification. Runs outside the
+    # lock (git merges + separate sessions).
+    split_completed = 0
+    try:
+        from app.services.split_completion import complete_split_parents_sync
+
+        split_completed = complete_split_parents_sync()
+    except Exception:
+        logger.exception("Error completing split parents")
+
     # LLM-powered operations run OUTSIDE the planner lock to avoid
     # starving other writers during 10-60s LLM API calls.
     #
@@ -184,6 +195,7 @@ def run_planner_tick_sync() -> dict:
         "reflections_added": reflections_added,
         "queued_executed": queued_executed,
         "unblocked": unblocked,
+        "split_completed": split_completed,
     }
 
 
@@ -284,19 +296,27 @@ def _has_active_execution_sync(db) -> bool:
     return _count_active_executions_sync(db) > 0
 
 
-def _get_max_parallel_jobs() -> int:
-    """Read max_parallel_jobs from config (DB first, then default)."""
+def get_max_parallel_jobs() -> int:
+    """Highest max_parallel_jobs across all boards.
+
+    The worker pool and the planner's admission control are shared by every
+    board, so the effective limit is the largest configured value.
+    """
     try:
         from app.models.board import Board
         from app.services.config_service import DraftConfig
 
         with get_sync_db() as db:
-            board = db.execute(select(Board).limit(1)).scalar_one_or_none()
-            if board and board.config:
-                return DraftConfig.from_board_config(
-                    board.config
-                ).execute_config.max_parallel_jobs
-        return 1
+            boards = db.execute(select(Board)).scalars().all()
+            return max(
+                (
+                    DraftConfig.from_board_config(
+                        b.config
+                    ).execute_config.max_parallel_jobs
+                    for b in boards
+                ),
+                default=1,
+            )
     except Exception:
         return 1
 
@@ -374,7 +394,7 @@ def _pick_and_execute_next_sync(db) -> list[str]:
     Returns:
         List of Job IDs that were queued (may be empty).
     """
-    max_parallel = _get_max_parallel_jobs()
+    max_parallel = get_max_parallel_jobs()
     active_count = _count_active_executions_sync(db)
     slots = max_parallel - active_count
 

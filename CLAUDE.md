@@ -73,6 +73,16 @@ if not validate_transition(ticket.state, new_state):
     raise InvalidStateTransitionError(ticket.state, new_state)
 ```
 
+### Sub-tickets (split) & Nadir routing
+
+An executor may split an oversized ticket instead of implementing it (opt-in via `routing_config.allow_split` in the board config):
+- The prompt (`PromptBundleBuilder._format_split_section`) tells the agent to write `.draft/subtasks.json` and stop.
+- `worker._handle_split_sync` → `split_service.create_child_tickets_sync` creates PLANNED children with `parent_ticket_id`, `blocked_by` resolved by title, and `executor_profile` chosen by `routing_service.route_ticket` (Nadir tier → `routing_config.by_tier[tier]`, fail-open to board default). Parent goes `BLOCKED` with `skip_followup`.
+- Children branch from the parent branch (`WorkspaceService.create_worktree`) and keep their branch on DONE (no cleanup for tickets with a parent).
+- `split_completion.complete_split_parents_sync` (sync planner tick) merges DONE children into the parent branch (`git_ops.merge_branch`, `--no-ff`), records the merged diff as a revision, transitions the parent `BLOCKED → VERIFYING`, then cleans up the children. Merge conflicts are recorded as a `split_merge_failed` COMMENT event and retried after 30 minutes.
+- Sub-tickets cannot be merged to the default branch directly (`MergeService` refuses); merge the parent.
+- Depth is 1: children never split again. Per-ticket executor: `tickets.executor_profile` (name from `executor_profiles`), read by the worker.
+
 ### Ticket Dependencies (DAG)
 
 Tickets can depend on each other via `blocked_by_ticket_id` (self-referential FK on Ticket model):
@@ -122,9 +132,9 @@ State transitions after execution:
 
 **YOLO Mode:** When enabled in `draft.yaml`, Claude CLI runs with `--dangerously-skip-permissions`. Only runs if `yolo_allowlist` has trusted repo paths.
 
-### Multi-Agent Team Execution
+### Multi-Agent Team (planning research)
 
-When a board has an active agent team, ticket execution uses **tmux-based multi-agent orchestration** instead of a single executor. Inspired by Coral's architecture.
+An active agent team is used by `TicketGenerationService` to run research agents (PM, Code Explorer) in tmux before proposing tickets for a goal. **Ticket execution does not use the team**: the old tmux execution path was removed in favor of sub-ticket splitting + executor profiles (see above). The description below covers the tmux/message-board machinery that the planning path still uses.
 
 **Agent Roles (14 available):** Team Lead (orchestrator, required), PM, Code Explorer, Developer, Code Reviewer, QA Engineer, Frontend Dev, Backend Dev, LLM Expert, ML Engineer, Prompt Engineer, DevOps Engineer, Security Engineer, Database Expert.
 
@@ -146,7 +156,6 @@ When a board has an active agent team, ticket execution uses **tmux-based multi-
 - `team_session_service.py`: Launch/monitor agent teams
 - `message_board_service.py`: Inter-agent messaging (cursor-based reads)
 - `board_cli_service.py`: Shell script injected into worktrees
-- `agent_hooks_service.py`: Claude Code hooks for board check-ins
 - `routers/agent_team.py`: REST API for team CRUD
 - `routers/message_board.py`: REST API for messaging
 
@@ -291,10 +300,16 @@ Edit `draft.yaml` under `verify_config.commands`.
 2. Each preset is a list of role strings (must match `role` field in catalog)
 3. Preset appears automatically in the UI
 
-### Running Multi-Agent Execution
+### Using the Agent Team (planning research)
 1. Open Board Settings → Agent Team tab
-2. Apply a preset or add members from catalog
-3. Toggle "Multi-Agent Execution" ON
-4. Execute a ticket — worker auto-detects the team and launches tmux sessions
-5. Monitor via `tmux ls` to see running agents
-6. **Important:** Use `make run` (not `--reload`) to prevent HMR from killing the worker loop
+2. Apply a preset with `pm` / `code_explorer` (e.g. `ticket_planning`) or add members
+3. Toggle "Agent Team for Planning" ON
+4. Generate tickets for a goal — research agents launch in tmux, findings feed ticket generation
+5. Monitor via `tmux ls`; **Important:** use `make run` (not `--reload`) so HMR doesn't kill the worker loop
+
+### Running Multi-Executor Tickets (split + Nadir routing)
+1. Define `executor_profiles` (e.g. `codex-fast`, `claude-sonnet`, `claude-opus`) in board config
+2. Set `routing_config.allow_split: true`, `enabled: true`, and `by_tier` (tier → profile) via `PUT /settings?board_id=`
+3. Set `execute_config.max_parallel_jobs` > 1 and restart the backend so children run in parallel
+4. Execute a ticket — the agent may write `.draft/subtasks.json`; children appear as PLANNED cards with their profile
+5. Approve each child; the planner merges them into the parent and hands it to verification

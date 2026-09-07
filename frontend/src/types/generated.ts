@@ -771,6 +771,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tickets/{ticket_id}/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get sub-tickets this ticket was split into
+         * @description Return tickets whose parent_ticket_id is this ticket, in split order.
+         */
+        get: operations["get_ticket_children_tickets__ticket_id__children_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tickets/bulk-update-priority": {
         parameters: {
             query?: never;
@@ -6496,6 +6516,16 @@ export interface components {
             /** Priority */
             priority: number | null;
             /**
+             * Executor Profile
+             * @description Named executor profile used to run this ticket
+             */
+            executor_profile?: string | null;
+            /**
+             * Parent Ticket Id
+             * @description Parent ticket this one was split from (if any)
+             */
+            parent_ticket_id?: string | null;
+            /**
              * Sort Order
              * @description Manual sort order within state column
              */
@@ -6627,6 +6657,16 @@ export interface components {
             /** Priority */
             priority: number | null;
             /**
+             * Executor Profile
+             * @description Named executor profile used to run this ticket
+             */
+            executor_profile?: string | null;
+            /**
+             * Parent Ticket Id
+             * @description Parent ticket this one was split from (if any)
+             */
+            parent_ticket_id?: string | null;
+            /**
              * Sort Order
              * @description Manual sort order within state column
              */
@@ -6694,6 +6734,11 @@ export interface components {
             description?: string | null;
             /** Priority */
             priority?: number | null;
+            /**
+             * Executor Profile
+             * @description Named executor profile from draft.yaml. Null = board default.
+             */
+            executor_profile?: string | null;
         };
         /**
          * TicketsByState
@@ -8108,6 +8153,37 @@ export interface operations {
         };
     };
     get_ticket_dependents_tickets__ticket_id__dependents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ticket_children_tickets__ticket_id__children_get: {
         parameters: {
             query?: never;
             header?: never;

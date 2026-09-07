@@ -69,6 +69,7 @@ ALLOWED_TRANSITIONS: dict[TicketState, list[TicketState]] = {
     TicketState.BLOCKED: [
         TicketState.PLANNED,  # Unblocked, back to planning
         TicketState.EXECUTING,  # Retry execution (e.g., after fixing blocker or retrying failed execution)
+        TicketState.VERIFYING,  # Split parent: all sub-tickets merged back in
         TicketState.ABANDONED,
     ],
     TicketState.DONE: [

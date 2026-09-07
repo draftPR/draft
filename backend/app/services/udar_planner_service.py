@@ -944,10 +944,11 @@ If no follow-ups are needed, return {{"reasoning": "...", "tickets": []}}
         legacy_service = TicketGenerationService(db=self.db)
         result = await legacy_service.generate_from_goal(goal_id=goal_id)
 
-        # Wrap result in UDAR-compatible format
+        # Wrap result (a GenerationResult dataclass) in UDAR-compatible format
+        tickets = [t.model_dump() for t in result.tickets]
         return {
-            "tickets": result.get("tickets", []),
-            "summary": f"Generated {len(result.get('tickets', []))} tickets (legacy fallback)",
+            "tickets": tickets,
+            "summary": f"Generated {len(tickets)} tickets (legacy fallback)",
             "llm_calls_made": 1,  # Legacy uses 1 LLM call
             "phases_completed": ["legacy"],
             "errors": [f"UDAR fallback: {reason}"],

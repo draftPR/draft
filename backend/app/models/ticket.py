@@ -78,6 +78,15 @@ class Ticket(Base):
         nullable=True,
         index=True,
     )
+    # Named executor profile from draft.yaml `executor_profiles` (None = board default)
+    executor_profile: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Set when this ticket was created by splitting a larger parent ticket
+    parent_ticket_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("tickets.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         server_default=func.now(),
@@ -154,6 +163,20 @@ class Ticket(Base):
         "Ticket",
         foreign_keys="Ticket.blocked_by_ticket_id",
         back_populates="blocked_by",
+    )
+
+    # Split hierarchy (self-referential): parent <-> children
+    parent: Mapped["Ticket | None"] = relationship(
+        "Ticket",
+        foreign_keys=[parent_ticket_id],
+        remote_side="Ticket.id",
+        uselist=False,
+        back_populates="children",
+    )
+    children: Mapped[list["Ticket"]] = relationship(
+        "Ticket",
+        foreign_keys="Ticket.parent_ticket_id",
+        back_populates="parent",
     )
 
     @property

@@ -308,6 +308,21 @@ async def add_member(
     return member
 
 
+async def _get_member_in_board(
+    db: AsyncSession, board_id: str, member_id: str
+) -> AgentTeamMember:
+    """Load a member, 404 unless it belongs to the board's team."""
+    stmt = (
+        select(AgentTeamMember)
+        .join(AgentTeam, AgentTeam.id == AgentTeamMember.team_id)
+        .where(AgentTeamMember.id == member_id, AgentTeam.board_id == board_id)
+    )
+    member = (await db.execute(stmt)).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return member
+
+
 @router.patch(
     "/boards/{board_id}/team/members/{member_id}",
     response_model=TeamMemberResponse,
@@ -319,11 +334,7 @@ async def update_member(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a team member's settings."""
-    stmt = select(AgentTeamMember).where(AgentTeamMember.id == member_id)
-    result = await db.execute(stmt)
-    member = result.scalar_one_or_none()
-    if member is None:
-        raise HTTPException(status_code=404, detail="Member not found")
+    member = await _get_member_in_board(db, board_id, member_id)
 
     if body.display_name is not None:
         member.display_name = body.display_name
@@ -349,11 +360,7 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a member from the team."""
-    stmt = select(AgentTeamMember).where(AgentTeamMember.id == member_id)
-    result = await db.execute(stmt)
-    member = result.scalar_one_or_none()
-    if member is None:
-        raise HTTPException(status_code=404, detail="Member not found")
+    member = await _get_member_in_board(db, board_id, member_id)
     if member.is_required:
         raise HTTPException(
             status_code=400,
@@ -377,6 +384,14 @@ async def get_team_execution_status(
     """Get the live status of all agents executing for a ticket."""
 
     from app.models.agent_team import TeamAgentSession
+    from app.models.ticket import Ticket
+
+    # Scope by board: the ticket must belong to this board.
+    ticket_result = await db.execute(
+        select(Ticket.id).where(Ticket.id == ticket_id, Ticket.board_id == board_id)
+    )
+    if ticket_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Ticket not found on this board")
 
     stmt = (
         select(TeamAgentSession)

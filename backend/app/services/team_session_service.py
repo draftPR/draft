@@ -308,9 +308,10 @@ class TeamSessionService:
                 cmd += " --force"
             return cmd
         elif executor_type == ExecutorType.CODEX:
-            cmd = f"{command} --print --auto-edit"
+            # Interactive codex TUI; prompt is typed in afterwards via tmux.
+            cmd = f"{command} -C {worktree_path}"
             if yolo_mode:
-                cmd += " --full-auto"
+                cmd += " --dangerously-bypass-approvals-and-sandbox"
             return cmd
         elif executor_type == ExecutorType.GEMINI:
             cmd = f"{command} --print"

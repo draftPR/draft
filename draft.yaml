@@ -290,39 +290,33 @@ planner_config:
     max_retries_on_error: 0
 
 # =============================================================================
-# MULTI-AGENT TEAM CONFIGURATION
+# SPLIT + ROUTING CONFIGURATION (Nadir)
 # =============================================================================
-# Settings for coral-style multi-agent collaboration where specialized agents
-# (team lead, developer, reviewer, QA, etc.) work together on tickets via
-# tmux sessions and a message board.
+# Lets the executor split an oversized ticket into sub-tickets, and routes each
+# sub-ticket to an executor profile by task complexity using Nadir
+# (https://getnadir.com/skill). Each sub-ticket gets its own worktree and runs
+# like any other PLANNED ticket, so codex and claude work in isolation.
 #
-# When enabled, ticket execution spawns a team of agents instead of a single
-# executor. The team lead (orchestrator) coordinates work distribution.
+# Runtime config is the board config (DB). Enable via Settings API:
+#   PUT /settings?board_id=<id>  {"routing_config": {"allow_split": true, ...}}
 #
-# Requires: tmux installed on the system
-# Configure per-board teams in Board Settings > Team tab.
+# Set NADIR_API_KEY in backend/.env for higher limits (optional).
 
-team_config:
-  # Master switch: false = legacy single-agent mode (default, backward compat)
+routing_config:
+  # Executor may write .draft/subtasks.json instead of implementing.
+  allow_split: false
+  # Max sub-tickets per split (min 2)
+  max_children: 6
+  # Ask Nadir for a tier (simple/medium/complex) per sub-ticket
   enabled: false
-
-  # Default executor for team members (can be overridden per member)
-  default_executor: "claude"
-
-  # Timeout for the orchestrator/team lead (seconds, default: 30 min)
-  orchestrator_timeout: 1800
-
-  # Timeout for each worker agent (seconds, default: 10 min)
-  worker_timeout: 600
-
-  # How often agents check the message board for new messages (seconds)
-  message_check_interval: 10
-
-  # Maximum agents allowed in a team
-  max_team_size: 10
-
-  # How to detect team completion:
-  #   - "orchestrator_done": Team lead posts DONE message
-  #   - "all_idle": All agents idle for 60+ seconds
-  #   - "orchestrator_done_or_timeout": Team lead DONE or timeout
-  completion_strategy: "orchestrator_done_or_timeout"
+  nadir_url: "https://api.getnadir.com/v1/bucket"
+  # Turns hint sent to Nadir (affects its delegate/inline arithmetic only)
+  expected_turns: 10
+  # tier -> executor profile name (see executor_profiles). Unmapped tier or
+  # Nadir failure = board default executor.
+  by_tier: {}
+  # Example:
+  #   by_tier:
+  #     simple: codex-fast
+  #     medium: claude-sonnet
+  #     complex: claude-opus

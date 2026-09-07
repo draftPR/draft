@@ -396,6 +396,43 @@ class ExecutorProfile:
         )
 
 
+@dataclass
+class RoutingConfig:
+    """Sub-ticket splitting and Nadir tier routing (getnadir.com).
+
+    draft.yaml:
+        routing_config:
+          allow_split: true          # executor may write .draft/subtasks.json
+          max_children: 6
+          enabled: true              # ask Nadir for a tier per sub-ticket
+          by_tier:                   # tier -> executor profile name
+            simple: codex-fast
+            medium: claude-sonnet
+            complex: claude-opus
+    """
+
+    allow_split: bool = False
+    max_children: int = 6
+    enabled: bool = False
+    nadir_url: str = "https://api.getnadir.com/v1/bucket"
+    expected_turns: int = 10
+    by_tier: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "RoutingConfig":
+        by_tier = data.get("by_tier") or {}
+        return cls(
+            allow_split=bool(data.get("allow_split", False)),
+            max_children=max(2, int(data.get("max_children", 6))),
+            enabled=bool(data.get("enabled", False)),
+            nadir_url=data.get("nadir_url") or cls.nadir_url,
+            expected_turns=int(data.get("expected_turns", 10)),
+            by_tier={str(k): str(v) for k, v in by_tier.items()}
+            if isinstance(by_tier, dict)
+            else {},
+        )
+
+
 def _dataclass_to_dict(obj: Any) -> Any:
     """Recursively convert a dataclass to a dict, handling nested dataclasses."""
     from dataclasses import fields, is_dataclass
@@ -465,6 +502,7 @@ class DraftConfig:
     cleanup_config: CleanupConfig = field(default_factory=CleanupConfig)
     merge_config: MergeConfig = field(default_factory=MergeConfig)
     autonomy_config: AutonomyConfig = field(default_factory=AutonomyConfig)
+    routing_config: RoutingConfig = field(default_factory=RoutingConfig)
     executor_profiles: dict[str, ExecutorProfile] = field(default_factory=dict)
 
     @classmethod
@@ -522,6 +560,12 @@ class DraftConfig:
             else AutonomyConfig()
         )
 
+        # Parse routing config (split + Nadir tiering)
+        routing_data = data.get("routing_config", {})
+        routing_config = (
+            RoutingConfig.from_dict(routing_data) if routing_data else RoutingConfig()
+        )
+
         # Parse executor profiles
         profiles_data = data.get("executor_profiles", {})
         executor_profiles = {}
@@ -540,6 +584,7 @@ class DraftConfig:
             cleanup_config=cleanup_config,
             merge_config=merge_config,
             autonomy_config=autonomy_config,
+            routing_config=routing_config,
             executor_profiles=executor_profiles,
         )
 

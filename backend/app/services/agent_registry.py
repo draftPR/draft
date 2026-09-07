@@ -227,10 +227,10 @@ class CodexExecutor(AgentExecutor):
         session_id: str | None = None,
         **kwargs,
     ) -> list[str]:
-        cmd = [self.config.command]
+        cmd = [self.config.command, "exec", "-C", str(working_dir)]
 
         if yolo_mode:
-            cmd.extend(["--approval-mode", "full-auto"])
+            cmd.append("--dangerously-bypass-approvals-and-sandbox")
 
         cmd.extend([prompt])
         return cmd

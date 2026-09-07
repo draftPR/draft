@@ -230,6 +230,35 @@ def abort_operation(worktree_path: Path) -> bool:
 
 
 @dataclass
+class MergeBranchResult:
+    """Result of merging a branch into a worktree's current branch."""
+
+    success: bool
+    message: str
+    conflicted_files: list[str] = field(default_factory=list)
+
+
+def merge_branch(worktree_path: Path, branch: str, message: str) -> MergeBranchResult:
+    """Merge `branch` into the branch checked out at `worktree_path`.
+
+    Always creates a merge commit (--no-ff) so the parent history shows each
+    sub-ticket. On conflict the merge is aborted and the worktree left clean.
+    """
+    result = _run_git(
+        ["merge", "--no-ff", "--no-edit", "-m", message, branch],
+        cwd=worktree_path,
+        timeout=120,
+    )
+    if result.returncode == 0:
+        return MergeBranchResult(True, result.stdout.strip() or f"merged {branch}")
+
+    conflicted = get_conflicted_files(worktree_path)
+    abort_operation(worktree_path)
+    detail = (result.stderr or result.stdout).strip()[:500]
+    return MergeBranchResult(False, detail or f"merge of {branch} failed", conflicted)
+
+
+@dataclass
 class PushResult:
     """Result of a push operation."""
 

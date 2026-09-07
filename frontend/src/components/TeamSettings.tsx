@@ -203,9 +203,10 @@ export function TeamSettings({ boardId }: TeamSettingsProps) {
       {/* Enable/Disable Toggle */}
       <div className="flex items-center justify-between">
         <div className="space-y-1">
-          <Label className="text-sm font-medium">Multi-Agent Execution</Label>
+          <Label className="text-sm font-medium">Agent Team for Planning</Label>
           <p className="text-xs text-muted-foreground">
-            When enabled, tickets are executed by a team of specialized agents instead of a single executor.
+            When enabled, generating tickets for a goal first runs the team's PM and Code Explorer as
+            research agents. Ticket execution uses executor profiles and split routing, not the team.
           </p>
         </div>
         <Switch

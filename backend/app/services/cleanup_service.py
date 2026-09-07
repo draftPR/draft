@@ -883,43 +883,45 @@ class CleanupService:
                 if entry.resolve() in tracked_paths:
                     continue
 
-            size = self._get_dir_size(entry)
-            result.details.append(
-                f"{'[DRY RUN] Would delete' if dry_run else 'Deleting'} "
-                f"orphaned worktree: {entry} ({size // 1024}KB)"
-            )
+                size = self._get_dir_size(entry)
+                result.details.append(
+                    f"{'[DRY RUN] Would delete' if dry_run else 'Deleting'} "
+                    f"orphaned worktree: {entry} ({size // 1024}KB)"
+                )
 
-            if not dry_run:
-                try:
-                    # Try git worktree remove first
-                    git_result = subprocess.run(
-                        ["git", "worktree", "remove", "--force", str(entry)],
-                        cwd=repo_path,
-                        capture_output=True,
-                        text=True,
-                        timeout=60,
-                    )
+                if not dry_run:
+                    try:
+                        # Try git worktree remove first
+                        git_result = subprocess.run(
+                            ["git", "worktree", "remove", "--force", str(entry)],
+                            cwd=repo_path,
+                            capture_output=True,
+                            text=True,
+                            timeout=60,
+                        )
 
-                    if git_result.returncode != 0:
-                        # Fallback to manual removal if git command fails
-                        shutil.rmtree(entry)
+                        if git_result.returncode != 0:
+                            # Fallback to manual removal if git command fails
+                            shutil.rmtree(entry)
 
-                    # Always prune after removal
-                    subprocess.run(
-                        ["git", "worktree", "prune"],
-                        cwd=repo_path,
-                        capture_output=True,
-                        timeout=30,
-                    )
+                        # Always prune after removal
+                        subprocess.run(
+                            ["git", "worktree", "prune"],
+                            cwd=repo_path,
+                            capture_output=True,
+                            timeout=30,
+                        )
 
+                        result.worktrees_deleted += 1
+                        result.bytes_freed += size
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to delete orphaned worktree {entry}: {e}"
+                        )
+                        result.worktrees_failed += 1
+                else:
                     result.worktrees_deleted += 1
                     result.bytes_freed += size
-                except Exception as e:
-                    logger.error(f"Failed to delete orphaned worktree {entry}: {e}")
-                    result.worktrees_failed += 1
-            else:
-                result.worktrees_deleted += 1
-                result.bytes_freed += size
 
         return result
 

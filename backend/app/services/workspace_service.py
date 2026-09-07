@@ -267,6 +267,19 @@ class WorkspaceService:
         # Validate base branch
         base_branch = self._validate_base_branch(repo_path)
 
+        # Sub-tickets branch from their parent's branch so the parent can merge
+        # them back without touching the default branch.
+        if ticket.parent_ticket_id:
+            parent_ws = self.get_workspace_by_ticket_id(ticket.parent_ticket_id)
+            if parent_ws:
+                exists = self._run_git_command(
+                    ["rev-parse", "--verify", f"refs/heads/{parent_ws.branch_name}"],
+                    cwd=repo_path,
+                    check=False,
+                )
+                if exists.returncode == 0:
+                    base_branch = parent_ws.branch_name
+
         # Generate paths and names
         worktree_dir = self._get_worktree_dir(ticket_id, board_id=ticket.board_id)
         branch_name = self._get_branch_name(goal_id, ticket_id)
