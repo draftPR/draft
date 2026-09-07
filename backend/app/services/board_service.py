@@ -137,6 +137,17 @@ class BoardService:
         board = await self.get_board_by_id(board_id)
 
         update_data = data.model_dump(exclude_unset=True)
+        if update_data.get("repo_root"):
+            # Same rules as create: absolute, exists, is a git repo. repo_root is
+            # the authoritative path for every file operation on this board.
+            from app.exceptions import ValidationError
+
+            repo_path = Path(update_data["repo_root"]).resolve()
+            if not repo_path.is_dir():
+                raise ValidationError(f"repo_root is not a directory: {repo_path}")
+            if not (repo_path / ".git").exists():
+                raise ValidationError(f"repo_root is not a git repository: {repo_path}")
+            update_data["repo_root"] = str(repo_path)
         for field, value in update_data.items():
             setattr(board, field, value)
 

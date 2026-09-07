@@ -39,6 +39,10 @@ class BoardUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     default_branch: str | None = None
+    repo_root: str | None = Field(
+        None,
+        description="Absolute path to an existing git repository (validated)",
+    )
     config: dict | None = Field(None, description="Board-level configuration overrides")
 
 

@@ -232,8 +232,9 @@ async def update_board_config(
     try:
         board = await service.get_board_by_id(board_id)
 
-        # Convert Pydantic model to dict, excluding None values
-        update_dict = data.model_dump(exclude_none=True)
+        # Merge the inner config dict, not the request wrapper (merging the
+        # wrapper nested everything under a stray "config" key and was ignored).
+        update_dict = data.config or {}
 
         if not update_dict:
             # No updates provided
