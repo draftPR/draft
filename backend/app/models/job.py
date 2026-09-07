@@ -129,11 +129,14 @@ class Job(Base):
         order_by="Evidence.created_at.desc()",
     )
     # The revision created by this job (via Revision.job_id -> Job.id)
+    # Deleting the job deletes its revision (job_id is NOT NULL; without this
+    # cascade the ORM tries to null it out and board/ticket deletes fail).
     revision: Mapped["Revision | None"] = relationship(
         "Revision",
         back_populates="job",
         uselist=False,
         foreign_keys="Revision.job_id",
+        cascade="all, delete-orphan",
     )
     # For jobs triggered by review, the revision being addressed
     source_revision: Mapped["Revision | None"] = relationship(
