@@ -93,6 +93,25 @@ class CodexAdapter(ExecutorAdapter):
             "Docs: https://github.com/openai/codex"
         )
 
+    @staticmethod
+    def _build_cmd(request: ExecutionRequest) -> list[str]:
+        """Headless codex is `codex exec` (prompt on stdin). Verified on 0.153.0."""
+        cmd = [
+            "codex",
+            "exec",
+            "-C",
+            request.working_directory,
+            "--skip-git-repo-check",
+        ]
+        if request.yolo_mode:
+            cmd.append("--dangerously-bypass-approvals-and-sandbox")
+        else:
+            cmd.extend(["-s", "workspace-write"])
+        model = request.config.get("model") if request.config else None
+        if model and model != "auto":
+            cmd.extend(["-m", str(model)])
+        return cmd
+
     async def execute(self, request: ExecutionRequest) -> ExecutionResult:
         """Execute using Codex CLI."""
         if not await self.is_available():
@@ -100,10 +119,7 @@ class CodexAdapter(ExecutorAdapter):
                 "Codex CLI not found. Install from https://github.com/openai/codex"
             )
 
-        cmd = ["codex", "--print", "--auto-edit"]
-
-        if request.yolo_mode:
-            cmd.append("--full-auto")
+        cmd = self._build_cmd(request)
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -140,9 +156,7 @@ class CodexAdapter(ExecutorAdapter):
         if not await self.is_available():
             raise ExecutorNotFoundError("Codex CLI not found")
 
-        cmd = ["codex", "--print", "--auto-edit"]
-        if request.yolo_mode:
-            cmd.append("--full-auto")
+        cmd = self._build_cmd(request)
 
         process = await asyncio.create_subprocess_exec(
             *cmd,

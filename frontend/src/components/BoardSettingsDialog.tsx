@@ -46,8 +46,9 @@ interface BoardSettingsDialogProps {
 }
 
 const EXECUTOR_OPTIONS = [
-  { id: "cursor-agent", name: "Cursor Agent (Headless)" },
   { id: "claude", name: "Claude Code CLI (Headless)" },
+  { id: "codex", name: "Codex CLI (Headless)" },
+  { id: "cursor-agent", name: "Cursor Agent (Headless)" },
   { id: "cursor", name: "Cursor IDE (Interactive)" },
 ];
 

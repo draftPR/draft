@@ -100,17 +100,31 @@ async def list_executor_models(executor_name: str):
             {
                 "id": "auto",
                 "name": "Auto (recommended)",
-                "description": "Automatically select the best model",
+                "description": "Claude CLI default model",
             },
             {
-                "id": "claude-sonnet-4-20250514",
-                "name": "Claude Sonnet 4",
-                "description": "Fast and capable",
+                "id": "sonnet",
+                "name": "Sonnet (latest)",
+                "description": "Fast and capable; alias resolved by the CLI",
             },
             {
-                "id": "claude-opus-4-20250514",
-                "name": "Claude Opus 4",
-                "description": "Most capable model",
+                "id": "opus",
+                "name": "Opus (latest)",
+                "description": "Most capable; alias resolved by the CLI",
+            },
+        ],
+        "codex": [
+            {
+                "id": "auto",
+                "name": "Auto (recommended)",
+                "description": "Codex CLI default model (~/.codex/config.toml)",
+            },
+        ],
+        "gemini": [
+            {
+                "id": "auto",
+                "name": "Auto (recommended)",
+                "description": "Gemini CLI default model",
             },
         ],
         "cursor-agent": [
