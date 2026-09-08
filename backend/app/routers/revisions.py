@@ -666,6 +666,29 @@ async def submit_review(
                         auto_verify=False,
                         skip_cleanup=True,  # Worktree kept for PR
                     )
+            elif ticket.parent_ticket_id:
+                # Sub-ticket of a split: its branch belongs to the parent, not to
+                # the default branch. The planner merges it into the parent once
+                # every sibling is DONE, so keep the worktree and branch intact.
+                merge_attempted = False
+                merge_message = (
+                    "Sub-ticket approved; its branch is merged into the parent "
+                    "ticket once all sibling sub-tickets are done."
+                )
+                logger.info(
+                    "Skipping direct merge for sub-ticket %s (parent %s)",
+                    revision.ticket_id,
+                    ticket.parent_ticket_id,
+                )
+                if ticket.state != TicketState.DONE.value:
+                    await ticket_service.transition_ticket(
+                        ticket_id=revision.ticket_id,
+                        to_state=TicketState.DONE,
+                        actor_type=TicketActorType.HUMAN,
+                        reason="Revision approved by reviewer",
+                        auto_verify=False,
+                        skip_cleanup=True,  # Parent merge needs the worktree
+                    )
             else:
                 # Auto-merge using simple git operations (no state coupling)
                 from datetime import UTC, datetime

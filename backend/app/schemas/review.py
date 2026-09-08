@@ -95,7 +95,9 @@ class ReviewSummaryResponse(BaseModel):
     body: str
     created_at: datetime
     merge_attempted: bool = False
-    merge_success: bool = False
+    # None when no merge was attempted (PR flow, or a sub-ticket whose branch is
+    # merged into its parent later). A bool only once a merge actually ran.
+    merge_success: bool | None = None
     merge_message: str | None = None
 
     model_config = {"from_attributes": True}

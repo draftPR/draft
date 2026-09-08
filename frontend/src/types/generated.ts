@@ -6170,11 +6170,8 @@ export interface components {
              * @default false
              */
             merge_attempted: boolean;
-            /**
-             * Merge Success
-             * @default false
-             */
-            merge_success: boolean;
+            /** Merge Success */
+            merge_success?: boolean | null;
             /** Merge Message */
             merge_message?: string | null;
         };
