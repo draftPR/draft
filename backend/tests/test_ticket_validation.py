@@ -302,3 +302,38 @@ def test_validation_config_default(mock_config):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_validate_tickets_streams_reviews(
+    mock_db, mock_llm_service, mock_config, sample_goal
+):
+    """Each validated ticket emits a `review` event plus progress phases."""
+    from pathlib import Path
+
+    service = TicketGenerationService(mock_db, mock_llm_service, mock_config)
+    service.context_gatherer.gather = Mock(
+        return_value=Mock(to_prompt_string=Mock(return_value="ctx"))
+    )
+    verdicts = iter(
+        [
+            {"is_valid": True, "validation_result": "appropriate", "reasoning": "ok"},
+            {"is_valid": False, "validation_result": "not_relevant", "reasoning": "no"},
+        ]
+    )
+    service._validate_ticket_against_codebase = Mock(
+        side_effect=lambda **_: next(verdicts)
+    )
+    events: list[dict] = []
+
+    kept, filtered = service._validate_tickets(
+        [{"title": "A"}, {"title": "B"}], sample_goal, Path("."), False, events.append
+    )
+
+    assert [t["title"] for t in kept] == ["A"]
+    assert filtered == 1
+    reviews = [e for e in events if e.get("type") == "review"]
+    assert [(r["title"], r["accepted"]) for r in reviews] == [
+        ("A", True),
+        ("B", False),
+    ]
+    assert [e["progress"]["current"] for e in events if "phase" in e] == [0, 1, 2]

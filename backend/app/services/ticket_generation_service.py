@@ -271,68 +271,18 @@ class TicketGenerationService:
         # Validate tickets against codebase if enabled
         filtered_count = 0
         if validate_tickets and raw_tickets:
-            logger.info(f"Validating {len(raw_tickets)} tickets against codebase")
-
-            try:
-                # Gather context for validation
-                context = self.context_gatherer.gather(
-                    repo_root=repo_root,
-                    include_readme_excerpt=include_readme,
-                )
-                context_summary = context.to_prompt_string()[
-                    :3000
-                ]  # Limit size for validation
-
-                validated_tickets = []
-
-                for raw in raw_tickets:
-                    try:
-                        validation = self._validate_ticket_against_codebase(
-                            ticket=raw,
-                            goal=goal,
-                            context_summary=context_summary,
-                        )
-
-                        # Store validation result in ticket for later use in event payload
-                        raw["_validation"] = validation
-
-                        # Only include appropriate tickets
-                        if (
-                            validation.get("is_valid")
-                            and validation.get("validation_result") == "appropriate"
-                        ):
-                            validated_tickets.append(raw)
-                        else:
-                            filtered_count += 1
-                            logger.warning(
-                                f"Filtered ticket '{raw.get('title')}': "
-                                f"result={validation.get('validation_result')}, "
-                                f"reason={validation.get('reasoning')}"
-                            )
-                    except Exception as e:
-                        # If validation fails for a ticket, include it anyway (fail open)
-                        logger.error(
-                            f"Validation failed for ticket '{raw.get('title')}': {e}"
-                        )
-                        validated_tickets.append(raw)
-
-                if filtered_count > 0:
-                    logger.warning(
-                        f"Filtered {filtered_count}/{len(raw_tickets)} tickets during validation"
-                    )
-
-                raw_tickets = validated_tickets
-            except Exception as e:
-                # If entire validation process fails, proceed with all tickets (fail open)
-                logger.error(
-                    f"Validation process failed, proceeding with all {len(raw_tickets)} tickets: {e}"
-                )
-                filtered_count = 0
+            raw_tickets, filtered_count = await asyncio.to_thread(
+                self._validate_tickets,
+                raw_tickets,
+                goal,
+                repo_root,
+                include_readme,
+                stream_callback,
+            )
         else:
-            if not validate_tickets:
-                logger.debug(
-                    f"Ticket validation disabled, skipping for {len(raw_tickets)} tickets"
-                )
+            logger.debug(
+                f"Ticket validation disabled, skipping for {len(raw_tickets)} tickets"
+            )
 
         # Get existing tickets for dedup
         existing_tickets = await self._get_existing_tickets(goal_id)
@@ -693,6 +643,15 @@ class TicketGenerationService:
                 self._last_reported_roles = set(findings.keys())
                 last_count = current_count
                 if stream_callback:
+                    for role in new_roles:
+                        stream_callback(
+                            {
+                                "type": "review",
+                                "source": role,
+                                "title": f"{role} findings",
+                                "reasoning": findings[role],
+                            }
+                        )
                     detail = f"{', '.join(new_roles)} reported" if new_roles else None
                     stream_callback(
                         {
@@ -1328,6 +1287,99 @@ Guidelines:
     # TICKET VALIDATION
     # =========================================================================
 
+    def _validate_tickets(
+        self,
+        raw_tickets: list[dict],
+        goal: Goal,
+        repo_root: Path,
+        include_readme: bool,
+        stream_callback=None,
+    ) -> tuple[list[dict], int]:
+        """Review each raw ticket against the codebase, streaming each verdict.
+
+        Runs synchronously (called via asyncio.to_thread) so LLM calls don't
+        block the event loop and review events reach the SSE client live.
+
+        Returns:
+            (validated_tickets, filtered_count). Fails open on any error.
+        """
+        total = len(raw_tickets)
+        logger.info(f"Validating {total} tickets against codebase")
+
+        def emit(current: int, detail: str | None = None) -> None:
+            if stream_callback:
+                stream_callback(
+                    {
+                        "phase": "validating",
+                        "label": "Reviewing tickets against codebase",
+                        "progress": {"current": current, "total": total},
+                        "detail": detail,
+                    }
+                )
+
+        try:
+            emit(0)
+            context = self.context_gatherer.gather(
+                repo_root=repo_root,
+                include_readme_excerpt=include_readme,
+            )
+            context_summary = context.to_prompt_string()[:3000]
+
+            validated: list[dict] = []
+            filtered = 0
+            for i, raw in enumerate(raw_tickets, start=1):
+                title = raw.get("title", "")
+                try:
+                    validation = self._validate_ticket_against_codebase(
+                        ticket=raw, goal=goal, context_summary=context_summary
+                    )
+                    raw["_validation"] = validation
+                    accepted = bool(validation.get("is_valid")) and (
+                        validation.get("validation_result") == "appropriate"
+                    )
+                except Exception as e:
+                    # Fail open: include the ticket
+                    logger.error(f"Validation failed for ticket '{title}': {e}")
+                    validation = {
+                        "validation_result": "unclear",
+                        "reasoning": f"Validation error: {str(e)[:100]}",
+                        "confidence": "low",
+                    }
+                    accepted = True
+
+                if accepted:
+                    validated.append(raw)
+                else:
+                    filtered += 1
+                    logger.warning(
+                        f"Filtered ticket '{title}': "
+                        f"result={validation.get('validation_result')}, "
+                        f"reason={validation.get('reasoning')}"
+                    )
+
+                if stream_callback:
+                    stream_callback(
+                        {
+                            "type": "review",
+                            "source": "validator",
+                            "title": title,
+                            "accepted": accepted,
+                            "result": validation.get("validation_result"),
+                            "confidence": validation.get("confidence"),
+                            "reasoning": validation.get("reasoning"),
+                        }
+                    )
+                emit(i)
+
+            if filtered:
+                logger.warning(f"Filtered {filtered}/{total} tickets during validation")
+            return validated, filtered
+        except Exception as e:
+            logger.error(
+                f"Validation process failed, proceeding with all {total} tickets: {e}"
+            )
+            return raw_tickets, 0
+
     def _validate_ticket_against_codebase(
         self, ticket: dict, goal: Goal, context_summary: str
     ) -> dict:
@@ -1910,6 +1962,111 @@ Now analyze the codebase and generate the JSON."""
 
         logger.warning(f"Could not parse JSON from agent response: {response[:500]}")
         return {"tickets": []}
+
+    # =========================================================================
+    # GOAL SUGGESTION (interactive Q&A before a goal exists)
+    # =========================================================================
+
+    MAX_SUGGEST_QUESTIONS = 3
+    # ponytail: hard cap on total answered questions, then force a suggestion
+    MAX_SUGGEST_ANSWERS = 6
+
+    def suggest_goal(
+        self,
+        repo_root: Path,
+        task: str | None,
+        answers: list[tuple[str, str]],
+        force_suggest: bool = False,
+    ) -> dict:
+        """Scan the repo, ask clarifying choice questions, then suggest a goal.
+
+        Stateless: the caller resends all previous answers each round.
+
+        Returns:
+            ``{"questions": [{"question", "options"}]}`` or
+            ``{"suggestion": {"title", "description"}}``.
+
+        Raises:
+            ValueError: If the model output cannot be parsed.
+        """
+        must_suggest = force_suggest or len(answers) >= self.MAX_SUGGEST_ANSWERS
+
+        try:
+            context = self.context_gatherer.gather(
+                repo_root=repo_root, include_readme_excerpt=True
+            )
+            context_summary = context.to_prompt_string()[:8000]
+        except Exception as e:
+            logger.warning(f"Failed to gather repo context: {e}")
+            context_summary = f"Repository at: {repo_root}"
+
+        system_prompt = (
+            "You are a senior engineer helping a developer define a concrete goal "
+            "for an AI-driven kanban board. A goal is later decomposed into tickets "
+            "that coding agents implement.\n\n"
+            "Use the repository context to understand the codebase. If the task is "
+            f"ambiguous, ask at most {self.MAX_SUGGEST_QUESTIONS} short clarifying "
+            "questions. Each question is a choice question with 2-3 concrete, "
+            "mutually exclusive options grounded in this repo (name real modules, "
+            "patterns, or trade-offs). Do NOT include an 'other' option; the UI "
+            "adds free text automatically.\n\n"
+            "When you have enough information, suggest ONE goal: a title (max 80 "
+            "chars, imperative) and a description (2-6 sentences: scope, key files "
+            "or areas to touch, acceptance criteria, explicit non-goals).\n\n"
+            "Respond with JSON only, in exactly one of these shapes:\n"
+            '{"questions": [{"question": "...", "options": ["...", "..."]}]}\n'
+            'or {"suggestion": {"title": "...", "description": "..."}}'
+        )
+
+        qa = "\n".join(f"Q: {q}\nA: {a}" for q, a in answers) or "(none yet)"
+        instruction = (
+            "You MUST return a suggestion now; no more questions."
+            if must_suggest
+            else "Ask questions only if a wrong assumption would change the goal."
+        )
+        user_prompt = (
+            f"Repository context:\n{context_summary}\n\n"
+            f"User's task: {task or '(not specified; propose the most valuable goal)'}"
+            f"\n\nClarifications so far:\n{qa}\n\n{instruction}"
+        )
+
+        if self.config.model.startswith("cli/"):
+            raw = self._call_cli_for_tickets(
+                f"{system_prompt}\n\n{user_prompt}", repo_root
+            )
+        else:
+            raw = (
+                self._get_llm_for_api_fallback()
+                .call_completion(
+                    messages=[{"role": "user", "content": user_prompt}],
+                    max_tokens=1500,
+                    system_prompt=system_prompt,
+                    json_mode=True,
+                    timeout=60,
+                )
+                .content
+            )
+
+        data = self.llm.safe_parse_json(raw, default={})
+        questions = [
+            {
+                "question": str(q["question"]),
+                "options": [str(o) for o in q["options"]][:3],
+            }
+            for q in data.get("questions") or []
+            if isinstance(q, dict) and q.get("question") and q.get("options")
+        ][: self.MAX_SUGGEST_QUESTIONS]
+        if not must_suggest and questions:
+            return {"questions": questions}
+        suggestion = data.get("suggestion")
+        if isinstance(suggestion, dict) and suggestion.get("title"):
+            return {
+                "suggestion": {
+                    "title": str(suggestion["title"])[:255],
+                    "description": str(suggestion.get("description") or ""),
+                }
+            }
+        raise ValueError(f"Could not parse goal suggestion: {raw[:300]}")
 
     # =========================================================================
     # HELPERS

@@ -72,12 +72,22 @@ interface ReasoningLine {
   type: "thinking" | "tool" | "info";
 }
 
+interface ReviewInfo {
+  source: string;
+  title: string;
+  accepted?: boolean;
+  result?: string | null;
+  confidence?: string | null;
+  reasoning?: string | null;
+}
+
 interface StreamEvent {
   type:
     | "status"
     | "phase"
     | "agent_output"
     | "agent_normalized"
+    | "review"
     | "ticket"
     | "complete"
     | "error";
@@ -85,6 +95,13 @@ interface StreamEvent {
   entry?: NormalizedEntry;
   ticket?: TicketInfo;
   count?: number;
+  // review fields
+  source?: string;
+  title?: string;
+  accepted?: boolean;
+  result?: string | null;
+  confidence?: string | null;
+  reasoning?: string | null;
   // phase fields
   id?: string;
   label?: string;
@@ -136,17 +153,13 @@ function extractToolSummary(entry: NormalizedEntry): string | null {
     case "edit_file":
       return filename ? `Editing \`${filename}\`` : "Editing file";
     case "list_dir":
-      return filename
-        ? `Exploring \`${filename}\``
-        : "Exploring directory";
+      return filename ? `Exploring \`${filename}\`` : "Exploring directory";
     case "search":
       return `Searching codebase`;
     case "shell":
       return `Running command`;
     default:
-      return entry.tool_name
-        ? `Using ${entry.tool_name}`
-        : "Working...";
+      return entry.tool_name ? `Using ${entry.tool_name}` : "Working...";
   }
 }
 
@@ -432,6 +445,76 @@ function TicketSummaryCard({ ticket }: { ticket: TicketInfo }) {
 
 // ── Phase Indicator ──
 
+function ReviewCard({ review }: { review: ReviewInfo }) {
+  const [expanded, setExpanded] = useState(false);
+  const isValidator = review.source === "validator";
+  const dropped = isValidator && review.accepted === false;
+  const Icon = dropped ? XCircle : isValidator ? CheckCircle : Search;
+  const iconColor = dropped
+    ? "text-amber-500"
+    : isValidator
+      ? "text-green-500"
+      : "text-blue-500";
+  const reasoning = review.reasoning?.trim() || "";
+  const long = reasoning.length > 160;
+
+  return (
+    <div className="px-1 animate-in fade-in slide-in-from-bottom-1 duration-300">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-start gap-2 w-full text-left"
+      >
+        <Icon className={cn("h-3.5 w-3.5 mt-0.5 flex-shrink-0", iconColor)} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-gray-400 font-medium flex-shrink-0">
+              {review.source.replace(/_/g, " ")}
+            </span>
+            <p className="text-xs text-gray-700 font-medium truncate">
+              {review.title}
+            </p>
+            {dropped && (
+              <span className="text-[10px] text-amber-600 flex-shrink-0">
+                dropped
+              </span>
+            )}
+          </div>
+          {reasoning && (
+            <p
+              className={cn(
+                "text-[11px] text-gray-500 whitespace-pre-wrap break-words",
+                !expanded && "line-clamp-2"
+              )}
+            >
+              {reasoning}
+            </p>
+          )}
+        </div>
+        {long &&
+          (expanded ? (
+            <ChevronDown className="h-3 w-3 mt-0.5 text-gray-400 flex-shrink-0" />
+          ) : (
+            <ChevronRight className="h-3 w-3 mt-0.5 text-gray-400 flex-shrink-0" />
+          ))}
+      </button>
+    </div>
+  );
+}
+
+function ReviewsFeed({ reviews }: { reviews: ReviewInfo[] }) {
+  if (reviews.length === 0) return null;
+  return (
+    <div className="space-y-1.5 pt-1">
+      <p className="px-1 text-[10px] uppercase tracking-wide text-gray-400 font-medium">
+        Reviews
+      </p>
+      {reviews.map((r, i) => (
+        <ReviewCard key={i} review={r} />
+      ))}
+    </div>
+  );
+}
+
 function PhaseIndicator({ phase }: { phase: PhaseInfo | null }) {
   if (!phase) return null;
 
@@ -470,16 +553,12 @@ function PhaseIndicator({ phase }: { phase: PhaseInfo | null }) {
               </span>
             </div>
             {phase.detail && (
-              <p className="text-[11px] text-gray-500 mt-1">
-                {phase.detail}
-              </p>
+              <p className="text-[11px] text-gray-500 mt-1">{phase.detail}</p>
             )}
           </div>
         )}
         {phase.detail && !hasProgress && !isDone && (
-          <p className="text-[11px] text-gray-500 mt-0.5">
-            {phase.detail}
-          </p>
+          <p className="text-[11px] text-gray-500 mt-0.5">{phase.detail}</p>
         )}
       </div>
     </div>
@@ -500,10 +579,7 @@ function ReasoningFeed({ lines }: { lines: ReasoningLine[] }) {
   if (lines.length === 0) return null;
 
   return (
-    <div
-      ref={feedRef}
-      className="space-y-1 max-h-[200px] overflow-y-auto"
-    >
+    <div ref={feedRef} className="space-y-1 max-h-[200px] overflow-y-auto">
       {lines.map((line) => (
         <div
           key={line.id}
@@ -550,6 +626,7 @@ export function TicketGenerationProgress({
   const [currentPhase, setCurrentPhase] = useState<PhaseInfo | null>(null);
   const [reasoningLines, setReasoningLines] = useState<ReasoningLine[]>([]);
   const [tickets, setTickets] = useState<TicketInfo[]>([]);
+  const [reviews, setReviews] = useState<ReviewInfo[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -589,10 +666,7 @@ export function TicketGenerationProgress({
   // Add a reasoning line (keeps max N recent lines)
   const addReasoningLine = (text: string, type: ReasoningLine["type"]) => {
     setReasoningLines((prev) => {
-      const next = [
-        ...prev,
-        { id: ++reasoningIdCounter, text, type },
-      ];
+      const next = [...prev, { id: ++reasoningIdCounter, text, type }];
       return next.length > MAX_REASONING_LINES
         ? next.slice(-MAX_REASONING_LINES)
         : next;
@@ -608,6 +682,7 @@ export function TicketGenerationProgress({
     setCurrentPhase(null);
     setReasoningLines([]);
     setTickets([]);
+    setReviews([]);
     setIsComplete(false);
     setHasError(false);
     setErrorMessage(null);
@@ -666,6 +741,20 @@ export function TicketGenerationProgress({
           if (data.message) {
             setRawLines((prev) => [...prev, data.message!]);
           }
+          break;
+
+        case "review":
+          setReviews((prev) => [
+            ...prev,
+            {
+              source: data.source || "review",
+              title: data.title || "",
+              accepted: data.accepted,
+              result: data.result,
+              confidence: data.confidence,
+              reasoning: data.reasoning,
+            },
+          ]);
           break;
 
         case "ticket":
@@ -776,32 +865,21 @@ export function TicketGenerationProgress({
           /* ── Summary / Approval View ── */
           <div className="flex-1 min-h-0 max-h-[500px] overflow-y-auto py-2">
             {(() => {
-              const highCount = tickets.filter(
-                (t) => t.priority <= 1
-              ).length;
-              const depCount = tickets.filter(
-                (t) => t.blocked_by_title
-              ).length;
+              const highCount = tickets.filter((t) => t.priority <= 1).length;
+              const depCount = tickets.filter((t) => t.blocked_by_title).length;
               const stats: string[] = [];
-              if (highCount > 0)
-                stats.push(`${highCount} high priority`);
-              if (depCount > 0)
-                stats.push(`${depCount} with dependencies`);
+              if (highCount > 0) stats.push(`${highCount} high priority`);
+              if (depCount > 0) stats.push(`${depCount} with dependencies`);
               if (stats.length === 0) return null;
               return (
                 <div className="mb-3 px-1">
-                  <p className="text-xs text-gray-500">
-                    {stats.join(" · ")}
-                  </p>
+                  <p className="text-xs text-gray-500">{stats.join(" · ")}</p>
                 </div>
               );
             })()}
             <div className="space-y-2 px-1">
               {tickets.map((ticket) => (
-                <TicketSummaryCard
-                  key={ticket.id}
-                  ticket={ticket}
-                />
+                <TicketSummaryCard key={ticket.id} ticket={ticket} />
               ))}
             </div>
           </div>
@@ -816,6 +894,9 @@ export function TicketGenerationProgress({
 
             {/* AI reasoning feed */}
             <ReasoningFeed lines={reasoningLines} />
+
+            {/* Research findings + per-ticket validation verdicts */}
+            <ReviewsFeed reviews={reviews} />
 
             {/* Created tickets (shown inline during generation) */}
             {tickets.length > 0 && (
@@ -867,9 +948,7 @@ export function TicketGenerationProgress({
               !hasError && (
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
                   <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
-                  <span className="text-sm text-gray-500">
-                    Starting...
-                  </span>
+                  <span className="text-sm text-gray-500">Starting...</span>
                 </div>
               )}
 
@@ -881,9 +960,7 @@ export function TicketGenerationProgress({
                   className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   <Eye className="h-3 w-3" />
-                  {showRawDetails
-                    ? "Hide raw output"
-                    : "Show raw output"}
+                  {showRawDetails ? "Hide raw output" : "Show raw output"}
                   {showRawDetails ? (
                     <ChevronDown className="h-3 w-3" />
                   ) : (
