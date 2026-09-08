@@ -6,9 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.database import get_db
 from app.models.board import Board
@@ -337,6 +337,40 @@ async def planner_tick(
         )
 
 
+async def count_planned_tickets(db: AsyncSession) -> tuple[int, int]:
+    """Split PLANNED tickets into (runnable, waiting on an incomplete blocker).
+
+    The autopilot deliberately skips tickets whose blocker is not DONE, so
+    counting those as pending work makes its loop wait forever for work it will
+    never start. That happens on every ticket split, where some sub-tickets
+    depend on a sibling.
+    """
+    from app.models.ticket import Ticket
+    from app.state_machine import TicketState
+
+    blocker = aliased(Ticket)
+    runnable = await db.execute(
+        select(func.count(Ticket.id))
+        .outerjoin(blocker, Ticket.blocked_by_ticket_id == blocker.id)
+        .where(
+            Ticket.state == TicketState.PLANNED.value,
+            or_(
+                Ticket.blocked_by_ticket_id.is_(None),
+                blocker.state == TicketState.DONE.value,
+            ),
+        )
+    )
+    waiting = await db.execute(
+        select(func.count(Ticket.id))
+        .join(blocker, Ticket.blocked_by_ticket_id == blocker.id)
+        .where(
+            Ticket.state == TicketState.PLANNED.value,
+            blocker.state != TicketState.DONE.value,
+        )
+    )
+    return runnable.scalar() or 0, waiting.scalar() or 0
+
+
 @router.post(
     "/start",
     response_model=PlannerStartResponse,
@@ -439,13 +473,7 @@ async def planner_start(
             )
             active_count = active_result.scalar() or 0
 
-            # Count planned tickets (still waiting)
-            planned_result = await poll_db.execute(
-                select(func.count(Ticket.id)).where(
-                    Ticket.state == TicketState.PLANNED.value
-                )
-            )
-            planned_count = planned_result.scalar() or 0
+            planned_count, waiting_on_deps = await count_planned_tickets(poll_db)
 
             # Count queued/running jobs
             jobs_result = await poll_db.execute(
@@ -491,9 +519,15 @@ async def planner_start(
                 except PlannerLockError:
                     pass  # Ignore lock errors on final tick
 
+            message = f"All {tickets_queued} ticket(s) processed"
+            if waiting_on_deps:
+                message += (
+                    f"; {waiting_on_deps} ticket(s) still waiting on an "
+                    f"incomplete dependency"
+                )
             return PlannerStartResponse(
                 status="completed",
-                message=f"All {tickets_queued} ticket(s) processed",
+                message=message,
                 tickets_queued=tickets_queued,
                 tickets_completed=tickets_completed,
                 tickets_failed=tickets_failed,
