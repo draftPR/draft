@@ -499,3 +499,47 @@ class PlannerStartResponse(BaseModel):
         default_factory=list,
         description="All actions taken during the autopilot run",
     )
+
+
+# =============================================================================
+# Goal Suggestion (interactive Q&A before creating a goal)
+# =============================================================================
+
+
+class GoalSuggestAnswer(BaseModel):
+    """One answered clarifying question."""
+
+    question: str
+    answer: str
+
+
+class GoalSuggestRequest(BaseModel):
+    """Request for one round of AI goal suggestion (stateless; resend answers)."""
+
+    board_id: str
+    task: str | None = Field(None, max_length=2000, description="What the user wants")
+    answers: list[GoalSuggestAnswer] = Field(default_factory=list)
+    force_suggest: bool = Field(
+        False, description="Skip further questions and produce a suggestion now"
+    )
+
+
+class GoalSuggestQuestion(BaseModel):
+    """A choice question. The UI appends a free-text option as the last choice."""
+
+    question: str
+    options: list[str] = Field(..., min_length=1, max_length=3)
+
+
+class GoalSuggestion(BaseModel):
+    """Suggested goal ready to be created."""
+
+    title: str
+    description: str
+
+
+class GoalSuggestResponse(BaseModel):
+    """Either more questions or a final suggestion (never both empty)."""
+
+    questions: list[GoalSuggestQuestion] = Field(default_factory=list)
+    suggestion: GoalSuggestion | None = None

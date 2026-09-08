@@ -15,8 +15,15 @@ import { Switch } from "@/components/ui/switch";
 import { createGoal } from "@/services/api";
 import { useBoard } from "@/contexts/BoardContext";
 import { toast } from "sonner";
-import { Loader2, ChevronDown, ChevronRight, Zap } from "lucide-react";
+import {
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  Sparkles,
+  Zap,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { GoalSuggestPanel } from "@/components/GoalSuggestPanel";
 
 interface CreateGoalDialogProps {
   open: boolean;
@@ -35,6 +42,7 @@ export function CreateGoalDialog({
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showAutonomy, setShowAutonomy] = useState(false);
+  const [showSuggest, setShowSuggest] = useState(false);
 
   // Autonomy settings
   const [autonomyEnabled, setAutonomyEnabled] = useState(false);
@@ -78,16 +86,21 @@ export function CreateGoalDialog({
         auto_approve_revisions: autoApproveRevisions,
         auto_merge: autoMerge,
         auto_approve_followups: autoApproveFollowups,
-        max_auto_approvals: maxAutoApprovals ? parseInt(maxAutoApprovals, 10) : null,
+        max_auto_approvals: maxAutoApprovals
+          ? parseInt(maxAutoApprovals, 10)
+          : null,
       });
       toast.success(
-        autonomyEnabled ? "Goal created with full autonomy" : "Goal created successfully"
+        autonomyEnabled
+          ? "Goal created with full autonomy"
+          : "Goal created successfully"
       );
       resetForm();
       onOpenChange(false);
       onSuccess?.(goal.id);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create goal";
+      const message =
+        err instanceof Error ? err.message : "Failed to create goal";
       toast.error(message);
     } finally {
       setLoading(false);
@@ -99,6 +112,7 @@ export function CreateGoalDialog({
     setDescription("");
     setErrors({});
     setShowAutonomy(false);
+    setShowSuggest(false);
     setAutonomyEnabled(false);
     setAutoApproveTickets(false);
     setAutoApproveRevisions(false);
@@ -126,161 +140,217 @@ export function CreateGoalDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="goal-title">Title</Label>
-              <Input
-                id="goal-title"
-                placeholder="Enter goal title..."
-                value={title}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setTitle(e.target.value); setErrors((prev) => { const next = { ...prev }; delete next.title; return next; }); }}
-                disabled={loading}
-                autoFocus
-                className={cn(errors.title && "border-destructive")}
-              />
-              {errors.title && <p className="text-xs text-destructive mt-1">{errors.title}</p>}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="goal-description">Description</Label>
-              <Textarea
-                id="goal-description"
-                placeholder="Describe the goal... (optional)"
-                value={description}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
-                disabled={loading}
-                rows={3}
-                className="max-h-40 overflow-y-auto resize-none"
+          {showSuggest && currentBoard ? (
+            <div className="py-4">
+              <GoalSuggestPanel
+                boardId={currentBoard.id}
+                onCancel={() => setShowSuggest(false)}
+                onApply={(s) => {
+                  setTitle(s.title);
+                  setDescription(s.description);
+                  setErrors({});
+                  setShowSuggest(false);
+                }}
               />
             </div>
-
-            {/* Autonomy Section */}
-            <div className="border rounded-lg">
-              <button
-                type="button"
-                className="flex items-center justify-between w-full p-3 text-sm font-medium text-left hover:bg-muted/50 rounded-lg"
-                onClick={() => setShowAutonomy(!showAutonomy)}
-              >
-                <span className="flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-amber-500" />
-                  Full Autonomy Mode
-                </span>
-                {showAutonomy ? (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                )}
-              </button>
-
-              {showAutonomy && (
-                <div className="px-3 pb-3 space-y-3">
-                  <p className="text-xs text-muted-foreground">
-                    Enable autonomous execution. The system will decompose, execute, verify,
-                    approve, and merge changes automatically with safety rails.
-                  </p>
-
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="autonomy-master" className="text-sm font-medium">
-                      Enable Autonomy
-                    </Label>
-                    <Switch
-                      id="autonomy-master"
-                      checked={autonomyEnabled}
-                      onCheckedChange={handleMasterToggle}
-                      disabled={loading}
-                    />
-                  </div>
-
-                  {autonomyEnabled && (
-                    <div className="space-y-2.5 pl-3 border-l-2 border-amber-500/30">
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="auto-tickets" className="text-xs">
-                          Auto-approve tickets
-                        </Label>
-                        <Switch
-                          id="auto-tickets"
-                          checked={autoApproveTickets}
-                          onCheckedChange={setAutoApproveTickets}
-                          disabled={loading}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="auto-revisions" className="text-xs">
-                          Auto-approve revisions
-                        </Label>
-                        <Switch
-                          id="auto-revisions"
-                          checked={autoApproveRevisions}
-                          onCheckedChange={setAutoApproveRevisions}
-                          disabled={loading}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="auto-merge" className="text-xs">
-                          Auto-merge on completion
-                        </Label>
-                        <Switch
-                          id="auto-merge"
-                          checked={autoMerge}
-                          onCheckedChange={setAutoMerge}
-                          disabled={loading}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="auto-followups" className="text-xs">
-                          Auto-approve follow-ups
-                        </Label>
-                        <Switch
-                          id="auto-followups"
-                          checked={autoApproveFollowups}
-                          onCheckedChange={setAutoApproveFollowups}
-                          disabled={loading}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <Label htmlFor="max-approvals" className="text-xs whitespace-nowrap">
-                          Max auto-approvals
-                        </Label>
-                        <Input
-                          id="max-approvals"
-                          type="number"
-                          min="1"
-                          placeholder="Unlimited"
-                          value={maxAutoApprovals}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                            setMaxAutoApprovals(e.target.value)
-                          }
-                          disabled={loading}
-                          className="w-24 h-7 text-xs"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {autonomyEnabled && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 p-2 rounded">
-                      Safety rails: Diffs over 500 lines, sensitive files (.env, .pem, secrets),
-                      and failed verification will still require human review.
-                    </p>
-                  )}
+          ) : (
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="goal-title">Title</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs text-primary hover:text-primary/80"
+                    onClick={() => setShowSuggest(true)}
+                    disabled={loading || !currentBoard}
+                    title={
+                      currentBoard
+                        ? "Scan the repo and let AI propose a goal"
+                        : "Select a board first"
+                    }
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Suggest with AI
+                  </Button>
                 </div>
-              )}
-            </div>
-          </div>
+                <Input
+                  id="goal-title"
+                  placeholder="Enter goal title..."
+                  value={title}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    setTitle(e.target.value);
+                    setErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.title;
+                      return next;
+                    });
+                  }}
+                  disabled={loading}
+                  autoFocus
+                  className={cn(errors.title && "border-destructive")}
+                />
+                {errors.title && (
+                  <p className="text-xs text-destructive mt-1">
+                    {errors.title}
+                  </p>
+                )}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="goal-description">Description</Label>
+                <Textarea
+                  id="goal-description"
+                  placeholder="Describe the goal... (optional)"
+                  value={description}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                    setDescription(e.target.value)
+                  }
+                  disabled={loading}
+                  rows={3}
+                  className="max-h-40 overflow-y-auto resize-none"
+                />
+              </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleOpenChange(false)}
-              disabled={loading}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create Goal
-            </Button>
-          </DialogFooter>
+              {/* Autonomy Section */}
+              <div className="border rounded-lg">
+                <button
+                  type="button"
+                  className="flex items-center justify-between w-full p-3 text-sm font-medium text-left hover:bg-muted/50 rounded-lg"
+                  onClick={() => setShowAutonomy(!showAutonomy)}
+                >
+                  <span className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-amber-500" />
+                    Full Autonomy Mode
+                  </span>
+                  {showAutonomy ? (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </button>
+
+                {showAutonomy && (
+                  <div className="px-3 pb-3 space-y-3">
+                    <p className="text-xs text-muted-foreground">
+                      Enable autonomous execution. The system will decompose,
+                      execute, verify, approve, and merge changes automatically
+                      with safety rails.
+                    </p>
+
+                    <div className="flex items-center justify-between">
+                      <Label
+                        htmlFor="autonomy-master"
+                        className="text-sm font-medium"
+                      >
+                        Enable Autonomy
+                      </Label>
+                      <Switch
+                        id="autonomy-master"
+                        checked={autonomyEnabled}
+                        onCheckedChange={handleMasterToggle}
+                        disabled={loading}
+                      />
+                    </div>
+
+                    {autonomyEnabled && (
+                      <div className="space-y-2.5 pl-3 border-l-2 border-amber-500/30">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="auto-tickets" className="text-xs">
+                            Auto-approve tickets
+                          </Label>
+                          <Switch
+                            id="auto-tickets"
+                            checked={autoApproveTickets}
+                            onCheckedChange={setAutoApproveTickets}
+                            disabled={loading}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="auto-revisions" className="text-xs">
+                            Auto-approve revisions
+                          </Label>
+                          <Switch
+                            id="auto-revisions"
+                            checked={autoApproveRevisions}
+                            onCheckedChange={setAutoApproveRevisions}
+                            disabled={loading}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="auto-merge" className="text-xs">
+                            Auto-merge on completion
+                          </Label>
+                          <Switch
+                            id="auto-merge"
+                            checked={autoMerge}
+                            onCheckedChange={setAutoMerge}
+                            disabled={loading}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="auto-followups" className="text-xs">
+                            Auto-approve follow-ups
+                          </Label>
+                          <Switch
+                            id="auto-followups"
+                            checked={autoApproveFollowups}
+                            onCheckedChange={setAutoApproveFollowups}
+                            disabled={loading}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <Label
+                            htmlFor="max-approvals"
+                            className="text-xs whitespace-nowrap"
+                          >
+                            Max auto-approvals
+                          </Label>
+                          <Input
+                            id="max-approvals"
+                            type="number"
+                            min="1"
+                            placeholder="Unlimited"
+                            value={maxAutoApprovals}
+                            onChange={(
+                              e: React.ChangeEvent<HTMLInputElement>
+                            ) => setMaxAutoApprovals(e.target.value)}
+                            disabled={loading}
+                            className="w-24 h-7 text-xs"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {autonomyEnabled && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 p-2 rounded">
+                        Safety rails: Diffs over 500 lines, sensitive files
+                        (.env, .pem, secrets), and failed verification will
+                        still require human review.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!showSuggest && (
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenChange(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Create Goal
+              </Button>
+            </DialogFooter>
+          )}
         </form>
       </DialogContent>
     </Dialog>

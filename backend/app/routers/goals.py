@@ -19,6 +19,8 @@ from app.schemas.goal import (
 from app.schemas.planner import (
     GenerateTicketsRequest,
     GenerateTicketsResponse,
+    GoalSuggestRequest,
+    GoalSuggestResponse,
     ReflectionResult,
 )
 from app.services.goal_service import GoalService
@@ -43,6 +45,59 @@ async def create_goal(
     service = GoalService(db)
     goal = await service.create_goal(data)
     return GoalResponse.model_validate(goal)
+
+
+@router.post(
+    "/suggest",
+    response_model=GoalSuggestResponse,
+    summary="Scan the board repo, ask clarifying questions, suggest a goal",
+)
+async def suggest_goal(
+    data: GoalSuggestRequest,
+    db: AsyncSession = Depends(get_db),
+) -> GoalSuggestResponse:
+    """One round of the goal suggestion flow.
+
+    Stateless: resend all previous answers each call. Returns either up to 3
+    choice questions (the UI adds a free-text option) or a final suggestion.
+    """
+    import asyncio
+
+    from sqlalchemy import select as sa_select
+
+    from app.models.board import Board
+    from app.services.config_service import DraftConfig
+
+    board = (
+        await db.execute(sa_select(Board).where(Board.id == data.board_id))
+    ).scalar_one_or_none()
+    if not board:
+        raise HTTPException(status_code=404, detail=f"Board not found: {data.board_id}")
+    repo_root = Path(board.repo_root).resolve()
+    if not repo_root.exists():
+        raise HTTPException(
+            status_code=500, detail=f"Board repo_root does not exist: {repo_root}"
+        )
+
+    config = DraftConfig.from_board_config(board.config)
+    service = TicketGenerationService(db, config=config.planner_config)
+    try:
+        result = await asyncio.to_thread(
+            service.suggest_goal,
+            repo_root,
+            data.task,
+            [(a.question, a.answer) for a in data.answers],
+            data.force_suggest,
+        )
+    except ValueError as e:
+        msg = str(e)
+        status_code = (
+            503
+            if any(k in msg for k in ("API key", "credentials", "unavailable"))
+            else 502
+        )
+        raise HTTPException(status_code=status_code, detail=msg)
+    return GoalSuggestResponse(**result)
 
 
 @router.get(

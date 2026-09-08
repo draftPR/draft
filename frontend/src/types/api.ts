@@ -153,9 +153,7 @@ export type TicketCreate = Pick<
   components["schemas"]["TicketCreate"],
   "goal_id" | "title"
 > &
-  Partial<
-    Omit<components["schemas"]["TicketCreate"], "goal_id" | "title">
-  >;
+  Partial<Omit<components["schemas"]["TicketCreate"], "goal_id" | "title">>;
 export type TicketTransition = components["schemas"]["TicketTransition"];
 
 /** Partial update payload for editing a ticket's title/description. */
@@ -239,6 +237,30 @@ export interface GenerateTicketsResponse {
   goal_id: string;
 }
 
+// --- Goal suggestion (interactive Q&A) ---
+export interface GoalSuggestAnswer {
+  question: string;
+  answer: string;
+}
+export interface GoalSuggestRequest {
+  board_id: string;
+  task?: string | null;
+  answers?: GoalSuggestAnswer[];
+  force_suggest?: boolean;
+}
+export interface GoalSuggestQuestion {
+  question: string;
+  options: string[];
+}
+export interface GoalSuggestion {
+  title: string;
+  description: string;
+}
+export interface GoalSuggestResponse {
+  questions: GoalSuggestQuestion[];
+  suggestion: GoalSuggestion | null;
+}
+
 // --- Reflection types ---
 export type SuggestedPriorityChange =
   components["schemas"]["SuggestedPriorityChange"];
@@ -287,10 +309,8 @@ export interface BulkAcceptResponse {
 
 // --- Planner tick types ---
 export type PlannerAction = components["schemas"]["PlannerAction"];
-export type PlannerTickResponse =
-  components["schemas"]["PlannerTickResponse"];
-export type PlannerStartRequest =
-  components["schemas"]["PlannerStartRequest"];
+export type PlannerTickResponse = components["schemas"]["PlannerTickResponse"];
+export type PlannerStartRequest = components["schemas"]["PlannerStartRequest"];
 export type PlannerStartResponse =
   components["schemas"]["PlannerStartResponse"];
 export type PlannerFeaturesStatus =
@@ -337,8 +357,7 @@ export type FeedbackComment = components["schemas"]["FeedbackComment"];
 // --- Merge types ---
 export type MergeRequest = components["schemas"]["MergeRequest"];
 export type MergeResponse = components["schemas"]["MergeResponse"];
-export type MergeStatusResponse =
-  components["schemas"]["MergeStatusResponse"];
+export type MergeStatusResponse = components["schemas"]["MergeStatusResponse"];
 
 export interface WorkspaceInfo {
   worktree_path: string;
@@ -379,7 +398,12 @@ export interface QueuedMessageStatus {
 }
 
 // --- Conflict resolution types ---
-export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert" | "unknown";
+export type ConflictOp =
+  | "rebase"
+  | "merge"
+  | "cherry_pick"
+  | "revert"
+  | "unknown";
 
 export interface ConflictStatusResponse {
   has_conflict: boolean;

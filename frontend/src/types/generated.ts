@@ -184,6 +184,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/goals/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan the board repo, ask clarifying questions, suggest a goal
+         * @description One round of the goal suggestion flow.
+         *
+         *     Stateless: resend all previous answers each call. Returns either up to 3
+         *     choice questions (the UI adds a free-text option) or a final suggestion.
+         */
+        post: operations["suggest_goal_goals_suggest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/goals/{goal_id}": {
         parameters: {
             query?: never;
@@ -4086,6 +4109,11 @@ export interface components {
             /** Default Branch */
             default_branch?: string | null;
             /**
+             * Repo Root
+             * @description Absolute path to an existing git repository (validated)
+             */
+            repo_root?: string | null;
+            /**
              * Config
              * @description Board-level configuration overrides
              */
@@ -4976,6 +5004,66 @@ export interface components {
              * @default 0
              */
             auto_approval_count: number;
+        };
+        /**
+         * GoalSuggestAnswer
+         * @description One answered clarifying question.
+         */
+        GoalSuggestAnswer: {
+            /** Question */
+            question: string;
+            /** Answer */
+            answer: string;
+        };
+        /**
+         * GoalSuggestQuestion
+         * @description A choice question. The UI appends a free-text option as the last choice.
+         */
+        GoalSuggestQuestion: {
+            /** Question */
+            question: string;
+            /** Options */
+            options: string[];
+        };
+        /**
+         * GoalSuggestRequest
+         * @description Request for one round of AI goal suggestion (stateless; resend answers).
+         */
+        GoalSuggestRequest: {
+            /** Board Id */
+            board_id: string;
+            /**
+             * Task
+             * @description What the user wants
+             */
+            task?: string | null;
+            /** Answers */
+            answers?: components["schemas"]["GoalSuggestAnswer"][];
+            /**
+             * Force Suggest
+             * @description Skip further questions and produce a suggestion now
+             * @default false
+             */
+            force_suggest: boolean;
+        };
+        /**
+         * GoalSuggestResponse
+         * @description Either more questions or a final suggestion (never both empty).
+         */
+        GoalSuggestResponse: {
+            /** Questions */
+            questions?: components["schemas"]["GoalSuggestQuestion"][];
+            suggestion?: components["schemas"]["GoalSuggestion"] | null;
+        };
+        /**
+         * GoalSuggestion
+         * @description Suggested goal ready to be created.
+         */
+        GoalSuggestion: {
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
         };
         /**
          * GoalUpdate
@@ -7294,6 +7382,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GoalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_goal_goals_suggest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoalSuggestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalSuggestResponse"];
                 };
             };
             /** @description Validation Error */

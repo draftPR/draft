@@ -27,6 +27,8 @@ import type {
   Goal,
   GoalCreate,
   GoalListResponse,
+  GoalSuggestRequest,
+  GoalSuggestResponse,
   GoalUpdate,
   Job,
   JobListResponse,
@@ -98,11 +100,18 @@ export interface ExecutorModel {
   description: string;
 }
 
-export async function getBoardConfig(boardId: string): Promise<{ has_overrides: boolean; config: any }> {
-  return apiFetch<{ has_overrides: boolean; config: any }>(`/boards/${boardId}/config`);
+export async function getBoardConfig(
+  boardId: string
+): Promise<{ has_overrides: boolean; config: any }> {
+  return apiFetch<{ has_overrides: boolean; config: any }>(
+    `/boards/${boardId}/config`
+  );
 }
 
-export async function updateBoardConfig(boardId: string, config: Record<string, any>): Promise<void> {
+export async function updateBoardConfig(
+  boardId: string,
+  config: Record<string, any>
+): Promise<void> {
   return apiFetch<void>(`/boards/${boardId}/config`, {
     method: "PUT",
     body: JSON.stringify(config),
@@ -115,7 +124,9 @@ export async function clearBoardConfig(boardId: string): Promise<void> {
   });
 }
 
-export async function getExecutorModels(executor: string): Promise<ExecutorModel[]> {
+export async function getExecutorModels(
+  executor: string
+): Promise<ExecutorModel[]> {
   return apiFetch<ExecutorModel[]>(`/executors/${executor}/models`);
 }
 
@@ -128,14 +139,16 @@ export interface ExecutorProfile {
   env: Record<string, string>;
 }
 
-export async function fetchExecutorProfiles(boardId?: string): Promise<ExecutorProfile[]> {
+export async function fetchExecutorProfiles(
+  boardId?: string
+): Promise<ExecutorProfile[]> {
   const params = boardId ? `?board_id=${boardId}` : "";
   return apiFetch<ExecutorProfile[]>(`/executors/profiles${params}`);
 }
 
 export async function saveExecutorProfiles(
   profiles: ExecutorProfile[],
-  boardId?: string,
+  boardId?: string
 ): Promise<ExecutorProfile[]> {
   const params = boardId ? `?board_id=${boardId}` : "";
   return apiFetch<ExecutorProfile[]>(`/executors/profiles${params}`, {
@@ -150,7 +163,9 @@ export async function deleteBoard(boardId: string): Promise<void> {
   });
 }
 
-export async function deleteAllTickets(boardId: string): Promise<{ message: string }> {
+export async function deleteAllTickets(
+  boardId: string
+): Promise<{ message: string }> {
   return apiFetch<{ message: string }>(`/boards/${boardId}/tickets`, {
     method: "DELETE",
   });
@@ -158,12 +173,21 @@ export async function deleteAllTickets(boardId: string): Promise<{ message: stri
 
 // ==================== Global Settings API ====================
 
-export async function getGlobalSettings(boardId?: string): Promise<{ board_id: string; config_path: string; execute_config: any }> {
+export async function getGlobalSettings(
+  boardId?: string
+): Promise<{ board_id: string; config_path: string; execute_config: any }> {
   const params = boardId ? `?board_id=${boardId}` : "";
-  return apiFetch<{ board_id: string; config_path: string; execute_config: any }>(`/settings${params}`);
+  return apiFetch<{
+    board_id: string;
+    config_path: string;
+    execute_config: any;
+  }>(`/settings${params}`);
 }
 
-export async function updateGlobalSettings(settings: Record<string, any>, boardId?: string): Promise<void> {
+export async function updateGlobalSettings(
+  settings: Record<string, any>,
+  boardId?: string
+): Promise<void> {
   const params = boardId ? `?board_id=${boardId}` : "";
   return apiFetch<void>(`/settings${params}`, {
     method: "PUT",
@@ -173,12 +197,17 @@ export async function updateGlobalSettings(settings: Record<string, any>, boardI
 
 // ==================== Planner Config API ====================
 
-export async function fetchPlannerConfig(boardId?: string): Promise<PlannerConfigResponse> {
+export async function fetchPlannerConfig(
+  boardId?: string
+): Promise<PlannerConfigResponse> {
   const params = boardId ? `?board_id=${boardId}` : "";
   return apiFetch<PlannerConfigResponse>(`/settings/planner${params}`);
 }
 
-export async function updatePlannerConfig(data: PlannerConfigUpdate, boardId?: string): Promise<PlannerConfigResponse> {
+export async function updatePlannerConfig(
+  data: PlannerConfigUpdate,
+  boardId?: string
+): Promise<PlannerConfigResponse> {
   const params = boardId ? `?board_id=${boardId}` : "";
   return apiFetch<PlannerConfigResponse>(`/settings/planner${params}`, {
     method: "PUT",
@@ -186,7 +215,9 @@ export async function updatePlannerConfig(data: PlannerConfigUpdate, boardId?: s
   });
 }
 
-export async function checkPlannerHealth(boardId?: string): Promise<PlannerHealthResponse> {
+export async function checkPlannerHealth(
+  boardId?: string
+): Promise<PlannerHealthResponse> {
   const params = boardId ? `?board_id=${boardId}` : "";
   return apiFetch<PlannerHealthResponse>(`/settings/planner/check${params}`);
 }
@@ -199,7 +230,9 @@ export interface AgentTestResponse {
   duration_ms: number;
 }
 
-export async function testExecutor(boardId?: string): Promise<AgentTestResponse> {
+export async function testExecutor(
+  boardId?: string
+): Promise<AgentTestResponse> {
   const params = boardId ? `?board_id=${boardId}` : "";
   return apiFetch<AgentTestResponse>(`/executors/test${params}`, {
     method: "POST",
@@ -238,7 +271,10 @@ async function apiFetch<T>(
 
   if (!response.ok) {
     const errorData = await response.json().catch((parseErr) => {
-      console.error(`Failed to parse error response JSON from ${endpoint}:`, parseErr);
+      console.error(
+        `Failed to parse error response JSON from ${endpoint}:`,
+        parseErr
+      );
       return {};
     });
     const message = errorData.detail || `HTTP error ${response.status}`;
@@ -294,7 +330,9 @@ export async function createBoard(board: BoardCreate): Promise<Board> {
 /**
  * Discover git repositories in specified paths
  */
-export async function discoverRepos(request: DiscoverReposRequest): Promise<DiscoverReposResponse> {
+export async function discoverRepos(
+  request: DiscoverReposRequest
+): Promise<DiscoverReposResponse> {
   return apiFetch<DiscoverReposResponse>("/repos/discover", {
     method: "POST",
     body: JSON.stringify(request),
@@ -330,6 +368,18 @@ export async function createGoal(data: GoalCreate): Promise<Goal> {
 }
 
 /**
+ * One round of the AI goal suggestion flow (stateless; resend all answers)
+ */
+export async function suggestGoal(
+  data: GoalSuggestRequest
+): Promise<GoalSuggestResponse> {
+  return apiFetch<GoalSuggestResponse>("/goals/suggest", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
  * Fetch all goals
  */
 export async function fetchGoals(boardId?: string): Promise<GoalListResponse> {
@@ -340,7 +390,10 @@ export async function fetchGoals(boardId?: string): Promise<GoalListResponse> {
 /**
  * Update a goal (supports partial updates including autonomy settings)
  */
-export async function updateGoal(goalId: string, data: GoalUpdate): Promise<Goal> {
+export async function updateGoal(
+  goalId: string,
+  data: GoalUpdate
+): Promise<Goal> {
   return apiFetch<Goal>(`/goals/${goalId}`, {
     method: "PATCH",
     body: JSON.stringify(data),
@@ -401,13 +454,16 @@ export async function fetchTicket(ticketId: string): Promise<Ticket> {
 
 /**
  * Execute a single ticket immediately
- * 
+ *
  * This creates an execute job for the ticket and queues it for processing.
  * Valid for tickets in PLANNED, NEEDS_HUMAN, or DONE state.
- * 
+ *
  * @returns The created job
  */
-export async function executeTicket(ticketId: string, executorProfile?: string): Promise<Job> {
+export async function executeTicket(
+  ticketId: string,
+  executorProfile?: string
+): Promise<Job> {
   const url = executorProfile
     ? `/tickets/${ticketId}/execute?executor_profile=${encodeURIComponent(executorProfile)}`
     : `/tickets/${ticketId}/execute`;
@@ -479,10 +535,13 @@ export async function generateTicketsForGoal(
   goalId: string,
   workspacePath?: string
 ): Promise<GenerateTicketsResponse> {
-  return apiFetch<GenerateTicketsResponse>(`/goals/${goalId}/generate-tickets`, {
-    method: "POST",
-    body: JSON.stringify({ workspace_path: workspacePath || "." }),
-  });
+  return apiFetch<GenerateTicketsResponse>(
+    `/goals/${goalId}/generate-tickets`,
+    {
+      method: "POST",
+      body: JSON.stringify({ workspace_path: workspacePath || "." }),
+    }
+  );
 }
 
 /**
@@ -527,7 +586,7 @@ export async function bulkUpdatePriorities(
 
 /**
  * Run one planner decision cycle (Autopilot tick)
- * 
+ *
  * NOTE: For normal operation, use runPlannerStart() instead.
  * This is mainly for debugging/manual control.
  */
@@ -587,7 +646,9 @@ export async function fetchTicketRevisions(
 /**
  * Fetch a single revision with diff content
  */
-export async function fetchRevision(revisionId: string): Promise<RevisionDetail> {
+export async function fetchRevision(
+  revisionId: string
+): Promise<RevisionDetail> {
   return apiFetch<RevisionDetail>(`/revisions/${revisionId}`);
 }
 
@@ -632,7 +693,9 @@ export async function fetchRevisionComments(
 /**
  * Resolve a comment
  */
-export async function resolveComment(commentId: string): Promise<ReviewComment> {
+export async function resolveComment(
+  commentId: string
+): Promise<ReviewComment> {
   return apiFetch<ReviewComment>(`/comments/${commentId}/resolve`, {
     method: "POST",
   });
@@ -641,7 +704,9 @@ export async function resolveComment(commentId: string): Promise<ReviewComment> 
 /**
  * Unresolve a comment
  */
-export async function unresolveComment(commentId: string): Promise<ReviewComment> {
+export async function unresolveComment(
+  commentId: string
+): Promise<ReviewComment> {
   return apiFetch<ReviewComment>(`/comments/${commentId}/unresolve`, {
     method: "POST",
   });
@@ -718,10 +783,15 @@ export async function retryJob(jobId: string): Promise<Job> {
 /**
  * Cancel a job
  */
-export async function cancelJob(jobId: string): Promise<{ id: string; status: string; message: string }> {
-  return apiFetch<{ id: string; status: string; message: string }>(`/jobs/${jobId}/cancel`, {
-    method: "POST",
-  });
+export async function cancelJob(
+  jobId: string
+): Promise<{ id: string; status: string; message: string }> {
+  return apiFetch<{ id: string; status: string; message: string }>(
+    `/jobs/${jobId}/cancel`,
+    {
+      method: "POST",
+    }
+  );
 }
 
 /**
@@ -748,7 +818,9 @@ export async function fetchQueueStatus(): Promise<QueueStatusResponse> {
 /**
  * Run cleanup of stale worktrees and old evidence
  */
-export async function runCleanup(data: CleanupRequest): Promise<CleanupResponse> {
+export async function runCleanup(
+  data: CleanupRequest
+): Promise<CleanupResponse> {
   return apiFetch<CleanupResponse>("/maintenance/cleanup", {
     method: "POST",
     body: JSON.stringify(data),
@@ -766,13 +838,17 @@ export async function fetchOrchestratorLogs(
 ): Promise<OrchestratorLogsResponse> {
   const params = new URLSearchParams({ limit: limit.toString() });
   if (since) params.append("since", since);
-  return apiFetch<OrchestratorLogsResponse>(`/debug/orchestrator/logs?${params}`);
+  return apiFetch<OrchestratorLogsResponse>(
+    `/debug/orchestrator/logs?${params}`
+  );
 }
 
 /**
  * Fetch agent logs for a specific job
  */
-export async function fetchAgentLogs(jobId: string): Promise<AgentLogsResponse> {
+export async function fetchAgentLogs(
+  jobId: string
+): Promise<AgentLogsResponse> {
   return apiFetch<AgentLogsResponse>(`/debug/agent/logs/${jobId}`);
 }
 
@@ -786,7 +862,9 @@ export async function fetchSystemStatus(): Promise<SystemStatusResponse> {
 /**
  * Fetch recent ticket events for activity feed
  */
-export async function fetchRecentEvents(limit: number = 50): Promise<RecentEvent[]> {
+export async function fetchRecentEvents(
+  limit: number = 50
+): Promise<RecentEvent[]> {
   return apiFetch<RecentEvent[]>(`/debug/events/recent?limit=${limit}`);
 }
 
@@ -798,7 +876,7 @@ export function streamOrchestratorLogs(
   onError?: (error: Event) => void
 ): EventSource {
   const eventSource = new EventSource(`${API_BASE}/debug/orchestrator/stream`);
-  
+
   eventSource.onmessage = (event) => {
     try {
       const log = JSON.parse(event.data) as OrchestratorLogEntry;
@@ -807,17 +885,17 @@ export function streamOrchestratorLogs(
       console.error("Failed to parse orchestrator log:", e);
     }
   };
-  
+
   if (onError) {
     eventSource.onerror = onError;
   }
-  
+
   return eventSource;
 }
 
 /**
  * Create EventSource for streaming job logs via the optimized SSE endpoint.
- * 
+ *
  * This uses the hybrid in-memory + Redis streaming for ultra-low latency (<10ms).
  * Each event type corresponds to a log level (stdout, stderr, info, error, progress, normalized, finished).
  */
@@ -827,23 +905,23 @@ export function streamAgentLogs(
   onError?: (error: Event) => void
 ): EventSource {
   const eventSource = new EventSource(`${API_BASE}/jobs/${jobId}/logs/stream`);
-  
+
   // Handle different event types
   const handleEvent = (event: MessageEvent, level: string) => {
     try {
       const content = event.data;
-      
+
       if (level === "finished") {
         onMessage({ status: "completed" });
         eventSource.close();
         return;
       }
-      
+
       if (level === "error") {
         onMessage({ error: content });
         return;
       }
-      
+
       if (level === "progress") {
         // Progress events may contain JSON with percentage
         try {
@@ -854,7 +932,7 @@ export function streamAgentLogs(
         }
         return;
       }
-      
+
       if (level === "normalized") {
         // Normalized log entry from cursor-agent JSON parsing
         try {
@@ -867,23 +945,37 @@ export function streamAgentLogs(
         }
         return;
       }
-      
+
       // stdout, stderr, info
       onMessage({ content: content + "\n" });
     } catch (e) {
       console.error("Failed to parse agent log:", e);
     }
   };
-  
+
   // Listen to all event types
-  eventSource.addEventListener("stdout", (e) => handleEvent(e as MessageEvent, "stdout"));
-  eventSource.addEventListener("stderr", (e) => handleEvent(e as MessageEvent, "stderr"));
-  eventSource.addEventListener("info", (e) => handleEvent(e as MessageEvent, "info"));
-  eventSource.addEventListener("error", (e) => handleEvent(e as MessageEvent, "error"));
-  eventSource.addEventListener("progress", (e) => handleEvent(e as MessageEvent, "progress"));
-  eventSource.addEventListener("normalized", (e) => handleEvent(e as MessageEvent, "normalized"));
-  eventSource.addEventListener("finished", (e) => handleEvent(e as MessageEvent, "finished"));
-  
+  eventSource.addEventListener("stdout", (e) =>
+    handleEvent(e as MessageEvent, "stdout")
+  );
+  eventSource.addEventListener("stderr", (e) =>
+    handleEvent(e as MessageEvent, "stderr")
+  );
+  eventSource.addEventListener("info", (e) =>
+    handleEvent(e as MessageEvent, "info")
+  );
+  eventSource.addEventListener("error", (e) =>
+    handleEvent(e as MessageEvent, "error")
+  );
+  eventSource.addEventListener("progress", (e) =>
+    handleEvent(e as MessageEvent, "progress")
+  );
+  eventSource.addEventListener("normalized", (e) =>
+    handleEvent(e as MessageEvent, "normalized")
+  );
+  eventSource.addEventListener("finished", (e) =>
+    handleEvent(e as MessageEvent, "finished")
+  );
+
   // Fallback for untyped messages
   eventSource.onmessage = (event) => {
     try {
@@ -893,11 +985,11 @@ export function streamAgentLogs(
       onMessage({ content: event.data + "\n" });
     }
   };
-  
+
   if (onError) {
     eventSource.onerror = onError;
   }
-  
+
   return eventSource;
 }
 
@@ -905,7 +997,7 @@ export function streamAgentLogs(
 
 /**
  * Queue a follow-up message for a ticket.
- * 
+ *
  * This enables instant follow-up UX: while the agent is working,
  * you can type the next instruction. When execution completes,
  * the queued message auto-executes.
@@ -956,7 +1048,9 @@ import type {
 export async function fetchConflictStatus(
   ticketId: string
 ): Promise<ConflictStatusResponse> {
-  return apiFetch<ConflictStatusResponse>(`/tickets/${ticketId}/conflict-status`);
+  return apiFetch<ConflictStatusResponse>(
+    `/tickets/${ticketId}/conflict-status`
+  );
 }
 
 export async function rebaseTicket(
@@ -977,9 +1071,7 @@ export async function continueRebase(
   });
 }
 
-export async function abortConflict(
-  ticketId: string
-): Promise<AbortResponse> {
+export async function abortConflict(ticketId: string): Promise<AbortResponse> {
   return apiFetch<AbortResponse>(`/tickets/${ticketId}/abort-conflict`, {
     method: "POST",
   });
@@ -1039,9 +1131,7 @@ export async function addPRComment(
 /**
  * List all comments on a ticket's PR
  */
-export async function listPRComments(
-  ticketId: string
-): Promise<PRComment[]> {
+export async function listPRComments(ticketId: string): Promise<PRComment[]> {
   return apiFetch<PRComment[]>(`/pull-requests/${ticketId}/comments`);
 }
 
@@ -1137,10 +1227,13 @@ export async function normalizeJobLogs(
   jobId: string,
   agentType: string = "claude"
 ): Promise<{ success: boolean; entries_created: number; message: string }> {
-  return apiFetch<{ success: boolean; entries_created: number; message: string }>(
-    `/jobs/${jobId}/normalize-logs?agent_type=${agentType}`,
-    { method: "POST" }
-  );
+  return apiFetch<{
+    success: boolean;
+    entries_created: number;
+    message: string;
+  }>(`/jobs/${jobId}/normalize-logs?agent_type=${agentType}`, {
+    method: "POST",
+  });
 }
 
 /**
@@ -1150,7 +1243,9 @@ export async function fetchTicketAgentLogs(
   ticketId: string,
   includeEntries: boolean = true
 ): Promise<TicketAgentLogsResponse> {
-  const params = new URLSearchParams({ include_entries: String(includeEntries) });
+  const params = new URLSearchParams({
+    include_entries: String(includeEntries),
+  });
   return apiFetch<TicketAgentLogsResponse>(
     `/tickets/${ticketId}/agent-logs?${params.toString()}`
   );
@@ -1228,7 +1323,9 @@ export async function fetchAgentPresets(): Promise<string[]> {
   return apiFetch<string[]>("/agent-presets");
 }
 
-export async function fetchAgentTeam(boardId: string): Promise<AgentTeam | null> {
+export async function fetchAgentTeam(
+  boardId: string
+): Promise<AgentTeam | null> {
   return apiFetch<AgentTeam | null>(`/boards/${boardId}/team`);
 }
 
@@ -1254,7 +1351,12 @@ export async function applyTeamPreset(
 
 export async function addTeamMember(
   boardId: string,
-  data: { role: string; display_name?: string; executor_type?: string; behavior_prompt?: string }
+  data: {
+    role: string;
+    display_name?: string;
+    executor_type?: string;
+    behavior_prompt?: string;
+  }
 ): Promise<AgentTeamMember> {
   return apiFetch<AgentTeamMember>(`/boards/${boardId}/team/members`, {
     method: "POST",
@@ -1265,12 +1367,20 @@ export async function addTeamMember(
 export async function updateTeamMember(
   boardId: string,
   memberId: string,
-  data: { display_name?: string; executor_type?: string; behavior_prompt?: string; sort_order?: number }
+  data: {
+    display_name?: string;
+    executor_type?: string;
+    behavior_prompt?: string;
+    sort_order?: number;
+  }
 ): Promise<AgentTeamMember> {
-  return apiFetch<AgentTeamMember>(`/boards/${boardId}/team/members/${memberId}`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  });
+  return apiFetch<AgentTeamMember>(
+    `/boards/${boardId}/team/members/${memberId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }
+  );
 }
 
 export async function removeTeamMember(
