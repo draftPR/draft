@@ -200,6 +200,8 @@ Boards are permission boundaries scoping all operations to a single repo:
 
 Use `TicketGenerationService` for generating tickets from goals; `PlannerService` for tick-based autopilot.
 
+**Plan with AI (chat / meeting notes):** `POST /goals/plan-chat` is a stateless chat round (client resends messages + current draft) that returns a reply and the full draft plan (`TicketGenerationService.plan_from_chat`); it creates nothing. `POST /goals/plan-apply` creates the goals and `PROPOSED` tickets in one transaction (`GoalService.create_from_plan`); drafts with `existing_goal_id` extend an existing goal, `blocked_by` resolves by title to an earlier ticket in the same goal. UI: `PlanChatDialog.tsx` ("Plan with AI" header button).
+
 ### Middleware
 
 **Idempotency** (`idempotency.py`): Atomic first-writer-wins via SQLite. Guarantees exactly-once execution for LLM operations. Key includes `(client_id, route, resource_scope, idempotency_key)`. Returns `409 Conflict` for same key + different body.

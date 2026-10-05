@@ -8,6 +8,7 @@ import { create } from "zustand";
 
 interface UIState {
   goalDialogOpen: boolean;
+  planChatOpen: boolean;
   ticketDialogOpen: boolean;
   goalsListOpen: boolean;
   queueStatusOpen: boolean;
@@ -19,6 +20,7 @@ interface UIState {
   boardSettingsTab: string;
 
   setGoalDialogOpen: (open: boolean) => void;
+  setPlanChatOpen: (open: boolean) => void;
   setTicketDialogOpen: (open: boolean) => void;
   setGoalsListOpen: (open: boolean) => void;
   setQueueStatusOpen: (open: boolean) => void;
@@ -32,6 +34,7 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set) => ({
   goalDialogOpen: false,
+  planChatOpen: false,
   ticketDialogOpen: false,
   goalsListOpen: false,
   queueStatusOpen: false,
@@ -43,6 +46,7 @@ export const useUIStore = create<UIState>((set) => ({
   boardSettingsTab: "execution",
 
   setGoalDialogOpen: (open) => set({ goalDialogOpen: open }),
+  setPlanChatOpen: (open) => set({ planChatOpen: open }),
   setTicketDialogOpen: (open) => set({ ticketDialogOpen: open }),
   setGoalsListOpen: (open) => set({ goalsListOpen: open }),
   setQueueStatusOpen: (open) => set({ queueStatusOpen: open }),

@@ -207,6 +207,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/goals/plan-chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat a prompt or meeting notes into draft goals and tickets
+         * @description One round of plan chat. Stateless and read-only: resend the conversation
+         *     and the current draft each call; nothing is created until /plan-apply.
+         */
+        post: operations["plan_chat_goals_plan_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/goals/plan-apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the goals and proposed tickets of a draft plan
+         * @description Create every draft goal (or extend existing ones) with PROPOSED tickets,
+         *     all in one transaction.
+         */
+        post: operations["plan_apply_goals_plan_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/goals/{goal_id}": {
         parameters: {
             query?: never;
@@ -5526,6 +5568,106 @@ export interface components {
             limit: number;
         };
         /**
+         * PlanApplyRequest
+         * @description Create the goals and PROPOSED tickets of a draft plan.
+         */
+        PlanApplyRequest: {
+            /** Board Id */
+            board_id: string;
+            /** Goals */
+            goals: components["schemas"]["PlanGoalDraft"][];
+        };
+        /**
+         * PlanApplyResponse
+         * @description IDs of the goals created or extended, in plan order.
+         */
+        PlanApplyResponse: {
+            /** Goal Ids */
+            goal_ids: string[];
+            /** Goals Created */
+            goals_created: number;
+            /** Tickets Created */
+            tickets_created: number;
+        };
+        /**
+         * PlanChatMessage
+         * @description One chat turn. User turns may hold pasted meeting notes or transcripts.
+         */
+        PlanChatMessage: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Content */
+            content: string;
+        };
+        /**
+         * PlanChatRequest
+         * @description One round of plan chat (stateless; resend the conversation and plan).
+         */
+        PlanChatRequest: {
+            /** Board Id */
+            board_id: string;
+            /** Messages */
+            messages: components["schemas"]["PlanChatMessage"][];
+            /**
+             * Goals
+             * @description Current draft plan
+             */
+            goals?: components["schemas"]["PlanGoalDraft"][];
+        };
+        /**
+         * PlanChatResponse
+         * @description Assistant reply plus the full updated draft plan.
+         */
+        PlanChatResponse: {
+            /** Reply */
+            reply: string;
+            /** Goals */
+            goals: components["schemas"]["PlanGoalDraft"][];
+        };
+        /**
+         * PlanGoalDraft
+         * @description A goal in a draft plan, or tickets to add to an existing goal.
+         */
+        PlanGoalDraft: {
+            /** Title */
+            title: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Existing Goal Id
+             * @description Add the tickets to this existing goal instead
+             */
+            existing_goal_id?: string | null;
+            /** Tickets */
+            tickets?: components["schemas"]["PlanTicketDraft"][];
+        };
+        /**
+         * PlanTicketDraft
+         * @description A ticket in a draft plan (not persisted yet).
+         */
+        PlanTicketDraft: {
+            /** Title */
+            title: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** @default P2 */
+            priority_bucket: components["schemas"]["PriorityBucket"];
+            /**
+             * Blocked By
+             * @description Title of a ticket in the same goal that must finish first
+             */
+            blocked_by?: string | null;
+        };
+        /**
          * PlannerAction
          * @description A single action taken by the planner during a tick.
          */
@@ -7412,6 +7554,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GoalSuggestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    plan_chat_goals_plan_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    plan_apply_goals_plan_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanApplyResponse"];
                 };
             };
             /** @description Validation Error */

@@ -29,6 +29,10 @@ import type {
   GoalListResponse,
   GoalSuggestRequest,
   GoalSuggestResponse,
+  PlanApplyResponse,
+  PlanChatMessage,
+  PlanChatResponse,
+  PlanGoalDraft,
   GoalUpdate,
   Job,
   JobListResponse,
@@ -376,6 +380,34 @@ export async function suggestGoal(
   return apiFetch<GoalSuggestResponse>("/goals/suggest", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+/**
+ * One round of plan chat: prompt or meeting notes -> draft goals + tickets.
+ * Stateless and read-only; resend the conversation and current draft.
+ */
+export async function planChat(
+  boardId: string,
+  messages: PlanChatMessage[],
+  goals: PlanGoalDraft[]
+): Promise<PlanChatResponse> {
+  return apiFetch<PlanChatResponse>("/goals/plan-chat", {
+    method: "POST",
+    body: JSON.stringify({ board_id: boardId, messages, goals }),
+  });
+}
+
+/**
+ * Create a draft plan's goals and PROPOSED tickets in one transaction
+ */
+export async function applyPlan(
+  boardId: string,
+  goals: PlanGoalDraft[]
+): Promise<PlanApplyResponse> {
+  return apiFetch<PlanApplyResponse>("/goals/plan-apply", {
+    method: "POST",
+    body: JSON.stringify({ board_id: boardId, goals }),
   });
 }
 

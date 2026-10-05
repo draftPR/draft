@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import ResourceNotFoundError
 from app.models.goal import Goal
 from app.schemas.goal import GoalCreate, GoalUpdate
+from app.schemas.planner import PlanGoalDraft, bucket_to_priority
+from app.schemas.ticket import TicketCreate
 
 
 class GoalService:
@@ -111,3 +113,52 @@ class GoalService:
         if goal is None:
             raise ResourceNotFoundError("Goal", goal_id)
         return goal
+
+    async def create_from_plan(
+        self, board_id: str, drafts: list[PlanGoalDraft]
+    ) -> tuple[list[str], int, int]:
+        """Create a draft plan's goals and PROPOSED tickets (caller commits).
+
+        A draft with ``existing_goal_id`` adds its tickets to that goal, which
+        must belong to ``board_id``. ``blocked_by`` resolves by title against
+        tickets listed earlier in the same goal, so dependencies stay acyclic.
+
+        Returns:
+            (goal ids in plan order, goals created, tickets created)
+        """
+        from app.services.ticket_service import TicketService
+
+        tickets = TicketService(self.db)
+        goal_ids: list[str] = []
+        goals_created = tickets_created = 0
+        for draft in drafts:
+            if draft.existing_goal_id:
+                goal = await self.get_goal_by_id(draft.existing_goal_id)
+                if goal.board_id != board_id:
+                    raise ResourceNotFoundError("Goal", draft.existing_goal_id)
+            else:
+                goal = await self.create_goal(
+                    GoalCreate(
+                        title=draft.title,
+                        description=draft.description or None,
+                        board_id=board_id,
+                    )
+                )
+                goals_created += 1
+            created: dict[str, str] = {}  # lowercase title -> ticket id
+            for t in draft.tickets:
+                ticket = await tickets.create_ticket(
+                    TicketCreate(
+                        goal_id=goal.id,
+                        title=t.title,
+                        description=t.description or None,
+                        priority=bucket_to_priority(t.priority_bucket),
+                        blocked_by_ticket_id=created.get(
+                            (t.blocked_by or "").strip().lower()
+                        ),
+                    )
+                )
+                created[t.title.strip().lower()] = ticket.id
+            tickets_created += len(draft.tickets)
+            goal_ids.append(goal.id)
+        return goal_ids, goals_created, tickets_created

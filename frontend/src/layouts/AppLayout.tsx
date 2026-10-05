@@ -12,6 +12,7 @@ import { config } from "@/config";
 import { BoardSelector } from "@/components/BoardSelector";
 import { RepoDiscoveryDialog } from "@/components/RepoDiscoveryDialog";
 import { CreateGoalDialog } from "@/components/CreateGoalDialog";
+import { PlanChatDialog } from "@/components/PlanChatDialog";
 import { CreateTicketDialog } from "@/components/CreateTicketDialog";
 import { BoardSettingsDialog } from "@/components/BoardSettingsDialog";
 import { GoalsListDialog } from "@/components/GoalsListDialog";
@@ -41,6 +42,7 @@ import {
   Wifi,
   WifiOff,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 import { useAppShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useUIStore } from "@/stores/uiStore";
@@ -49,7 +51,6 @@ import { useBoard } from "@/contexts/BoardContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/queryKeys";
 import { useBoardViewQuery } from "@/hooks/useQueries";
-
 
 export function AppLayout() {
   const backendStatus = useBackendStatus();
@@ -90,8 +91,9 @@ export function AppLayout() {
 
   // Build flat ticket list for j/k navigation
   const allTicketIds = useMemo(
-    () => boardData?.columns?.flatMap((col) => col.tickets.map((t) => t.id)) ?? [],
-    [boardData?.columns],
+    () =>
+      boardData?.columns?.flatMap((col) => col.tickets.map((t) => t.id)) ?? [],
+    [boardData?.columns]
   );
 
   const navigateTickets = useCallback(
@@ -108,7 +110,7 @@ export function AppLayout() {
       }
       selectTicket(allTicketIds[nextIdx]);
     },
-    [allTicketIds, selectedTicketId, selectTicket],
+    [allTicketIds, selectedTicketId, selectTicket]
   );
 
   // Keyboard shortcuts
@@ -196,6 +198,17 @@ export function AppLayout() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => ui.setPlanChatOpen(true)}
+                className="h-8"
+                disabled={!currentBoard}
+                title="Turn a prompt or meeting notes into goals and tickets"
+              >
+                <Sparkles className="h-4 w-4 mr-1.5 text-violet-500" />
+                Plan with AI
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => ui.setGoalDialogOpen(true)}
                 className="h-8"
               >
@@ -246,7 +259,9 @@ export function AppLayout() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
             >
-              <Outlet context={{ refreshTrigger, refreshBoard, currentBoard }} />
+              <Outlet
+                context={{ refreshTrigger, refreshBoard, currentBoard }}
+              />
             </motion.div>
           </AnimatePresence>
         </ErrorBoundary>
@@ -260,6 +275,12 @@ export function AppLayout() {
           refreshBoard();
           setNewGoalDetailId(goalId);
         }}
+      />
+      <PlanChatDialog
+        key={currentBoard?.id}
+        open={ui.planChatOpen}
+        onOpenChange={ui.setPlanChatOpen}
+        onSuccess={refreshBoard}
       />
       <CreateTicketDialog
         open={ui.ticketDialogOpen}
@@ -351,6 +372,24 @@ export function AppLayout() {
             category: "Actions",
             onSelect: () => ui.setGoalDialogOpen(true),
             keywords: ["add", "goal", "objective"],
+          },
+          {
+            id: "plan-chat",
+            label: "Plan with AI",
+            description:
+              "Turn a prompt or meeting notes into goals and tickets",
+            icon: Sparkles,
+            category: "Actions",
+            onSelect: () => ui.setPlanChatOpen(true),
+            keywords: [
+              "meeting",
+              "notes",
+              "chat",
+              "extract",
+              "plan",
+              "goals",
+              "tickets",
+            ],
           },
           {
             id: "goals",

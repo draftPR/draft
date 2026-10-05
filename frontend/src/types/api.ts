@@ -261,6 +261,33 @@ export interface GoalSuggestResponse {
   suggestion: GoalSuggestion | null;
 }
 
+// --- Plan from chat / meeting notes ---
+export interface PlanTicketDraft {
+  title: string;
+  description: string;
+  priority_bucket: PriorityBucket;
+  blocked_by: string | null;
+}
+export interface PlanGoalDraft {
+  title: string;
+  description: string;
+  existing_goal_id: string | null;
+  tickets: PlanTicketDraft[];
+}
+export interface PlanChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+export interface PlanChatResponse {
+  reply: string;
+  goals: PlanGoalDraft[];
+}
+export interface PlanApplyResponse {
+  goal_ids: string[];
+  goals_created: number;
+  tickets_created: number;
+}
+
 // --- Reflection types ---
 export type SuggestedPriorityChange =
   components["schemas"]["SuggestedPriorityChange"];

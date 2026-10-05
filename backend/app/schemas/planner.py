@@ -543,3 +543,69 @@ class GoalSuggestResponse(BaseModel):
 
     questions: list[GoalSuggestQuestion] = Field(default_factory=list)
     suggestion: GoalSuggestion | None = None
+
+
+# =============================================================================
+# Plan from chat / meeting notes
+# =============================================================================
+
+
+class PlanTicketDraft(BaseModel):
+    """A ticket in a draft plan (not persisted yet)."""
+
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = ""
+    priority_bucket: PriorityBucket = PriorityBucket.P2
+    blocked_by: str | None = Field(
+        None, description="Title of a ticket in the same goal that must finish first"
+    )
+
+
+class PlanGoalDraft(BaseModel):
+    """A goal in a draft plan, or tickets to add to an existing goal."""
+
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = ""
+    existing_goal_id: str | None = Field(
+        None, description="Add the tickets to this existing goal instead"
+    )
+    tickets: list[PlanTicketDraft] = Field(default_factory=list, max_length=20)
+
+
+class PlanChatMessage(BaseModel):
+    """One chat turn. User turns may hold pasted meeting notes or transcripts."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=50_000)
+
+
+class PlanChatRequest(BaseModel):
+    """One round of plan chat (stateless; resend the conversation and plan)."""
+
+    board_id: str
+    messages: list[PlanChatMessage] = Field(..., min_length=1, max_length=40)
+    goals: list[PlanGoalDraft] = Field(
+        default_factory=list, max_length=20, description="Current draft plan"
+    )
+
+
+class PlanChatResponse(BaseModel):
+    """Assistant reply plus the full updated draft plan."""
+
+    reply: str
+    goals: list[PlanGoalDraft]
+
+
+class PlanApplyRequest(BaseModel):
+    """Create the goals and PROPOSED tickets of a draft plan."""
+
+    board_id: str
+    goals: list[PlanGoalDraft] = Field(..., min_length=1, max_length=20)
+
+
+class PlanApplyResponse(BaseModel):
+    """IDs of the goals created or extended, in plan order."""
+
+    goal_ids: list[str]
+    goals_created: int
+    tickets_created: int

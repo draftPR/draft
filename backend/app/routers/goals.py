@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.goal import Goal
 from app.schemas.common import PaginatedResponse
 from app.schemas.goal import (
     AutonomySettings,
@@ -21,6 +22,10 @@ from app.schemas.planner import (
     GenerateTicketsResponse,
     GoalSuggestRequest,
     GoalSuggestResponse,
+    PlanApplyRequest,
+    PlanApplyResponse,
+    PlanChatRequest,
+    PlanChatResponse,
     ReflectionResult,
 )
 from app.services.goal_service import GoalService
@@ -98,6 +103,85 @@ async def suggest_goal(
         )
         raise HTTPException(status_code=status_code, detail=msg)
     return GoalSuggestResponse(**result)
+
+
+@router.post(
+    "/plan-chat",
+    response_model=PlanChatResponse,
+    summary="Chat a prompt or meeting notes into draft goals and tickets",
+)
+async def plan_chat(
+    data: PlanChatRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PlanChatResponse:
+    """One round of plan chat. Stateless and read-only: resend the conversation
+    and the current draft each call; nothing is created until /plan-apply."""
+    import asyncio
+
+    from sqlalchemy import select as sa_select
+
+    from app.models.board import Board
+    from app.services.config_service import DraftConfig
+
+    board = await db.get(Board, data.board_id)
+    if not board:
+        raise HTTPException(status_code=404, detail=f"Board not found: {data.board_id}")
+    repo_root = Path(board.repo_root).resolve()
+    if not repo_root.exists():
+        raise HTTPException(
+            status_code=500, detail=f"Board repo_root does not exist: {repo_root}"
+        )
+    existing = (
+        await db.execute(
+            sa_select(Goal.id, Goal.title).where(Goal.board_id == data.board_id)
+        )
+    ).all()
+
+    config = DraftConfig.from_board_config(board.config)
+    service = TicketGenerationService(db, config=config.planner_config)
+    try:
+        result = await asyncio.to_thread(
+            service.plan_from_chat,
+            repo_root,
+            [(m.role, m.content) for m in data.messages],
+            [g.model_dump(mode="json") for g in data.goals],
+            [(row.id, row.title) for row in existing],
+        )
+    except ValueError as e:
+        msg = str(e)
+        status_code = (
+            503
+            if any(k in msg for k in ("API key", "credentials", "unavailable"))
+            else 502
+        )
+        raise HTTPException(status_code=status_code, detail=msg)
+    return PlanChatResponse(**result)
+
+
+@router.post(
+    "/plan-apply",
+    response_model=PlanApplyResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create the goals and proposed tickets of a draft plan",
+)
+async def plan_apply(
+    data: PlanApplyRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PlanApplyResponse:
+    """Create every draft goal (or extend existing ones) with PROPOSED tickets,
+    all in one transaction."""
+    from app.models.board import Board
+
+    if not await db.get(Board, data.board_id):
+        raise HTTPException(status_code=404, detail=f"Board not found: {data.board_id}")
+    goal_ids, goals_created, tickets_created = await GoalService(db).create_from_plan(
+        data.board_id, data.goals
+    )
+    return PlanApplyResponse(
+        goal_ids=goal_ids,
+        goals_created=goals_created,
+        tickets_created=tickets_created,
+    )
 
 
 @router.get(

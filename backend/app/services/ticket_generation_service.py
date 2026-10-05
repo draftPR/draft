@@ -2030,23 +2030,7 @@ Now analyze the codebase and generate the JSON."""
             f"\n\nClarifications so far:\n{qa}\n\n{instruction}"
         )
 
-        if self.config.model.startswith("cli/"):
-            raw = self._call_cli_for_tickets(
-                f"{system_prompt}\n\n{user_prompt}", repo_root
-            )
-        else:
-            raw = (
-                self._get_llm_for_api_fallback()
-                .call_completion(
-                    messages=[{"role": "user", "content": user_prompt}],
-                    max_tokens=1500,
-                    system_prompt=system_prompt,
-                    json_mode=True,
-                    timeout=60,
-                )
-                .content
-            )
-
+        raw = self._complete_json(system_prompt, user_prompt, repo_root, 1500)
         data = self.llm.safe_parse_json(raw, default={})
         questions = [
             {
@@ -2067,6 +2051,154 @@ Now analyze the codebase and generate the JSON."""
                 }
             }
         raise ValueError(f"Could not parse goal suggestion: {raw[:300]}")
+
+    MAX_PLAN_GOALS = 10
+    PLAN_TRANSCRIPT_CHARS = 100_000
+
+    def plan_from_chat(
+        self,
+        repo_root: Path,
+        messages: list[tuple[str, str]],
+        goals: list[dict],
+        existing_goals: list[tuple[str, str]],
+    ) -> dict:
+        """One chat round that turns prompts or meeting notes into a draft plan.
+
+        Stateless: the caller resends the conversation and the current plan
+        (which may hold the user's manual edits). Nothing is persisted.
+
+        Args:
+            messages: ``(role, content)`` turns, oldest first.
+            goals: Current draft plan (``PlanGoalDraft`` dicts).
+            existing_goals: ``(id, title)`` of the board's goals, so tickets can
+                land on an existing goal instead of a duplicate.
+
+        Returns:
+            ``{"reply": str, "goals": [PlanGoalDraft dicts]}``.
+
+        Raises:
+            ValueError: If the model output cannot be parsed.
+        """
+        try:
+            context = self.context_gatherer.gather(
+                repo_root=repo_root, include_readme_excerpt=True
+            )
+            context_summary = context.to_prompt_string()[:6000]
+        except Exception as e:
+            logger.warning(f"Failed to gather repo context: {e}")
+            context_summary = f"Repository at: {repo_root}"
+
+        # Newest turns win when pasted notes overflow the budget.
+        turns: list[str] = []
+        budget = self.PLAN_TRANSCRIPT_CHARS
+        for role, content in reversed(messages):
+            turn = f"[{role}]\n{content}"[:budget]
+            turns.insert(0, turn)
+            budget -= len(turn)
+            if budget <= 0:
+                break
+
+        system_prompt = (
+            "You turn free-form input (a chat request, meeting notes, a call "
+            "transcript, a spec) into a plan for an AI-driven kanban board. A goal "
+            "is an outcome; tickets are concrete coding tasks under a goal, each "
+            "small enough for a coding agent to finish in one session, with "
+            "acceptance criteria in the description.\n\n"
+            "Rules:\n"
+            "- Extract only engineering work on this repository. Skip action items "
+            "for people (emails, meetings, decisions) unless they imply code.\n"
+            "- If a goal from the existing goals list clearly fits, set "
+            "existing_goal_id to its id and only list the NEW tickets for it.\n"
+            "- The current plan holds the user's edits. Keep it unless the latest "
+            "message asks for changes; apply requested edits (add, remove, merge, "
+            "split, rename, reprioritize).\n"
+            "- priority_bucket: P0 critical, P1 high, P2 medium, P3 low.\n"
+            "- Order tickets so prerequisites come first. blocked_by: exact title "
+            "of an EARLIER ticket in the same goal that must finish first, else "
+            "null.\n"
+            f"- At most {self.MAX_PLAN_GOALS} goals and "
+            f"{MAX_TICKETS_PER_GENERATION} tickets per goal.\n"
+            "- reply: 1-3 sentences on what you extracted or changed, or one "
+            "question if something essential is missing.\n\n"
+            "Respond with JSON only, always returning the FULL plan:\n"
+            '{"reply": "...", "goals": [{"title": "...", "description": "...", '
+            '"existing_goal_id": null, "tickets": [{"title": "...", '
+            '"description": "...", "priority_bucket": "P2", "blocked_by": null}]}]}'
+        )
+        existing = (
+            "\n".join(f"- {gid}: {title}" for gid, title in existing_goals) or "(none)"
+        )
+        user_prompt = (
+            f"Repository context:\n{context_summary}\n\n"
+            f"Existing goals on this board:\n{existing}\n\n"
+            f"Current plan:\n{json.dumps({'goals': goals}, indent=1)}\n\n"
+            "Conversation (latest message last):\n" + "\n\n".join(turns)
+        )
+
+        raw = self._complete_json(system_prompt, user_prompt, repo_root, 6000)
+        data = self.llm.safe_parse_json(raw, default={})
+        if not isinstance(data, dict) or not ({"goals", "reply"} & data.keys()):
+            raise ValueError(f"Could not parse plan: {raw[:300]}")
+        return {
+            "reply": str(data.get("reply") or "Updated the plan."),
+            "goals": self._normalize_plan_goals(
+                data.get("goals", goals), {gid for gid, _ in existing_goals}
+            ),
+        }
+
+    def _normalize_plan_goals(self, raw: object, existing_ids: set[str]) -> list[dict]:
+        """Coerce model output into valid PlanGoalDraft dicts, dropping junk."""
+        goals = []
+        for g in raw if isinstance(raw, list) else []:
+            if not isinstance(g, dict) or not str(g.get("title") or "").strip():
+                continue
+            tickets = []
+            for t in g.get("tickets") or []:
+                if not isinstance(t, dict) or not str(t.get("title") or "").strip():
+                    continue
+                bucket = str(t.get("priority_bucket") or "").upper()
+                tickets.append(
+                    {
+                        "title": str(t["title"]).strip()[:255],
+                        "description": str(t.get("description") or ""),
+                        "priority_bucket": bucket
+                        if bucket in PriorityBucket.__members__
+                        else "P2",
+                        "blocked_by": str(t["blocked_by"])
+                        if t.get("blocked_by")
+                        else None,
+                    }
+                )
+            goal_id = g.get("existing_goal_id")
+            goals.append(
+                {
+                    "title": str(g["title"]).strip()[:255],
+                    "description": str(g.get("description") or ""),
+                    "existing_goal_id": goal_id if goal_id in existing_ids else None,
+                    "tickets": tickets[:MAX_TICKETS_PER_GENERATION],
+                }
+            )
+        return goals[: self.MAX_PLAN_GOALS]
+
+    def _complete_json(
+        self, system_prompt: str, user_prompt: str, repo_root: Path, max_tokens: int
+    ) -> str:
+        """Run one JSON completion via the CLI agent (cli/* models) or the API."""
+        if self.config.model.startswith("cli/"):
+            return self._call_cli_for_tickets(
+                f"{system_prompt}\n\n{user_prompt}", repo_root
+            )
+        return (
+            self._get_llm_for_api_fallback()
+            .call_completion(
+                messages=[{"role": "user", "content": user_prompt}],
+                max_tokens=max_tokens,
+                system_prompt=system_prompt,
+                json_mode=True,
+                timeout=120,
+            )
+            .content
+        )
 
     # =========================================================================
     # HELPERS

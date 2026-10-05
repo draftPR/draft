@@ -79,6 +79,10 @@ vi.mock("@/components/CreateGoalDialog", () => ({
   CreateGoalDialog: () => null,
 }));
 
+vi.mock("@/components/PlanChatDialog", () => ({
+  PlanChatDialog: () => null,
+}));
+
 vi.mock("@/components/CreateTicketDialog", () => ({
   CreateTicketDialog: () => null,
 }));
