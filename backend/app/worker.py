@@ -1192,6 +1192,7 @@ def capture_git_diff(
     evidence_dir: Path,
     evidence_id: str,
     repo_root: Path,
+    ticket_id: str | None = None,
 ) -> tuple[int, str, str, str, bool]:
     """
     Capture git diff output for changes made in the worktree.
@@ -1205,6 +1206,8 @@ def capture_git_diff(
         evidence_dir: Directory to store diff files
         evidence_id: UUID for naming evidence files
         repo_root: Path to repo root (for computing relative paths)
+        ticket_id: For a sub-ticket, diff against the branch it forked from so
+            the parent's or a sibling's work is not counted as its own
 
     Returns:
         Tuple of (exit_code, diff_stat_relpath, diff_patch_relpath, diff_stat_text, has_changes)
@@ -1226,9 +1229,19 @@ def capture_git_diff(
         # If executor committed changes, `git diff HEAD` shows nothing.
         # We need to diff against the branch point from the base branch.
         diff_base = "HEAD"
+        candidates = ["main", "master"]
+        if ticket_id:
+            try:
+                with get_sync_db() as db:
+                    ticket = db.get(Ticket, ticket_id)
+                    fork = ticket and WorkspaceService(db).fork_branch_for(ticket, cwd)
+                if fork:
+                    candidates.insert(0, fork)
+            except Exception:
+                logger.warning("No fork branch for %s", ticket_id, exc_info=True)
         try:
-            # Find the fork point from the default branch
-            for candidate in ("main", "master"):
+            # Find the fork point from the sub-ticket's base or default branch
+            for candidate in candidates:
                 merge_base_result = subprocess.run(
                     ["git", "merge-base", candidate, "HEAD"],
                     cwd=cwd,
@@ -2250,6 +2263,7 @@ def _execute_ticket_task_impl(job_id: str) -> dict:
             evidence_dir=evidence_dir,
             evidence_id=diff_stat_evidence_id,  # Used for both files with different extensions
             repo_root=main_repo_path,
+            ticket_id=ticket_id,
         )
     )
 
@@ -3048,6 +3062,7 @@ def _resume_ticket_task_impl(job_id: str) -> dict:
             evidence_dir=evidence_dir,
             evidence_id=diff_stat_evidence_id,
             repo_root=repo_root,
+            ticket_id=ticket_id,
         )
     )
 

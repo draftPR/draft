@@ -71,13 +71,23 @@ def find_ready_split_parents(db) -> list[tuple[str, list[str]]]:
             continue
         if any(c.state != TicketState.DONE.value for c in children):
             continue
-        if _failed_recently(db, parent.id):
+        if _in_retry_backoff(db, parent.id, list(children)):
             continue
         ready.append((parent.id, [c.id for c in children]))
     return ready
 
 
-def _failed_recently(db, parent_id: str) -> bool:
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _in_retry_backoff(db, parent_id: str, children: list[Ticket]) -> bool:
+    """True while a recent merge failure should still suppress a retry.
+
+    Backing off purely on time would make a fixed conflict wait out the full
+    window, so any sub-ticket touched since the failure lifts the backoff: the
+    inputs changed, and the merge is worth attempting again.
+    """
     last = db.execute(
         select(TicketEvent.created_at)
         .where(
@@ -91,8 +101,9 @@ def _failed_recently(db, parent_id: str) -> bool:
     ).scalar_one_or_none()
     if last is None:
         return False
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=UTC)
+    last = _as_utc(last)
+    if any(c.updated_at and _as_utc(c.updated_at) > last for c in children):
+        return False
     return datetime.now(UTC) - last < timedelta(minutes=SPLIT_MERGE_RETRY_MINUTES)
 
 

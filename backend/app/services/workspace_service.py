@@ -19,6 +19,7 @@ from app.exceptions import (
 from app.models.board import Board
 from app.models.ticket import Ticket
 from app.models.workspace import Workspace
+from app.state_machine import TicketState
 
 # Default workspace root (parent of backend directory)
 DEFAULT_REPO_PATH = Path(__file__).parent.parent.parent.parent
@@ -210,6 +211,57 @@ class WorkspaceService:
             return Path(workspace.worktree_path)
         return None
 
+    def _existing_branch_of(self, ticket_id: str, repo_path: Path) -> str | None:
+        """Branch name of a ticket's workspace, if that branch still exists."""
+        ws = self.get_workspace_by_ticket_id(ticket_id)
+        if ws is None:
+            return None
+        result = self._run_git_command(
+            ["rev-parse", "--verify", f"refs/heads/{ws.branch_name}"],
+            cwd=repo_path,
+            check=False,
+        )
+        return ws.branch_name if result.returncode == 0 else None
+
+    def _branch_of_finished_blocker(
+        self, ticket: Ticket, repo_path: Path
+    ) -> str | None:
+        """Branch of this ticket's sibling blocker, once the blocker is DONE.
+
+        A sub-ticket that waits on a sibling needs the sibling's code, not just
+        its completion: without it the agent re-implements the dependency and
+        the two branches collide when the parent merges them. Blockers outside
+        the split are ignored: their branch would drag unrelated commits into
+        the parent.
+        """
+        if not ticket.blocked_by_ticket_id:
+            return None
+        blocker = self.db.execute(
+            select(Ticket).where(Ticket.id == ticket.blocked_by_ticket_id)
+        ).scalar_one_or_none()
+        if (
+            blocker is None
+            or blocker.state != TicketState.DONE.value
+            or blocker.parent_ticket_id != ticket.parent_ticket_id
+        ):
+            return None
+        return self._existing_branch_of(blocker.id, repo_path)
+
+    def fork_branch_for(self, ticket: Ticket, repo_path: Path) -> str | None:
+        """Branch a sub-ticket forks from, or None for a top-level ticket.
+
+        Sub-tickets branch from their parent's branch so the parent can merge
+        them back without touching the default branch. When the sub-ticket
+        depends on a finished sibling, it branches from that sibling instead:
+        it already contains the parent branch plus the dependency's work, so
+        the agent can build on it and the final merge stays conflict-free.
+        """
+        if not ticket.parent_ticket_id:
+            return None
+        return self._branch_of_finished_blocker(
+            ticket, repo_path
+        ) or self._existing_branch_of(ticket.parent_ticket_id, repo_path)
+
     def create_worktree(self, ticket_id: str, goal_id: str) -> Workspace:
         """
         Create a git worktree for a ticket.
@@ -266,19 +318,7 @@ class WorkspaceService:
 
         # Validate base branch
         base_branch = self._validate_base_branch(repo_path)
-
-        # Sub-tickets branch from their parent's branch so the parent can merge
-        # them back without touching the default branch.
-        if ticket.parent_ticket_id:
-            parent_ws = self.get_workspace_by_ticket_id(ticket.parent_ticket_id)
-            if parent_ws:
-                exists = self._run_git_command(
-                    ["rev-parse", "--verify", f"refs/heads/{parent_ws.branch_name}"],
-                    cwd=repo_path,
-                    check=False,
-                )
-                if exists.returncode == 0:
-                    base_branch = parent_ws.branch_name
+        base_branch = self.fork_branch_for(ticket, repo_path) or base_branch
 
         # Generate paths and names
         worktree_dir = self._get_worktree_dir(ticket_id, board_id=ticket.board_id)

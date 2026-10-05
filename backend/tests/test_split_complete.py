@@ -106,6 +106,37 @@ def test_recent_failure_is_skipped_then_retried():
         assert [p for p, _ in find_ready_split_parents(db)] == [pid]
 
 
+def test_touched_child_lifts_the_retry_backoff():
+    """A fixed sub-ticket should not have to wait out the backoff window."""
+    with _mem_db() as db:
+        pid = _seed_parent(db, ["done"])
+        failed_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1)
+        ev = TicketEvent(
+            ticket_id=pid,
+            event_type=EventType.COMMENT.value,
+            from_state="blocked",
+            to_state="blocked",
+            actor_type=ActorType.PLANNER.value,
+            actor_id="planner",
+            reason="Sub-ticket merge failed: conflict",
+            payload_json=json.dumps({"split_merge_failed": True}),
+        )
+        db.add(ev)
+        db.commit()
+
+        # Failure happened after the last change to the sub-ticket.
+        child = db.query(Ticket).filter(Ticket.parent_ticket_id == pid).one()
+        ev.created_at = failed_at
+        child.updated_at = failed_at - timedelta(minutes=5)
+        db.commit()
+        assert find_ready_split_parents(db) == []
+
+        # Re-running the sub-ticket bumps its updated_at past the failure.
+        child.updated_at = failed_at + timedelta(seconds=30)
+        db.commit()
+        assert [p for p, _ in find_ready_split_parents(db)] == [pid]
+
+
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
