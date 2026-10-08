@@ -10,6 +10,7 @@ Session IDs are stored per-worktree in .draft/agent_session.json
 import json
 import logging
 import re
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -80,16 +81,25 @@ class AgentSessionService:
         """Ensure the session directory exists."""
         self.session_dir.mkdir(parents=True, exist_ok=True)
 
-        # Add to .gitignore if not already
-        gitignore = self.worktree_path / ".gitignore"
+        # Ignore via info/exclude, not the tracked .gitignore: editing .gitignore
+        # here put a change the agent never made into every revision diff.
+        # --git-path resolves to the common dir for linked worktrees.
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-path", "info/exclude"],
+            cwd=self.worktree_path,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return
+        exclude = self.worktree_path / result.stdout.strip()
         marker = f"/{SESSION_DIR}/"
-        if gitignore.exists():
-            content = gitignore.read_text()
-            if marker not in content:
-                with open(gitignore, "a") as f:
-                    f.write(f"\n# Draft session data\n{marker}\n")
-        else:
-            gitignore.write_text(f"# Draft session data\n{marker}\n")
+        content = exclude.read_text() if exclude.exists() else ""
+        if marker not in content.splitlines():
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            sep = "" if not content or content.endswith("\n") else "\n"
+            with open(exclude, "a") as f:
+                f.write(f"{sep}# Draft session data\n{marker}\n")
 
     def get_session(self, ticket_id: str) -> AgentSession | None:
         """Get the stored session for a ticket.
